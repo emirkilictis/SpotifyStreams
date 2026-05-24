@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JT Spotify Streams - Fan Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="dashboard-body">
+  <header class="dashboard-header glass">
+    <div class="header-container">
+      <div class="brand">
+        <span class="brand-icon">📈</span>
+        <h1>JT Spotify Streams</h1>
+      </div>
+      <div class="user-actions">
+        <a href="/logout" class="btn-secondary">Log Out</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard-container">
+    <!-- Stats Section (6 Cards) -->
+    <section class="stats-grid">
+      <div class="stat-card glass">
+        <div class="stat-info">
+          <h3>Total Streams</h3>
+          <p id="total-streams">-</p>
+        </div>
+        <div class="stat-icon">🎧</div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-info">
+          <h3>Lead/Solo Streams</h3>
+          <p id="lead-streams">-</p>
+        </div>
+        <div class="stat-icon">👤</div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-info">
+          <h3>Featured Streams</h3>
+          <p id="feat-streams">-</p>
+        </div>
+        <div class="stat-icon">👥</div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-info">
+          <h3>Daily Streams</h3>
+          <p id="daily-streams" class="gain-positive">-</p>
+        </div>
+        <div class="stat-icon">⚡</div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-info">
+          <h3>Song Count</h3>
+          <p id="total-songs">-</p>
+        </div>
+        <div class="stat-icon">🎶</div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-info">
+          <h3>Last Updated</h3>
+          <p id="last-update">-</p>
+        </div>
+        <div class="stat-icon">🕒</div>
+      </div>
+    </section>
+
+    <!-- View Switcher -->
+    <section class="view-toggle-bar glass">
+      <button class="view-toggle-btn active" data-view="songs">🎵 Songs List</button>
+      <button class="view-toggle-btn" data-view="albums">💿 Albums List</button>
+    </section>
+
+    <!-- Songs View Section -->
+    <div id="songs-view-section">
+      <!-- Filter and Search controls -->
+      <section class="control-panel glass">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="Search by song or album title...">
+        </div>
+        <div class="filter-group">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="solo">Solo</button>
+          <button class="filter-btn" data-filter="featured">Featured</button>
+        </div>
+      </section>
+
+      <!-- Songs Table -->
+      <section class="table-card glass">
+        <div class="table-wrapper">
+          <table id="songs-table">
+            <thead>
+              <tr>
+                <th class="sortable" data-sort="rank"># <span class="sort-icon"></span></th>
+                <th class="sortable" data-sort="title">Song <span class="sort-icon"></span></th>
+                <th class="sortable" data-sort="album">Album <span class="sort-icon"></span></th>
+                <th class="sortable" data-sort="duration">Duration <span class="sort-icon"></span></th>
+                <th class="sortable active" data-sort="streams">Total Streams <span class="sort-icon">▼</span></th>
+                <th class="sortable" data-sort="gain">Daily Gain <span class="sort-icon"></span></th>
+              </tr>
+            </thead>
+            <tbody id="songs-tbody">
+              <tr>
+                <td colspan="6" class="table-loading">Loading songs...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Albums View Section (Hidden initially) -->
+    <div id="albums-view-section" class="hidden">
+      <div class="albums-grid" id="albums-container">
+        <!-- Album cards loaded dynamically -->
+        <div class="table-loading">Loading albums...</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Album Detail Modal Sheet -->
+  <div class="modal-backdrop hidden" id="album-modal">
+    <div class="modal-card glass">
+      <button class="modal-close" id="modal-close-btn">&times;</button>
+      <div class="modal-header">
+        <h2 id="modal-album-title">Album Title</h2>
+        <p class="modal-subtitle" id="modal-album-subtitle">Released on January 1, 2026</p>
+        <div class="modal-stats">
+          <div class="modal-stat-box">
+            <span class="label">Total Streams</span>
+            <span class="value" id="modal-album-streams">-</span>
+          </div>
+          <div class="modal-stat-box">
+            <span class="label">Daily Streams</span>
+            <span class="value gain-positive" id="modal-album-gain">-</span>
+          </div>
+          <div class="modal-stat-box">
+            <span class="label">Tracks</span>
+            <span class="value" id="modal-album-tracks">-</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="table-wrapper">
+          <table class="modal-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Title</th>
+                <th>Duration</th>
+                <th>Total Streams</th>
+                <th>Daily Gain</th>
+              </tr>
+            </thead>
+            <tbody id="modal-songs-tbody">
+              <!-- Song list loaded dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="dashboard-footer">
+    <p>&copy; 2026 Justin Timberlake Fan Club. All rights reserved.</p>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spotify Streams - Log In</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-body">
+  <div class="login-wrapper">
+    <div class="login-card glass">
+      <div class="brand-header">
+        <div class="logo-icon">🎵</div>
+        <h1>JT Spotify Streams</h1>
+        <p>Welcome to the Fan Dashboard. Please enter the access passcode provided to you.</p>
+      </div>
+      
+      <form id="login-form">
+        <div class="form-group">
+          <label for="passcode">Access Passcode</label>
+          <input 
+            type="password" 
+            id="passcode" 
+            placeholder="••••••••••••" 
+            required 
+            autocomplete="current-password"
+          >
+          <span class="error-text" id="error-message"></span>
+        </div>
+        
+        <button type="submit" class="btn-primary" id="submit-btn">
+          <span>Log In</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const passcode = document.getElementById('passcode').value;
+      const errorMsg = document.getElementById('error-message');
+      const submitBtn = document.getElementById('submit-btn');
+      
+      errorMsg.textContent = '';
+      submitBtn.classList.add('loading');
+      submitBtn.disabled = true;
+      
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ passcode })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+          window.location.href = '/';
+        } else {
+          errorMsg.textContent = data.message || 'Invalid passcode!';
+          submitBtn.classList.remove('loading');
+          submitBtn.disabled = false;
+        }
+      } catch (err) {
+        console.error('Fetch error:', err);
+        errorMsg.textContent = 'A connection error occurred!';
+        submitBtn.classList.remove('loading');
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

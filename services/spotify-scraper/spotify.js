@@ -1,0 +1,173 @@
+/**
+ * Spotify scraper — browser-based.
+ *
+ * Strateji: Cloudflare WAF Node.js isteklerini bloklıyor.
+ * Çözüm: Headless Chrome'u sp_dc cookie ile aç,
+ *        sayfa içinde yapılan pathfinder/v2 yanıtlarını intercept et.
+ */
+
+const puppeteer = require('puppeteer-extra');
+const Stealth   = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(Stealth());
+
+const fs = require('fs');
+
+const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME_PATH = process.env.CHROME_PATH || (fs.existsSync(MAC_CHROME) ? MAC_CHROME : undefined);
+
+/**
+ * Yeni bir tarayıcı + sayfa oluşturur, sp_dc cookie'sini kurar.
+ */
+async function launchBrowser(spDc) {
+  const browser = await puppeteer.launch({
+    executablePath: CHROME_PATH,
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+  });
+  const page = await browser.newPage();
+  await page.setCookie({
+    name: 'sp_dc', value: spDc,
+    domain: '.spotify.com', path: '/', secure: true, httpOnly: true,
+  });
+  return { browser, page };
+}
+
+/**
+ * Artist sayfasını açıp queryArtistOverview yanıtını yakalar.
+ */
+async function fetchArtistAlbums(page, artistId) {
+  let result = null;
+  const handler = async (res) => {
+    try {
+      if (!res.url().includes('pathfinder/v2')) return;
+      const body = await res.json().catch(() => null);
+      const a = body?.data?.artistUnion;
+      if (a?.uri === `spotify:artist:${artistId}` && !result) result = a;
+    } catch {}
+  };
+  page.on('response', handler);
+
+  await page.goto(`https://open.spotify.com/artist/${artistId}`, {
+    waitUntil: 'networkidle2', timeout: 40000,
+  });
+  for (let i = 0; i < 15; i++) {
+    if (result) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  page.off('response', handler);
+
+  if (!result) throw new Error(`Artist ${artistId} verisi yakalanamadı.`);
+
+  const albums = [];
+  const push = (releases) => {
+    for (const item of (releases?.items ?? [])) {
+      const a = item.releases?.items?.[0];
+      if (!a) continue;
+      albums.push({
+        id:           a.id,
+        title:        a.name,
+        release_date: a.date?.isoString?.slice(0, 10) ?? null,
+      });
+    }
+  };
+  const disc = result.discography;
+  push(disc?.albums);
+  push(disc?.singles);
+  push(disc?.compilations);
+  return albums;
+}
+
+/**
+ * Album sayfasını açıp getAlbum yanıtını yakalar (track + playcount).
+ */
+async function fetchAlbumTracks(page, albumId) {
+  let result = null;
+  const handler = async (res) => {
+    try {
+      if (!res.url().includes('pathfinder/v2')) return;
+      const body = await res.json().catch(() => null);
+      const al = body?.data?.albumUnion;
+      // Sadece tam Album response'unu al (track verisi olan)
+      if (al?.__typename === 'Album' && al?.uri === `spotify:album:${albumId}` && al?.tracksV2?.items && !result) {
+        result = al;
+      }
+    } catch {}
+  };
+  page.on('response', handler);
+
+  await page.goto(`https://open.spotify.com/album/${albumId}`, {
+    waitUntil: 'networkidle2', timeout: 40000,
+  });
+  for (let i = 0; i < 20; i++) {
+    if (result) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  page.off('response', handler);
+
+  if (!result) {
+    console.warn(`[fetchAlbumTracks] Album ${albumId} verisi yakalanamadı.`);
+    return [];
+  }
+
+  const items = result.tracksV2?.items ?? [];
+  return items.map(item => {
+    const t = item.track;
+    if (!t) return null;
+    const artistUris = (t.artists?.items ?? []).map(x => x.uri);
+    return {
+      id:           t.uri?.split(':')[2],
+      title:        t.name,
+      duration_ms:  t.duration?.totalMilliseconds ?? null,
+      track_number: t.trackNumber ?? null,
+      playCount:    parseInt(t.playcount ?? '0', 10),
+      artistUris,
+    };
+  }).filter(Boolean);
+}
+
+/**
+ * Artist'in featured olduğu (appears on) albümleri döner.
+ * artistUnion.relatedContent.appearsOn.items[i].releases.items[0]
+ */
+async function fetchArtistAppearsOn(page, artistId) {
+  let result = null;
+  const handler = async (res) => {
+    try {
+      if (!res.url().includes('pathfinder/v2')) return;
+      const body = await res.json().catch(() => null);
+      const a = body?.data?.artistUnion;
+      if (a?.relatedContent?.appearsOn && !result) result = a.relatedContent.appearsOn;
+    } catch {}
+  };
+  page.on('response', handler);
+
+  await page.goto(`https://open.spotify.com/artist/${artistId}/appears-on`, {
+    waitUntil: 'networkidle2', timeout: 40000,
+  });
+  for (let i = 0; i < 15; i++) {
+    if (result) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  page.off('response', handler);
+
+  if (!result) {
+    console.warn(`[fetchArtistAppearsOn] AppearsOn verisi yakalanamadı.`);
+    return [];
+  }
+
+  const albums = [];
+  for (const item of (result.items ?? [])) {
+    const a = item.releases?.items?.[0];
+    if (!a) continue;
+    const primaryArtist = a.artists?.items?.[0]?.uri ?? null;
+    albums.push({
+      id:             a.id,
+      title:          a.name,
+      release_date:   a.date?.isoString?.slice(0, 10) ?? null,
+      primary_artist: primaryArtist,
+    });
+  }
+  return albums;
+}
+
+module.exports = { launchBrowser, fetchArtistAlbums, fetchAlbumTracks, fetchArtistAppearsOn };

@@ -1,0 +1,41 @@
+name: Spotify Stream Scrape (Every 3 Hours)
+
+on:
+  schedule:
+    # Check for updates every 3 hours
+    - cron: '0 */3 * * *'
+  workflow_dispatch:   # Manuel tetikleme için
+
+jobs:
+  scrape:
+    name: Scrape JT Stream Counts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/spotify-scraper/package.json
+
+      - name: Install dependencies
+        working-directory: services/spotify-scraper
+        run: npm ci
+
+      - name: Run scraper
+        working-directory: services/spotify-scraper
+        env:
+          SP_DC:        ${{ secrets.SP_DC }}
+          SP_KEY:       ${{ secrets.SP_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scraper.js
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Scraper başarısız oldu! Loglara bak: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
