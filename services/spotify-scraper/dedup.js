@@ -24,9 +24,16 @@ const DURATION_TOLERANCE_MS = 4000;
 function normalizeTitle(title) {
   if (!title) return '';
   let t = title.toLowerCase();
+  
+  // Keep duet version of Until the End of Time separate from the solo version
+  if (t.includes('until the end of time') && t.includes('beyoncé')) {
+    return 'until the end of time duet';
+  }
+  
   t = t.replace(/\s*[\(\[][^)\]]*(?:feat|featuring|with|ft\.?)\.?[^)\]]*[\)\]]/gi, '');
   t = t.replace(/\s*[\(\[][^)\]]*(?:remaster|remix|mix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|interlude|new\s+version|original|from)[^)\]]*[\)\]]/gi, '');
   t = t.replace(/\s*-\s*(?:remaster|remix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|new\s+version|original).*$/gi, '');
+  t = t.replace(/\b(?:interlude|explicit|clean|deluxe|remastered|remaster)\b/gi, '');
   t = t.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   return t;
 }

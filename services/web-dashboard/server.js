@@ -81,7 +81,18 @@ app.get('/api/songs', requireAuth, async (req, res) => {
         s.title,
         s.is_featured,
         s.duration_ms,
-        a.title AS album_title,
+        CASE 
+          WHEN s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+          ELSE s.album_id 
+        END AS album_id,
+        CASE 
+          WHEN s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'FutureSex/LoveSounds (Deluxe Edition)'
+          ELSE a.title 
+        END AS album_title,
+        CASE 
+          WHEN s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '2006-09-11'::date
+          ELSE a.release_date 
+        END AS release_date,
         dsc.recorded_date,
         COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
         COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain
@@ -139,31 +150,69 @@ app.get('/api/stats', requireAuth, async (req, res) => {
 app.get('/api/albums', requireAuth, async (req, res) => {
   try {
     const query = `
-      SELECT
-        a.id AS album_id,
-        a.title AS album_title,
-        a.release_date,
-        COUNT(s.id)::int AS track_count,
-        COALESCE(SUM(dsc.cumulative), 0)::bigint AS total_streams,
-        COALESCE(SUM(dsc.daily_gain), 0)::bigint AS daily_gain
-      FROM albums a
-      JOIN songs s ON s.album_id = a.id
-      LEFT JOIN (
-        SELECT DISTINCT ON (canonical_id)
-          canonical_id,
-          cumulative,
-          daily_gain
-        FROM daily_streams_canonical
-        ORDER BY canonical_id, recorded_date DESC
-      ) dsc ON s.id = dsc.canonical_id
-      WHERE s.canonical_id IS NULL AND (
-        a.title ILIKE 'Justified%'
-        OR a.title ILIKE 'FutureSex/LoveSounds%'
-        OR a.title ILIKE 'The 20/20 Experience%'
-        OR a.title ILIKE 'Man of the Woods%'
-        OR a.title ILIKE 'Everything I Thought It Was%'
+      WITH album_canonical_songs AS (
+        SELECT DISTINCT ON (
+          CASE 
+            WHEN a.id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+            ELSE s.album_id 
+          END,
+          COALESCE(s.canonical_id, s.id)
+        )
+        CASE 
+          WHEN a.id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+          ELSE s.album_id 
+        END AS album_id,
+        COALESCE(s.canonical_id, s.id) AS canonical_song_id,
+        COALESCE(dsc.cumulative, 0) AS cumulative,
+        COALESCE(dsc.daily_gain, 0) AS daily_gain
+        FROM songs s
+        JOIN albums a ON s.album_id = a.id
+        LEFT JOIN (
+          SELECT DISTINCT ON (canonical_id)
+            canonical_id,
+            cumulative,
+            daily_gain
+          FROM daily_streams_canonical
+          ORDER BY canonical_id, recorded_date DESC
+        ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
+      ),
+      unique_albums AS (
+        SELECT DISTINCT ON (
+          CASE 
+            WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+            ELSE id 
+          END
+        )
+        CASE 
+          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+          ELSE id 
+        END AS album_id,
+        CASE 
+          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'FutureSex/LoveSounds (Deluxe Edition)'
+          ELSE title 
+        END AS album_title,
+        CASE 
+          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '2006-09-11'::date
+          ELSE release_date 
+        END AS release_date
+        FROM albums
+        WHERE title ILIKE 'Justified%'
+           OR title ILIKE 'FutureSex/LoveSounds%'
+           OR title ILIKE 'The 20/20 Experience%'
+           OR title ILIKE 'Man of the Woods%'
+           OR title ILIKE 'Everything I Thought It Was%'
+           OR id IN ('1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo')
       )
-      GROUP BY a.id, a.title, a.release_date
+      SELECT
+        ua.album_id,
+        ua.album_title,
+        ua.release_date,
+        COUNT(acs.canonical_song_id)::int AS track_count,
+        COALESCE(SUM(acs.cumulative), 0)::bigint AS total_streams,
+        COALESCE(SUM(acs.daily_gain), 0)::bigint AS daily_gain
+      FROM unique_albums ua
+      LEFT JOIN album_canonical_songs acs ON ua.album_id = acs.album_id
+      GROUP BY ua.album_id, ua.album_title, ua.release_date
       ORDER BY total_streams DESC;
     `;
     const result = await pool.query(query);
@@ -177,27 +226,38 @@ app.get('/api/albums', requireAuth, async (req, res) => {
 app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
   try {
     const query = `
-      SELECT
-        s.id,
-        s.title,
-        s.is_featured,
-        s.duration_ms,
-        s.track_number,
-        dsc.recorded_date,
-        COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
-        COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain
-      FROM songs s
-      LEFT JOIN (
-        SELECT DISTINCT ON (canonical_id)
-          canonical_id,
-          cumulative,
-          daily_gain,
-          recorded_date
-        FROM daily_streams_canonical
-        ORDER BY canonical_id, recorded_date DESC
-      ) dsc ON s.id = dsc.canonical_id
-      WHERE s.album_id = $1 AND s.canonical_id IS NULL
-      ORDER BY s.track_number ASC;
+      WITH album_songs AS (
+        SELECT DISTINCT ON (COALESCE(s.canonical_id, s.id))
+          COALESCE(s.canonical_id, s.id) as id,
+          s.title,
+          s.is_featured,
+          s.duration_ms,
+          s.track_number,
+          dsc.recorded_date,
+          COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
+          COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain
+        FROM songs s
+        LEFT JOIN (
+          SELECT DISTINCT ON (canonical_id)
+            canonical_id,
+            cumulative,
+            daily_gain,
+            recorded_date
+          FROM daily_streams_canonical
+          ORDER BY canonical_id, recorded_date DESC
+        ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
+        WHERE 
+          (
+            $1 = '0tcExuDWMQdBbwSpqN8Ku2' 
+            AND s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo')
+          )
+          OR (
+            $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
+            AND s.album_id = $1
+          )
+        ORDER BY COALESCE(s.canonical_id, s.id), s.track_number ASC
+      )
+      SELECT * FROM album_songs ORDER BY track_number ASC;
     `;
     const result = await pool.query(query, [req.params.id]);
     res.json(result.rows);

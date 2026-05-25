@@ -3,7 +3,7 @@ let allSongs = [];
 let allAlbums = [];
 let filteredSongs = [];
 let searchFilter = '';
-let typeFilter = 'all'; // 'all' | 'solo' | 'featured'
+let typeFilter = 'all'; // 'all' | 'lead' | 'featured'
 let currentSortField = 'streams'; // 'rank' | 'title' | 'album' | 'duration' | 'streams' | 'gain'
 let currentSortDirection = 'desc';
 let activeView = 'songs'; // 'songs' | 'albums'
@@ -116,7 +116,7 @@ function renderSongs() {
 
     // Type filter
     let matchesType = true;
-    if (typeFilter === 'solo') {
+    if (typeFilter === 'lead') {
       matchesType = !song.is_featured;
     } else if (typeFilter === 'featured') {
       matchesType = song.is_featured;
@@ -174,8 +174,8 @@ function renderSongs() {
           <div class="song-title-cell">
             <span class="song-title">${song.title}</span>
             <div class="badge-wrapper">
-              <span class="badge ${isFeatured ? 'badge-feat' : 'badge-solo'}">
-                ${isFeatured ? 'Featured' : 'Solo'}
+              <span class="badge ${isFeatured ? 'badge-feat' : 'badge-lead'}">
+                ${isFeatured ? 'Featured' : 'Lead'}
               </span>
             </div>
           </div>

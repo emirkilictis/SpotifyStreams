@@ -25,6 +25,16 @@ async function launchBrowser(spDc) {
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
   });
   const page = await browser.newPage();
+  
+  page.capturedToken = null;
+  page.on('request', req => {
+    const headers = req.headers();
+    const auth = headers['authorization'];
+    if (auth && auth.startsWith('Bearer ') && !page.capturedToken) {
+      page.capturedToken = auth.slice(7);
+    }
+  });
+
   await page.setCookie({
     name: 'sp_dc', value: spDc,
     domain: '.spotify.com', path: '/', secure: true, httpOnly: true,
@@ -130,44 +140,117 @@ async function fetchAlbumTracks(page, albumId) {
  * artistUnion.relatedContent.appearsOn.items[i].releases.items[0]
  */
 async function fetchArtistAppearsOn(page, artistId) {
-  let result = null;
-  const handler = async (res) => {
-    try {
-      if (!res.url().includes('pathfinder/v2')) return;
-      const body = await res.json().catch(() => null);
-      const a = body?.data?.artistUnion;
-      if (a?.relatedContent?.appearsOn && !result) result = a.relatedContent.appearsOn;
-    } catch {}
-  };
-  page.on('response', handler);
-
-  await page.goto(`https://open.spotify.com/artist/${artistId}/appears-on`, {
-    waitUntil: 'networkidle2', timeout: 40000,
-  });
-  for (let i = 0; i < 15; i++) {
-    if (result) break;
+  // Ensure token is captured
+  for (let i = 0; i < 20; i++) {
+    if (page.capturedToken) break;
     await new Promise(r => setTimeout(r, 500));
   }
-  page.off('response', handler);
 
-  if (!result) {
-    console.warn(`[fetchArtistAppearsOn] AppearsOn verisi yakalanamadı.`);
-    return [];
-  }
+  const allAlbums = [];
+  if (!page.capturedToken) {
+    console.warn('[fetchArtistAppearsOn] Token not captured. Falling back to single-page interception.');
+    let result = null;
+    const handler = async (res) => {
+      try {
+        if (!res.url().includes('pathfinder/v2')) return;
+        const body = await res.json().catch(() => null);
+        const a = body?.data?.artistUnion;
+        if (a?.relatedContent?.appearsOn && !result) result = a.relatedContent.appearsOn;
+      } catch {}
+    };
+    page.on('response', handler);
 
-  const albums = [];
-  for (const item of (result.items ?? [])) {
-    const a = item.releases?.items?.[0];
-    if (!a) continue;
-    const primaryArtist = a.artists?.items?.[0]?.uri ?? null;
-    albums.push({
-      id:             a.id,
-      title:          a.name,
-      release_date:   a.date?.isoString?.slice(0, 10) ?? null,
-      primary_artist: primaryArtist,
+    await page.goto(`https://open.spotify.com/artist/${artistId}/appears-on`, {
+      waitUntil: 'networkidle2', timeout: 40000,
     });
+    for (let i = 0; i < 15; i++) {
+      if (result) break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+    page.off('response', handler);
+
+    if (!result) {
+      console.warn(`[fetchArtistAppearsOn] AppearsOn verisi yakalanamadı.`);
+      return [];
+    }
+
+    for (const item of (result.items ?? [])) {
+      const a = item.releases?.items?.[0];
+      if (!a) continue;
+      const primaryArtist = a.artists?.items?.[0]?.uri ?? null;
+      allAlbums.push({
+        id:             a.id,
+        title:          a.name,
+        release_date:   a.date?.isoString?.slice(0, 10) ?? null,
+        primary_artist: primaryArtist,
+      });
+    }
+    return allAlbums;
   }
-  return albums;
+
+  console.log(`[fetchArtistAppearsOn] Querying paginated appearsOn using GraphQL inside browser...`);
+  let offset = 0;
+  const limit = 50;
+  
+  while (true) {
+    try {
+      const data = await page.evaluate(async (token, artistId, offset, limit) => {
+        const res = await fetch('https://api-partner.spotify.com/pathfinder/v2/query', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            variables: {
+              uri: `spotify:artist:${artistId}`,
+              offset,
+              limit
+            },
+            operationName: "queryArtistAppearsOn",
+            extensions: {
+              persistedQuery: {
+                version: 1,
+                sha256Hash: "9a4bb7a20d6720fe52d7b47bc001cfa91940ddf5e7113761460b4a288d18a4c1"
+              }
+            }
+          })
+        });
+        return res.json();
+      }, page.capturedToken, artistId, offset, limit);
+      
+      const appearsOn = data?.data?.artistUnion?.relatedContent?.appearsOn;
+      if (!appearsOn?.items) {
+        console.warn(`[fetchArtistAppearsOn] No items returned at offset ${offset}`);
+        break;
+      }
+      
+      const items = appearsOn.items;
+      for (const item of items) {
+        const a = item.releases?.items?.[0];
+        if (!a) continue;
+        const primaryArtist = a.artists?.items?.[0]?.uri ?? null;
+        allAlbums.push({
+          id:             a.id,
+          title:          a.name,
+          release_date:   a.date?.isoString?.slice(0, 10) ?? null,
+          primary_artist: primaryArtist,
+        });
+      }
+      
+      console.log(`[fetchArtistAppearsOn]   Fetched ${items.length} releases (total: ${allAlbums.length}/${appearsOn.totalCount})`);
+      if (items.length === 0 || allAlbums.length >= appearsOn.totalCount) {
+        break;
+      }
+      offset += limit;
+      await new Promise(r => setTimeout(r, 300));
+    } catch (err) {
+      console.error(`[fetchArtistAppearsOn] Error at offset ${offset}:`, err.message);
+      break;
+    }
+  }
+  
+  return allAlbums;
 }
 
 module.exports = { launchBrowser, fetchArtistAlbums, fetchAlbumTracks, fetchArtistAppearsOn };

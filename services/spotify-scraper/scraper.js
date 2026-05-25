@@ -135,17 +135,37 @@ async function run() {
       }
 
       console.log('[scraper] Puppeteer ile tüm albümler keşfediliyor...');
-      const { albums, own_count, feat_count } = await discoverAllAlbumsPuppeteer(page, ARTIST_ID);
-      console.log(`[scraper]   ${own_count} own + ${feat_count} featured = ${albums.length} unique albüm.`);
+      const { albums: discoveredAlbums, own_count, feat_count } = await discoverAllAlbumsPuppeteer(page, ARTIST_ID);
+      console.log(`[scraper]   Keşfedilen: ${own_count} own + ${feat_count} featured = ${discoveredAlbums.length} unique albüm.`);
+
+      // 1. Save all discovered albums to DB
+      for (const a of discoveredAlbums) {
+        await upsertAlbum(client, a);
+      }
+
+      // 2. Fetch optimized list of albums to scrape (new albums + albums containing canonical songs)
+      const scrapeQuery = `
+        SELECT a.id, a.title, a.release_date,
+               COALESCE(bool_or(s.is_featured), false) as is_featured
+        FROM albums a
+        LEFT JOIN songs s ON s.album_id = a.id
+        WHERE s.canonical_id IS NULL OR s.id IS NULL
+        GROUP BY a.id, a.title, a.release_date
+      `;
+      const dbRes = await client.query(scrapeQuery);
+      const albumsToScrape = dbRes.rows;
+      console.log(`[scraper] Taranacak ${albumsToScrape.length} albüm belirlendi (Kanona ait ve yeni keşfedilenler).`);
 
       const stats  = { tracksProcessed: 0, streamsUpdated: 0 };
-      for (let i = 0; i < albums.length; i++) {
-        const a = albums[i];
-        const tag = a.is_featured ? 'feat' : 'own ';
-        console.log(`[${tag} ${i+1}/${albums.length}] "${a.title}"`);
-        await upsertAlbum(client, a);
+      for (let i = 0; i < albumsToScrape.length; i++) {
+        const a = albumsToScrape[i];
+        const discovered = discoveredAlbums.find(x => x.id === a.id);
+        const isFeatured = discovered ? discovered.is_featured : a.is_featured;
+
+        const tag = isFeatured ? 'feat' : 'own ';
+        console.log(`[${tag} ${i+1}/${albumsToScrape.length}] "${a.title}"`);
         try {
-          const n = await processAlbum(page, client, a, stats);
+          const n = await processAlbum(page, client, { ...a, is_featured: isFeatured }, stats);
           console.log(`           ${n} track`);
         } catch (err) { console.warn('  Hata:', err.message); }
         await sleep(DELAY_MS);
