@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: spotify-streams-dashboard
+    env: node
+    plan: free
+    rootDir: services/web-dashboard
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false # You will enter your Neon PostgreSQL URL when deploying
