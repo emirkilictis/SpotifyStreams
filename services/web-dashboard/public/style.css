@@ -934,3 +934,129 @@ tbody tr.featured-row:hover {
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* Premium Search SVG Positioning */
+.search-svg {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* Album Covers Grid Card Styles */
+.album-cover-wrapper {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 12px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.album-cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.album-card:hover .album-cover-img {
+  transform: scale(1.04);
+}
+
+.album-card-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: 1;
+}
+
+/* Modal Album Header Layout */
+.modal-header-flex {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.modal-album-cover-img {
+  width: 130px;
+  height: 130px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header-details {
+  flex: 1;
+  min-width: 250px;
+}
+
+/* Responsive Mobile Layout Optimizations (< 600px) */
+@media (max-width: 600px) {
+  /* Hide Album (3rd column) and Duration (4th column) on songs list */
+  #songs-table th:nth-child(3),
+  #songs-table td:nth-child(3),
+  #songs-table th:nth-child(4),
+  #songs-table td:nth-child(4) {
+    display: none;
+  }
+  
+  /* Hide Duration (3rd column) on album detail modal table */
+  .modal-table th:nth-child(3),
+  .modal-table td:nth-child(3) {
+    display: none;
+  }
+  
+  /* Simplify table styling for readability */
+  th, td {
+    padding: 10px 8px !important;
+    font-size: 0.82rem !important;
+  }
+  
+  .song-title {
+    font-size: 0.85rem;
+  }
+  
+  .badge {
+    font-size: 0.62rem;
+    padding: 1px 4px;
+  }
+  
+  /* Modal responsive adjustment */
+  .modal-header-flex {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+  }
+  
+  .modal-album-cover-img {
+    width: 140px;
+    height: 140px;
+  }
+  
+  .modal-stats {
+    flex-direction: row !important;
+    justify-content: space-around;
+    width: 100%;
+    gap: 6px !important;
+    padding: 10px !important;
+  }
+  
+  .modal-stat-box .value {
+    font-size: 1.15rem !important;
+  }
+  
+  /* Stat cards adjustments */
+  .stat-card {
+    padding: 14px !important;
+  }
+  
+  .stat-info p {
+    font-size: 1.5rem !important;
+  }
+}
+

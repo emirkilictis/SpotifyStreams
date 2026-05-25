@@ -13,7 +13,6 @@
   <header class="dashboard-header glass">
     <div class="header-container">
       <div class="brand">
-        <span class="brand-icon">📈</span>
         <h1>JT Spotify Streams</h1>
       </div>
       <div class="user-actions">
@@ -30,49 +29,43 @@
           <h3>Total Streams</h3>
           <p id="total-streams">-</p>
         </div>
-        <div class="stat-icon">🎧</div>
       </div>
       <div class="stat-card glass">
         <div class="stat-info">
           <h3>Lead Streams</h3>
           <p id="lead-streams">-</p>
         </div>
-        <div class="stat-icon">👤</div>
       </div>
       <div class="stat-card glass">
         <div class="stat-info">
           <h3>Featured Streams</h3>
           <p id="feat-streams">-</p>
         </div>
-        <div class="stat-icon">👥</div>
       </div>
       <div class="stat-card glass">
         <div class="stat-info">
           <h3>Daily Streams</h3>
           <p id="daily-streams" class="gain-positive">-</p>
         </div>
-        <div class="stat-icon">⚡</div>
       </div>
       <div class="stat-card glass">
         <div class="stat-info">
           <h3>Song Count</h3>
           <p id="total-songs">-</p>
         </div>
-        <div class="stat-icon">🎶</div>
       </div>
       <div class="stat-card glass">
         <div class="stat-info">
           <h3>Last Updated</h3>
           <p id="last-update">-</p>
         </div>
-        <div class="stat-icon">🕒</div>
       </div>
     </section>
 
     <!-- View Switcher -->
     <section class="view-toggle-bar glass">
-      <button class="view-toggle-btn active" data-view="songs">🎵 Songs List</button>
-      <button class="view-toggle-btn" data-view="albums">💿 Albums List</button>
+      <button class="view-toggle-btn active" data-view="songs">Songs List</button>
+      <button class="view-toggle-btn" data-view="albums">Albums List</button>
     </section>
 
     <!-- Songs View Section -->
@@ -80,7 +73,7 @@
       <!-- Filter and Search controls -->
       <section class="control-panel glass">
         <div class="search-box">
-          <span class="search-icon">🔍</span>
+          <svg class="search-svg" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           <input type="text" id="search-input" placeholder="Search by song or album title...">
         </div>
         <div class="filter-group">
@@ -128,20 +121,25 @@
     <div class="modal-card glass">
       <button class="modal-close" id="modal-close-btn">&times;</button>
       <div class="modal-header">
-        <h2 id="modal-album-title">Album Title</h2>
-        <p class="modal-subtitle" id="modal-album-subtitle">Released on January 1, 2026</p>
-        <div class="modal-stats">
-          <div class="modal-stat-box">
-            <span class="label">Total Streams</span>
-            <span class="value" id="modal-album-streams">-</span>
-          </div>
-          <div class="modal-stat-box">
-            <span class="label">Daily Streams</span>
-            <span class="value gain-positive" id="modal-album-gain">-</span>
-          </div>
-          <div class="modal-stat-box">
-            <span class="label">Tracks</span>
-            <span class="value" id="modal-album-tracks">-</span>
+        <div class="modal-header-flex">
+          <img id="modal-album-cover" src="" alt="Album Cover" class="modal-album-cover-img">
+          <div class="modal-header-details">
+            <h2 id="modal-album-title">Album Title</h2>
+            <p class="modal-subtitle" id="modal-album-subtitle">Released on January 1, 2026</p>
+            <div class="modal-stats">
+              <div class="modal-stat-box">
+                <span class="label">Total Streams</span>
+                <span class="value" id="modal-album-streams">-</span>
+              </div>
+              <div class="modal-stat-box">
+                <span class="label">Daily Streams</span>
+                <span class="value gain-positive" id="modal-album-gain">-</span>
+              </div>
+              <div class="modal-stat-box">
+                <span class="label">Tracks</span>
+                <span class="value" id="modal-album-tracks">-</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

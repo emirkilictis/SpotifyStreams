@@ -199,6 +199,16 @@ function renderSongs() {
   }).join('');
 }
 
+// Album Cover Art URLs
+const ALBUM_COVERS = {
+  '0tcExuDWMQdBbwSpqN8Ku2': 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473', // FutureSex/LoveSounds
+  '6QPkyl04rXwTGlGlcYaRoW': 'https://i.scdn.co/image/ab67616d0000b273346a5742374ab4cf9ed32dee', // Justified
+  '0O82niJ0NpcptYRxogeEZu': 'https://i.scdn.co/image/ab67616d0000b27356d5fb0cc9cec001d8ae0c8c', // The 20/20 Experience
+  '5lYzReGzcSNF0Gx47wm6qU': 'https://i.scdn.co/image/ab67616d0000b273ef074183c3e34d4f80348e98', // The 20/20 Experience - 2 of 2
+  '01l3jTY261V3CESZR4dABz': 'https://i.scdn.co/image/ab67616d0000b273d444296aa0ca8fada177e430', // Man of the Woods
+  '716B2iWcwoKolCXrqwLGQh': 'https://i.scdn.co/image/ab67616d0000b2730c03eb908cc6baece50c2426'  // Everything I Thought It Was
+};
+
 // Render Albums Grid
 function renderAlbums() {
   if (allAlbums.length === 0) {
@@ -211,24 +221,29 @@ function renderAlbums() {
     const dailyGain = Number(album.daily_gain);
     const albumTitleEscaped = album.album_title.replace(/'/g, "\\'");
     const dateFormatted = album.release_date || '';
+    const coverUrl = ALBUM_COVERS[album.album_id] || '';
+    const imgHtml = coverUrl ? `<div class="album-cover-wrapper"><img src="${coverUrl}" alt="${album.album_title}" class="album-cover-img"></div>` : '';
     
     return `
       <div class="album-card glass" onclick="openAlbumById('${album.album_id}', '${albumTitleEscaped}', '${dateFormatted}')">
-        <div class="album-card-header">
-          <h3>${album.album_title}</h3>
-          <span class="date">${formatDate(album.release_date)}</span>
-        </div>
-        <div class="album-card-stats">
-          <div class="album-stat">
-            <span class="label">Streams</span>
-            <span class="value">${formatNumber(totalStreams)}</span>
+        ${imgHtml}
+        <div class="album-card-content">
+          <div class="album-card-header">
+            <h3>${album.album_title}</h3>
+            <span class="date">${formatDate(album.release_date)}</span>
           </div>
-          <div class="album-stat">
-            <span class="label">Daily</span>
-            <span class="value gain-positive">${dailyGain > 0 ? '+' : ''}${formatNumber(dailyGain)}</span>
-          </div>
-          <div class="album-stat" style="grid-column: span 2;">
-            <span class="tracks">${album.track_count} tracked songs</span>
+          <div class="album-card-stats">
+            <div class="album-stat">
+              <span class="label">Streams</span>
+              <span class="value">${formatNumber(totalStreams)}</span>
+            </div>
+            <div class="album-stat">
+              <span class="label">Daily</span>
+              <span class="value gain-positive">${dailyGain > 0 ? '+' : ''}${formatNumber(dailyGain)}</span>
+            </div>
+            <div class="album-stat" style="grid-column: span 2;">
+              <span class="tracks">${album.track_count} tracked songs</span>
+            </div>
           </div>
         </div>
       </div>
@@ -244,6 +259,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
   const modalGain = document.getElementById('modal-album-gain');
   const modalTracks = document.getElementById('modal-album-tracks');
   const modalTbody = document.getElementById('modal-songs-tbody');
+  const modalCover = document.getElementById('modal-album-cover');
   
   // Show modal layout
   albumModal.classList.remove('hidden');
@@ -252,6 +268,16 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
   if (title) {
     modalTitle.textContent = title;
     modalSubtitle.textContent = releaseDate ? `Released on ${formatDate(releaseDate)}` : '';
+  }
+
+  // Set cover art
+  const coverUrl = ALBUM_COVERS[albumId] || '';
+  if (coverUrl) {
+    modalCover.src = coverUrl;
+    modalCover.classList.remove('hidden');
+  } else {
+    modalCover.src = '';
+    modalCover.classList.add('hidden');
   }
   
   try {
