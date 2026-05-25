@@ -44,7 +44,8 @@ async function processAlbum(page, client, album, stats) {
   const tracks = await fetchAlbumTracks(page, album.id);
   let kept = 0;
   for (const track of tracks) {
-    if (album.is_featured && !track.artistUris?.includes(ARTIST_URI)) continue;
+    // Unconditionally skip any tracks where Justin Timberlake is not one of the artists
+    if (!track.artistUris?.includes(ARTIST_URI)) continue;
     if (isCoverOrTribute(track.title)) {
       console.log(`           [skip cover] "${track.title}"`);
       continue;
