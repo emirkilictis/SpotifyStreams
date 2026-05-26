@@ -257,7 +257,13 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
           )
         ORDER BY COALESCE(s.canonical_id, s.id), s.track_number ASC
       )
-      SELECT * FROM album_songs ORDER BY track_number ASC;
+      SELECT * FROM album_songs 
+      ORDER BY 
+        CASE 
+          WHEN (title ILIKE '%radio edit%' OR title ILIKE '%remix%' OR title ILIKE '%mix%' OR title ILIKE '%edit%') THEN 1 
+          ELSE 0 
+        END ASC,
+        track_number ASC;
     `;
     const result = await pool.query(query, [req.params.id]);
     res.json(result.rows);
