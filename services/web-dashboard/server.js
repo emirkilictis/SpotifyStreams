@@ -229,14 +229,15 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
       WITH album_songs AS (
         SELECT DISTINCT ON (COALESCE(s.canonical_id, s.id))
           COALESCE(s.canonical_id, s.id) as id,
-          s.title,
-          s.is_featured,
-          s.duration_ms,
-          s.track_number,
+          c.title,
+          c.is_featured,
+          c.duration_ms,
+          c.track_number,
           dsc.recorded_date,
           COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
           COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain
         FROM songs s
+        JOIN songs c ON c.id = COALESCE(s.canonical_id, s.id)
         LEFT JOIN (
           SELECT DISTINCT ON (canonical_id)
             canonical_id,
