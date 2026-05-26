@@ -208,13 +208,6 @@ function renderSongs() {
   }
 
   filteredSongs.sort((a, b) => {
-    // If it's Lisa and the sort field is default ('streams' / 'rank'), enforce the image order
-    if (currentArtist === '5L1lO4eRHmJ7a0Q6csE5cT' && (currentSortField === 'streams' || currentSortField === 'rank')) {
-      const idxA = getLisaOrderIndex(a.title);
-      const idxB = getLisaOrderIndex(b.title);
-      return currentSortDirection === 'asc' ? idxB - idxA : idxA - idxB;
-    }
-
     let comparison = 0;
     if (currentSortField === 'rank') {
       comparison = a.rank - b.rank;
