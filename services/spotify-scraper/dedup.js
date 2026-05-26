@@ -52,6 +52,9 @@ function scoreCanonical(song) {
   if (song.id === '71BEy8FVmk4BCQ2TGhLlvm') {
     score += 500000000; // Force Love Train correct ID
   }
+  if (song.id === '4NH5VZpm6y2Erde00suNUa') {
+    score += 500000000; // Force What Goes Around main version ID
+  }
   return score;
 }
 
