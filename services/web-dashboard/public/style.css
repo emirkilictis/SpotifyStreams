@@ -1060,3 +1060,35 @@ tbody tr.featured-row:hover {
   }
 }
 
+.modal-download-btn {
+  position: absolute;
+  top: 20px;
+  right: 68px; /* Sits to the left of the close button */
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: var(--transition-smooth);
+  z-index: 10;
+}
+
+.modal-download-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--accent-green);
+}
+
+.modal-download-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+

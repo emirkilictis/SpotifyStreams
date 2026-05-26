@@ -31,6 +31,7 @@ const albumsContainer = document.getElementById('albums-container');
 // Modal Elements
 const albumModal = document.getElementById('album-modal');
 const modalCloseBtn = document.getElementById('modal-close-btn');
+const modalDownloadBtn = document.getElementById('modal-download-btn');
 
 // Formatting Helpers
 function formatNumber(num) {
@@ -342,6 +343,44 @@ modalCloseBtn.addEventListener('click', closeModal);
 albumModal.addEventListener('click', (e) => {
   if (e.target === albumModal) closeModal();
 });
+
+// Download Modal as Image (Twitter Share Card)
+async function downloadModalAsImage() {
+  const modalCard = document.querySelector('.modal-card');
+  if (!modalCard) return;
+
+  const closeBtn = document.getElementById('modal-close-btn');
+  const downloadBtn = document.getElementById('modal-download-btn');
+  
+  // Hide UI buttons from card capture
+  if (closeBtn) closeBtn.style.visibility = 'hidden';
+  if (downloadBtn) downloadBtn.style.visibility = 'hidden';
+
+  try {
+    const canvas = await html2canvas(modalCard, {
+      backgroundColor: '#080c14', // Match dashboard background color
+      scale: 2, // High resolution scaling
+      useCORS: true, // Allow external Spotify cover image domains
+      logging: false
+    });
+
+    const url = canvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    const albumTitle = document.getElementById('modal-album-title').textContent || 'album';
+    link.download = `${albumTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_streams.png`;
+    link.href = url;
+    link.click();
+  } catch (err) {
+    console.error('Failed to save image:', err);
+    alert('Failed to generate image. Please try again.');
+  } finally {
+    // Show UI buttons again
+    if (closeBtn) closeBtn.style.visibility = 'visible';
+    if (downloadBtn) downloadBtn.style.visibility = 'visible';
+  }
+}
+
+modalDownloadBtn.addEventListener('click', downloadModalAsImage);
 
 // View Toggle Handler
 viewToggleBtns.forEach(btn => {
