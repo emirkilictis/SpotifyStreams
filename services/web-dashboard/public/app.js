@@ -173,7 +173,7 @@ function renderSongs() {
         <td><strong>${song.rank}</strong></td>
         <td>
           <div class="song-title-cell">
-            <span class="song-title">${song.title}</span>
+            <a href="https://open.spotify.com/track/${song.id}" target="_blank" rel="noopener noreferrer" class="song-title song-link">${song.title}</a>
             <div class="badge-wrapper">
               <span class="badge ${isFeatured ? 'badge-feat' : 'badge-lead'}">
                 ${isFeatured ? 'Featured' : 'Lead'}
@@ -318,7 +318,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
         return `
           <tr>
             <td><strong>${idx + 1}</strong></td>
-            <td><span class="song-title">${s.title}</span></td>
+            <td><a href="https://open.spotify.com/track/${s.id}" target="_blank" rel="noopener noreferrer" class="song-title song-link">${s.title}</a></td>
             <td>${formatDuration(s.duration_ms)}</td>
             <td><span class="streams-count">${formatNumber(s.cumulative)}</span></td>
             <td>${gainHtml}</td>

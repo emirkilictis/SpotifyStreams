@@ -540,6 +540,19 @@ tbody tr.featured-row:hover {
   color: var(--text-primary);
 }
 
+.song-link {
+  text-decoration: none;
+  color: inherit;
+  transition: color 0.2s ease, text-decoration-color 0.2s ease;
+  text-underline-offset: 3px;
+}
+
+.song-link:hover {
+  color: var(--accent-green);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-green);
+}
+
 .badge-wrapper {
   display: flex;
   gap: 6px;
