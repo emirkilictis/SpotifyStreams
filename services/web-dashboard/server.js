@@ -260,7 +260,7 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
       SELECT * FROM album_songs 
       ORDER BY 
         CASE 
-          WHEN (title ILIKE '%radio edit%' OR title ILIKE '%remix%' OR title ILIKE '%mix%' OR title ILIKE '%edit%') THEN 1 
+          WHEN (title ILIKE '%radio edit%' OR title ILIKE '%remix%' OR title ILIKE '%mix%' OR title ILIKE '%edit%' OR title ILIKE '%instrumental%') THEN 1 
           ELSE 0 
         END ASC,
         track_number ASC;
