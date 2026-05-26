@@ -1017,9 +1017,11 @@ tbody tr.featured-row:hover {
     display: none;
   }
   
-  /* Hide Duration (3rd column) on album detail modal table */
+  /* Hide Duration (3rd column) and Trend (6th column) on album detail modal table */
   .modal-table th:nth-child(3),
-  .modal-table td:nth-child(3) {
+  .modal-table td:nth-child(3),
+  .modal-table th:nth-child(6),
+  .modal-table td:nth-child(6) {
     display: none;
   }
   
@@ -1104,4 +1106,61 @@ tbody tr.featured-row:hover {
   height: 14px;
 }
 
+/* Trend Cell Styles */
+.trend-cell {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
 
+.trend-cell.trend-up {
+  /* color set inline via theme.accent */
+}
+
+.trend-cell.trend-down {
+  color: #ff6b6b;
+}
+
+.trend-cell.trend-flat {
+  color: var(--text-secondary);
+}
+
+.trend-cell.trend-neutral {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Themed Modal Enhancements */
+.modal-card {
+  --album-accent: #1db954;
+  --album-glow: rgba(29, 185, 84, 0.3);
+}
+
+.modal-stats {
+  border-color: color-mix(in srgb, var(--album-accent) 15%, transparent) !important;
+  background: color-mix(in srgb, var(--album-accent) 5%, transparent) !important;
+}
+
+.modal-stat-box .label {
+  color: color-mix(in srgb, var(--album-accent) 60%, var(--text-secondary));
+}
+
+.modal-table th {
+  color: var(--album-accent, var(--text-secondary));
+  border-bottom-color: color-mix(in srgb, var(--album-accent) 20%, transparent);
+}
+
+.modal-table tbody tr:hover {
+  background: color-mix(in srgb, var(--album-accent) 6%, transparent);
+}
+
+.modal-table td {
+  border-bottom-color: color-mix(in srgb, var(--album-accent) 8%, transparent);
+}
+
+.modal-table .song-link:hover {
+  color: var(--album-accent) !important;
+  text-decoration-color: var(--album-accent) !important;
+}

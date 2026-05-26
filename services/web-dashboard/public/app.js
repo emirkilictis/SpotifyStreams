@@ -199,6 +199,17 @@ const ALBUM_COVERS = {
   '716B2iWcwoKolCXrqwLGQh': 'https://i.scdn.co/image/ab67616d0000b2730c03eb908cc6baece50c2426'  // Everything I Thought It Was
 };
 
+// Album Theme Colors (accent, gradient start, gradient end, text glow)
+const ALBUM_THEMES = {
+  '0tcExuDWMQdBbwSpqN8Ku2': { accent: '#e84393', gradStart: '#2d1b35', gradEnd: '#0d0d1a', glow: 'rgba(232, 67, 147, 0.3)' },  // FutureSex — magenta/pink
+  '6QPkyl04rXwTGlGlcYaRoW': { accent: '#f5a623', gradStart: '#2e2210', gradEnd: '#0d0d1a', glow: 'rgba(245, 166, 35, 0.3)' },  // Justified — warm gold
+  '0O82niJ0NpcptYRxogeEZu': { accent: '#00b4d8', gradStart: '#0a2533', gradEnd: '#0d0d1a', glow: 'rgba(0, 180, 216, 0.3)' },   // 20/20 — electric blue
+  '5lYzReGzcSNF0Gx47wm6qU': { accent: '#ff6b35', gradStart: '#2e1a0d', gradEnd: '#0d0d1a', glow: 'rgba(255, 107, 53, 0.3)' },  // 20/20 pt2 — burnt orange
+  '01l3jTY261V3CESZR4dABz': { accent: '#74b49b', gradStart: '#162920', gradEnd: '#0d0d1a', glow: 'rgba(116, 180, 155, 0.3)' },  // MOTW — forest green
+  '716B2iWcwoKolCXrqwLGQh': { accent: '#9b5de5', gradStart: '#1f1535', gradEnd: '#0d0d1a', glow: 'rgba(155, 93, 229, 0.3)' },   // EITW — royal purple
+};
+const DEFAULT_THEME = { accent: '#1db954', gradStart: '#162016', gradEnd: '#0d0d1a', glow: 'rgba(29, 185, 84, 0.3)' };
+
 // Render Albums Grid
 function renderAlbums() {
   if (allAlbums.length === 0) {
@@ -250,13 +261,23 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
   const modalTracks = document.getElementById('modal-album-tracks');
   const modalTbody = document.getElementById('modal-songs-tbody');
   const modalCover = document.getElementById('modal-album-cover');
+  const modalCard = document.querySelector('.modal-card');
   
+  // Apply album theme
+  const theme = ALBUM_THEMES[albumId] || DEFAULT_THEME;
+  modalCard.style.setProperty('--album-accent', theme.accent);
+  modalCard.style.setProperty('--album-glow', theme.glow);
+  modalCard.style.background = `linear-gradient(165deg, ${theme.gradStart} 0%, ${theme.gradEnd} 100%)`;
+  modalCard.style.borderColor = theme.accent + '30';
+  modalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${theme.glow}`;
+
   // Show modal layout
   albumModal.classList.remove('hidden');
-  modalTbody.innerHTML = `<tr><td colspan="5" class="table-loading">Loading album tracks...</td></tr>`;
+  modalTbody.innerHTML = `<tr><td colspan="6" class="table-loading">Loading album tracks...</td></tr>`;
   
   if (title) {
     modalTitle.textContent = title;
+    modalTitle.style.color = theme.accent;
     modalSubtitle.textContent = releaseDate ? `Released on ${formatDate(releaseDate)}` : '';
   }
 
@@ -265,6 +286,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
   if (coverUrl) {
     modalCover.src = coverUrl;
     modalCover.classList.remove('hidden');
+    modalCover.style.boxShadow = `0 8px 32px ${theme.glow}`;
   } else {
     modalCover.src = '';
     modalCover.classList.add('hidden');
@@ -276,9 +298,9 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
     
     if (songs.length > 0) {
       if (!title) {
-        // Fallback title lookup
         const sampleSong = allSongs.find(s => s.album_id === albumId);
         modalTitle.textContent = sampleSong ? sampleSong.album_title : 'Album Tracks';
+        modalTitle.style.color = theme.accent;
         modalSubtitle.textContent = sampleSong && sampleSong.release_date ? `Released on ${formatDate(sampleSong.release_date)}` : '';
       }
       
@@ -291,17 +313,35 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
       });
       
       modalStreams.textContent = formatNumber(totalStreams);
+      modalStreams.style.color = theme.accent;
       modalGain.textContent = (totalGain > 0 ? '+' : '') + formatNumber(totalGain);
       modalTracks.textContent = songs.length;
       
-      // Populate Table
+      // Populate Table with trend column
       modalTbody.innerHTML = songs.map((s, idx) => {
         const dailyGain = Number(s.daily_gain);
+        const prevGain = Number(s.prev_daily_gain);
+        
+        // Daily gain display
         let gainHtml = '<span class="gain-cell gain-neutral">-</span>';
         if (dailyGain > 0) {
           gainHtml = `<span class="gain-cell gain-positive">+${formatNumber(dailyGain)}</span>`;
         } else if (dailyGain < 0) {
           gainHtml = `<span class="gain-cell" style="color: var(--accent-red);">${formatNumber(dailyGain)}</span>`;
+        }
+        
+        // Percentage change vs previous day
+        let trendHtml = '<span class="trend-cell trend-neutral">—</span>';
+        if (prevGain && prevGain !== 0 && dailyGain !== 0) {
+          const pctChange = ((dailyGain - prevGain) / Math.abs(prevGain)) * 100;
+          const pctStr = Math.abs(pctChange).toFixed(1);
+          if (pctChange > 0.5) {
+            trendHtml = `<span class="trend-cell trend-up" style="color: ${theme.accent};">▲ ${pctStr}%</span>`;
+          } else if (pctChange < -0.5) {
+            trendHtml = `<span class="trend-cell trend-down">▼ ${pctStr}%</span>`;
+          } else {
+            trendHtml = `<span class="trend-cell trend-flat">● ${pctStr}%</span>`;
+          }
         }
         
         return `
@@ -311,21 +351,29 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
             <td>${formatDuration(s.duration_ms)}</td>
             <td><span class="streams-count">${formatNumber(s.cumulative)}</span></td>
             <td>${gainHtml}</td>
+            <td>${trendHtml}</td>
           </tr>
         `;
       }).join('');
     } else {
-      modalTbody.innerHTML = `<tr><td colspan="5" class="table-empty">No tracked songs found in this album.</td></tr>`;
+      modalTbody.innerHTML = `<tr><td colspan="6" class="table-empty">No tracked songs found in this album.</td></tr>`;
     }
   } catch (err) {
     console.error('Error loading album details:', err);
-    modalTbody.innerHTML = `<tr><td colspan="5" class="table-empty" style="color: var(--accent-red);">Failed to load album tracks!</td></tr>`;
+    modalTbody.innerHTML = `<tr><td colspan="6" class="table-empty" style="color: var(--accent-red);">Failed to load album tracks!</td></tr>`;
   }
 };
 
 // Close Modal
 function closeModal() {
   albumModal.classList.add('hidden');
+  // Reset theme styles
+  const modalCard = document.querySelector('.modal-card');
+  if (modalCard) {
+    modalCard.style.background = '';
+    modalCard.style.borderColor = '';
+    modalCard.style.boxShadow = '';
+  }
 }
 
 modalCloseBtn.addEventListener('click', closeModal);

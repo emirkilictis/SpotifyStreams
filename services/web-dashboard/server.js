@@ -235,7 +235,8 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
           s.track_number,
           dsc.recorded_date,
           COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
-          COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain
+          COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain,
+          COALESCE(prev.daily_gain, 0)::bigint AS prev_daily_gain
         FROM songs s
         JOIN songs c ON c.id = COALESCE(s.canonical_id, s.id)
         LEFT JOIN (
@@ -247,6 +248,14 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
           FROM daily_streams_canonical
           ORDER BY canonical_id, recorded_date DESC
         ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
+        LEFT JOIN LATERAL (
+          SELECT daily_gain
+          FROM daily_streams_canonical pv
+          WHERE pv.canonical_id = COALESCE(s.canonical_id, s.id)
+            AND pv.recorded_date < dsc.recorded_date
+          ORDER BY pv.recorded_date DESC
+          LIMIT 1
+        ) prev ON true
         WHERE 
           (
             $1 = '0tcExuDWMQdBbwSpqN8Ku2' 
