@@ -18,12 +18,13 @@ function getPool() {
  */
 async function upsertAlbum(client, album) {
   await client.query(
-    `INSERT INTO albums (id, title, release_date)
-     VALUES ($1, $2, $3)
+    `INSERT INTO albums (id, title, release_date, image_url)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (id) DO UPDATE
        SET title        = EXCLUDED.title,
-           release_date = EXCLUDED.release_date`,
-    [album.id, album.title, album.release_date]
+           release_date = EXCLUDED.release_date,
+           image_url    = COALESCE(EXCLUDED.image_url, albums.image_url)`,
+    [album.id, album.title, album.release_date, album.image_url || null]
   );
 }
 

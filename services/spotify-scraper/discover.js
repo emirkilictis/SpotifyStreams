@@ -102,6 +102,7 @@ async function discoverAllAlbumsPuppeteer(page, artistId) {
       release_date:   normalizeReleaseDate(a.release_date),
       primary_artist: artistUri,
       is_featured:    false,
+      image_url:      a.image_url ?? null,
     });
   }
   for (const a of feat) {
@@ -113,6 +114,7 @@ async function discoverAllAlbumsPuppeteer(page, artistId) {
       release_date:   normalizeReleaseDate(a.release_date),
       primary_artist: a.primary_artist ?? null,
       is_featured:    true,
+      image_url:      a.image_url ?? null,
     });
   }
 

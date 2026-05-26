@@ -7,6 +7,7 @@ let typeFilter = 'all'; // 'all' | 'lead' | 'featured'
 let currentSortField = 'streams'; // 'rank' | 'title' | 'album' | 'duration' | 'streams' | 'gain'
 let currentSortDirection = 'desc';
 let activeView = 'songs'; // 'songs' | 'albums'
+let currentArtist = '31TPClRtHm23RisEBtV3X7'; // default to JT
 
 // Elements
 const tbody = document.getElementById('songs-tbody');
@@ -24,6 +25,7 @@ const lastUpdateEl = document.getElementById('last-update');
 
 // View Toggle Elements
 const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
+const viewToggleBar = document.querySelector('.view-toggle-bar');
 const songsViewSection = document.getElementById('songs-view-section');
 const albumsViewSection = document.getElementById('albums-view-section');
 const albumsContainer = document.getElementById('albums-container');
@@ -58,7 +60,7 @@ function formatDate(dateStr) {
 async function fetchData() {
   try {
     // Fetch stats
-    const statsRes = await fetch('/api/stats');
+    const statsRes = await fetch(`/api/stats?artist=${currentArtist}`);
     if (statsRes.status === 401) {
       window.location.href = '/login';
       return;
@@ -76,7 +78,7 @@ async function fetchData() {
     lastUpdateEl.textContent = formatDate(statsData.last_update);
 
     // Fetch songs
-    const songsRes = await fetch('/api/songs');
+    const songsRes = await fetch(`/api/songs?artist=${currentArtist}`);
     const songsData = await songsRes.json();
     
     // Sort initially by cumulative streams desc and assign a global rank
@@ -97,8 +99,17 @@ async function fetchData() {
 async function fetchAlbumsData() {
   try {
     albumsContainer.innerHTML = '<div class="table-loading">Loading albums...</div>';
-    const res = await fetch('/api/albums');
+    const res = await fetch(`/api/albums?artist=${currentArtist}`);
     allAlbums = await res.json();
+    
+    if (viewToggleBar) {
+      if (currentArtist === '1HY2Jd0NmPuamShAr6KMms') {
+        viewToggleBar.style.display = 'none';
+      } else {
+        viewToggleBar.style.display = allAlbums.length > 0 ? 'flex' : 'none';
+      }
+    }
+    
     renderAlbums();
   } catch (err) {
     console.error('Error fetching albums:', err);
@@ -127,7 +138,83 @@ function renderSongs() {
   });
 
   // 2) Sort
+  const LISA_TRACK_ORDER = [
+    'born again',
+    'rockstar',
+    'elastigirl',
+    'thunder',
+    'new woman',
+    'futw(ft)',
+    'rapunzel(ft)',
+    'moonlit floor',
+    'when im with you',
+    'badgrrrl',
+    'lifestyle',
+    'chill',
+    'dream',
+    'futw(solo)',
+    'rapunzel(solo)',
+    'lalisa',
+    'money',
+    'sg',
+    'shoong!',
+    'priceless',
+    'bad angel',
+    'goals',
+    'rockstar(v)',
+    'moonlit floor(v)',
+    'born again(v)'
+  ];
+
+  function getLisaOrderIndex(title) {
+    const t = title.toLowerCase();
+    
+    // Exact mapping matches
+    if (t.includes('born again') && (t.includes('remix') || t.includes('purple disco'))) return 26; // Born Again(v)
+    if (t.includes('born again')) return 0;
+    
+    if (t.includes('rockstar') && (t.includes('remix') || t.includes('instrumental') || t.includes('edit') || t.includes('version'))) return 24; // Rockstar(v)
+    if (t.includes('rockstar')) return 1;
+    
+    if (t.includes('elastigirl')) return 2;
+    if (t.includes('thunder')) return 3;
+    if (t.includes('new woman')) return 4;
+    
+    if (t.includes('fxck up the world') && t.includes('future')) return 5; // FUTW(ft)
+    if (t.includes('fxck up the world')) return 15; // FUTW(solo)
+    
+    if (t.includes('rapunzel') && t.includes('megan')) return 6; // Rapunzel(ft)
+    if (t.includes('rapunzel')) return 16; // Rapunzel(solo)
+    
+    if (t.includes('moonlit floor') && (t.includes('remix') || t.includes('santa'))) return 25; // Moonlit Floor(v)
+    if (t.includes('moonlit floor')) return 7;
+    
+    if (t.includes('when i\'m with you') || t.includes('when im with you')) return 8;
+    if (t.includes('badgrrrl')) return 9;
+    if (t.includes('lifestyle')) return 10;
+    if (t.includes('chill')) return 11;
+    if (t.includes('dream')) return 12;
+    
+    if (t.includes('lalisa') && !t.includes('instrumental')) return 17;
+    if (t.includes('money') && !t.includes('instrumental')) return 18;
+    
+    if (t.includes('sg')) return 19;
+    if (t.includes('shoong')) return 20;
+    if (t.includes('priceless')) return 21;
+    if (t.includes('bad angel')) return 22;
+    if (t.includes('goals')) return 23;
+    
+    return 99; // Default fallback for any other
+  }
+
   filteredSongs.sort((a, b) => {
+    // If it's Lisa and the sort field is default ('streams' / 'rank'), enforce the image order
+    if (currentArtist === '5L1lO4eRHmJ7a0Q6csE5cT' && (currentSortField === 'streams' || currentSortField === 'rank')) {
+      const idxA = getLisaOrderIndex(a.title);
+      const idxB = getLisaOrderIndex(b.title);
+      return currentSortDirection === 'asc' ? idxB - idxA : idxA - idxB;
+    }
+
     let comparison = 0;
     if (currentSortField === 'rank') {
       comparison = a.rank - b.rank;
@@ -222,11 +309,14 @@ function renderAlbums() {
     const dailyGain = Number(album.daily_gain);
     const albumTitleEscaped = album.album_title.replace(/'/g, "\\'");
     const dateFormatted = album.release_date || '';
-    const coverUrl = ALBUM_COVERS[album.album_id] || '';
-    const imgHtml = coverUrl ? `<div class="album-cover-wrapper"><img src="${coverUrl}" alt="${album.album_title}" class="album-cover-img"></div>` : '';
+    const coverUrl = album.image_url || ALBUM_COVERS[album.album_id] || '';
+    const imgHtml = coverUrl 
+      ? `<div class="album-cover-wrapper"><img src="${coverUrl}" alt="${album.album_title}" class="album-cover-img" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'100\\' height=\\'100\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%231db954\\' stroke-width=\\'1.5\\' style=\\'background:%23121212\\'><circle cx=\\'12\\' cy=\\'12\\' r=\\'10\\'/><circle cx=\\'12\\' cy=\\'12\\' r=\\'3\\'/><path d=\\'M12 9v6\\'/></svg>'"></div>`
+      : `<div class="album-cover-wrapper fallback-cover"><div class="vinyl-record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="music-icon"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 9v6"></path></svg></div></div>`;
+    const coverUrlEscaped = coverUrl ? coverUrl.replace(/'/g, "\\'") : '';
     
     return `
-      <div class="album-card glass" onclick="openAlbumById('${album.album_id}', '${albumTitleEscaped}', '${dateFormatted}')">
+      <div class="album-card glass" onclick="openAlbumById('${album.album_id}', '${albumTitleEscaped}', '${dateFormatted}', '${coverUrlEscaped}')">
         ${imgHtml}
         <div class="album-card-content">
           <div class="album-card-header">
@@ -253,7 +343,7 @@ function renderAlbums() {
 }
 
 // Open Album Detail Modal Sheet
-window.openAlbumById = async function(albumId, title = null, releaseDate = null) {
+window.openAlbumById = async function(albumId, title = null, releaseDate = null, coverUrl = null) {
   const modalTitle = document.getElementById('modal-album-title');
   const modalSubtitle = document.getElementById('modal-album-subtitle');
   const modalStreams = document.getElementById('modal-album-streams');
@@ -282,14 +372,15 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
   }
 
   // Set cover art
-  const coverUrl = ALBUM_COVERS[albumId] || '';
-  if (coverUrl) {
-    modalCover.src = coverUrl;
+  const modalCoverUrl = coverUrl || ALBUM_COVERS[albumId] || '';
+  if (modalCoverUrl) {
+    modalCover.src = modalCoverUrl;
     modalCover.classList.remove('hidden');
     modalCover.style.boxShadow = `0 8px 32px ${theme.glow}`;
   } else {
-    modalCover.src = '';
-    modalCover.classList.add('hidden');
+    modalCover.src = 'data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%231db954\' stroke-width=\'1.5\' style=\'background:%23121212\'><circle cx=\'12\' cy=\'12\' r=\'10\'/><circle cx=\'12\' cy=\'12\' r=\'3\'/><path d=\'M12 9v6\'/></svg>';
+    modalCover.classList.remove('hidden');
+    modalCover.style.boxShadow = `0 8px 32px ${theme.glow}`;
   }
   
   try {
@@ -501,5 +592,50 @@ sortHeaders.forEach(th => {
   });
 });
 
+// Artist Selector Handler
+const artistSelector = document.getElementById('artist-selector');
+const dashboardTitle = document.getElementById('dashboard-title');
+if (artistSelector) {
+  artistSelector.addEventListener('change', async (e) => {
+    currentArtist = e.target.value;
+    
+    // Update Document and Dashboard Header Title dynamically
+    const selectedName = artistSelector.options[artistSelector.selectedIndex].text;
+    if (dashboardTitle) {
+      dashboardTitle.textContent = `${selectedName === 'LISA' ? 'LISA' : selectedName === 'Lady Gaga' ? 'Lady Gaga' : 'JT'} Spotify Streams`;
+    }
+    document.title = `${selectedName === 'LISA' ? 'LISA' : selectedName === 'Lady Gaga' ? 'Lady Gaga' : 'JT'} Spotify Streams - Fan Dashboard`;
+    
+    // For Lady Gaga, force active view to 'albums'
+    if (currentArtist === '1HY2Jd0NmPuamShAr6KMms') {
+      activeView = 'albums';
+      viewToggleBtns.forEach(b => {
+        if (b.dataset.view === 'albums') b.classList.add('active');
+        else b.classList.remove('active');
+      });
+      songsViewSection.classList.add('hidden');
+      albumsViewSection.classList.remove('hidden');
+      await fetchAlbumsData();
+    } else {
+      activeView = 'songs';
+      viewToggleBtns.forEach(b => {
+        if (b.dataset.view === 'songs') b.classList.add('active');
+        else b.classList.remove('active');
+      });
+      songsViewSection.classList.remove('hidden');
+      albumsViewSection.classList.add('hidden');
+      await fetchData();
+      await fetchAlbumsData();
+    }
+  });
+}
+
 // Initial load
 fetchData();
+// Initialize album counts/availability check
+fetch(`/api/albums?artist=${currentArtist}`)
+  .then(res => res.json())
+  .then(data => {
+    allAlbums = data;
+  }).catch(err => console.error(err));
+

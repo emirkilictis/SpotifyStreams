@@ -38,7 +38,9 @@ const BLACKLISTED_TRACK_IDS = new Set([
   '72Y2HKafWKIILRju52I2Fo', // LoveStoned/I Think She Knows Interlude - Femi Fem & T-Money Funketeria Mix - Extended
   '7l8B8DGCVfuz4IU2sH0XFr', // LoveStoned/I Think She Knows Interlude - Femi Fem & T-Money Funketeria Mix - Radio Edit
   '0ICPCqK5g3zagynFkt1jDX', // LoveStoned/I Think She Knows - Matrix & Futurebound Extended Remix
-  '7x94lS0k2NFInyHEO1DAyg'  // SexyBack (feat. Missy Elliott & Timbaland) - DJ Wayne Williams Ol' Skool Remix
+  '7x94lS0k2NFInyHEO1DAyg', // SexyBack (feat. Missy Elliott & Timbaland) - DJ Wayne Williams Ol' Skool Remix
+  '3SUQYLuMqCW7lkMAZ1Bhev', // I'm Coming Out / Mo' Money Mo' Problems
+  '75e1EYhLzB3mQZQBcRmklN'  // The Sound Of Silence
 ]);
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -64,7 +66,7 @@ function isCoverOrTribute(title) {
   return false;
 }
 
-async function processAlbum(page, client, album, stats) {
+async function processAlbum(page, client, album, artistUri, stats) {
   const tracks = await fetchAlbumTracks(page, album.id);
   let kept = 0;
   for (const track of tracks) {
@@ -73,15 +75,15 @@ async function processAlbum(page, client, album, stats) {
       console.log(`           [skip blacklist] "${track.title}" (${track.id})`);
       continue;
     }
-    // Unconditionally skip any tracks where Justin Timberlake is not one of the artists
-    if (!track.artistUris?.includes(ARTIST_URI)) continue;
+    // Unconditionally skip any tracks where target artist is not one of the artists
+    if (!track.artistUris?.includes(artistUri)) continue;
     if (isCoverOrTribute(track.title)) {
       console.log(`           [skip cover] "${track.title}"`);
       continue;
     }
     let isFeaturedTrack = album.is_featured;
     if (track.artistUris && track.artistUris.length > 0) {
-      const isLead = track.artistUris[0] === ARTIST_URI;
+      const isLead = track.artistUris[0] === artistUri;
       const titleLower = track.title.toLowerCase();
       const albumLower = album.title.toLowerCase();
       
@@ -99,7 +101,7 @@ async function processAlbum(page, client, album, stats) {
       duration_ms:    track.duration_ms,
       track_number:   track.track_number,
       is_featured:    isFeaturedTrack,
-      primary_artist: album.primary_artist ?? null,
+      primary_artist: artistUri,
     });
     if (track.playCount > 0) {
       await upsertStreamStat(client, track.id, track.playCount);
@@ -109,6 +111,63 @@ async function processAlbum(page, client, album, stats) {
     kept++;
   }
   return kept;
+}
+
+async function scrapeArtist(page, client, artistId, stats) {
+  const artistUri = `spotify:artist:${artistId}`;
+  console.log(`\n[scraper] Discovering albums for artist: ${artistId}...`);
+  let { albums: discoveredAlbums, own_count, feat_count } = await discoverAllAlbumsPuppeteer(page, artistId);
+  
+  // Lady Gaga filters: Mayhem and The Fame Monster (EP or Deluxe/Standard) only
+  if (artistId === '1HY2Jd0NmPuamShAr6KMms') {
+    discoveredAlbums = discoveredAlbums.filter(a => {
+      const title = a.title.toLowerCase();
+      return title.includes('mayhem') || title.includes('fame monster') || a.id === '5C7E6m8S9vJ36z0Z39O64L';
+    });
+    console.log(`[scraper] Lady Gaga filtered to Mayhem & The Fame Monster: ${discoveredAlbums.length} albums.`);
+  }
+
+  // 1. Save all discovered albums to DB
+  for (const a of discoveredAlbums) {
+    await upsertAlbum(client, a);
+  }
+
+  // 2. Determine albums to scrape
+  const scrapeQuery = `
+    SELECT a.id, a.title, a.release_date,
+           COALESCE(bool_or(s.is_featured), false) as is_featured
+    FROM albums a
+    LEFT JOIN songs s ON s.album_id = a.id
+    WHERE s.primary_artist = $1 AND (s.canonical_id IS NULL OR s.id IS NULL)
+    GROUP BY a.id, a.title, a.release_date
+  `;
+  // For newly discovered albums that don't have songs in DB yet, query them too
+  const albumIds = discoveredAlbums.map(x => x.id);
+  let albumsToScrape = [];
+  if (albumIds.length > 0) {
+    const dbRes = await client.query(`
+      SELECT id, title, release_date
+      FROM albums
+      WHERE id = ANY($1)
+    `, [albumIds]);
+    albumsToScrape = dbRes.rows;
+  }
+  
+  console.log(`[scraper] Scraping ${albumsToScrape.length} albums for ${artistId}...`);
+
+  for (let i = 0; i < albumsToScrape.length; i++) {
+    const a = albumsToScrape[i];
+    const discovered = discoveredAlbums.find(x => x.id === a.id);
+    const isFeatured = discovered ? discovered.is_featured : false;
+
+    const tag = isFeatured ? 'feat' : 'own ';
+    console.log(`[${tag} ${i+1}/${albumsToScrape.length}] "${a.title}"`);
+    try {
+      const n = await processAlbum(page, client, { ...a, is_featured: isFeatured }, artistUri, stats);
+      console.log(`           ${n} track`);
+    } catch (err) { console.warn('  Hata:', err.message); }
+    await sleep(DELAY_MS);
+  }
 }
 
 async function run() {
@@ -123,7 +182,7 @@ async function run() {
     const client = await pool.connect();
 
     try {
-      // Canary Update Check
+      // Canary Update Check (only run check for Mirrors for JT first, to skip if no updates)
       const isForce = process.argv.includes('--force') || process.env.FORCE_SCRAPE === 'true';
       if (isForce) {
         console.log('[scraper] Force flag detected. Bypassing canary update check...');
@@ -164,42 +223,17 @@ async function run() {
         }
       }
 
-      console.log('[scraper] Puppeteer ile tüm albümler keşfediliyor...');
-      const { albums: discoveredAlbums, own_count, feat_count } = await discoverAllAlbumsPuppeteer(page, ARTIST_ID);
-      console.log(`[scraper]   Keşfedilen: ${own_count} own + ${feat_count} featured = ${discoveredAlbums.length} unique albüm.`);
-
-      // 1. Save all discovered albums to DB
-      for (const a of discoveredAlbums) {
-        await upsertAlbum(client, a);
-      }
-
-      // 2. Fetch optimized list of albums to scrape (new albums + albums containing canonical songs)
-      const scrapeQuery = `
-        SELECT a.id, a.title, a.release_date,
-               COALESCE(bool_or(s.is_featured), false) as is_featured
-        FROM albums a
-        LEFT JOIN songs s ON s.album_id = a.id
-        WHERE s.canonical_id IS NULL OR s.id IS NULL
-        GROUP BY a.id, a.title, a.release_date
-      `;
-      const dbRes = await client.query(scrapeQuery);
-      const albumsToScrape = dbRes.rows;
-      console.log(`[scraper] Taranacak ${albumsToScrape.length} albüm belirlendi (Kanona ait ve yeni keşfedilenler).`);
-
       const stats  = { tracksProcessed: 0, streamsUpdated: 0 };
-      for (let i = 0; i < albumsToScrape.length; i++) {
-        const a = albumsToScrape[i];
-        const discovered = discoveredAlbums.find(x => x.id === a.id);
-        const isFeatured = discovered ? discovered.is_featured : a.is_featured;
+      
+      // Scrape Justin Timberlake
+      await scrapeArtist(page, client, '31TPClRtHm23RisEBtV3X7', stats);
+      
+      // Scrape LISA
+      await scrapeArtist(page, client, '5L1lO4eRHmJ7a0Q6csE5cT', stats);
+      
+      // Scrape Lady Gaga
+      // await scrapeArtist(page, client, '1HY2Jd0NmPuamShAr6KMms', stats);
 
-        const tag = isFeatured ? 'feat' : 'own ';
-        console.log(`[${tag} ${i+1}/${albumsToScrape.length}] "${a.title}"`);
-        try {
-          const n = await processAlbum(page, client, { ...a, is_featured: isFeatured }, stats);
-          console.log(`           ${n} track`);
-        } catch (err) { console.warn('  Hata:', err.message); }
-        await sleep(DELAY_MS);
-      }
       await dedupCanonical(client);
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);

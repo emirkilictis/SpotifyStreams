@@ -74,6 +74,8 @@ app.get('/style.css', (req, res) => {
 
 // Protected API Routes
 app.get('/api/songs', requireAuth, async (req, res) => {
+  const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
+  const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
     const query = `
       SELECT
@@ -107,10 +109,13 @@ app.get('/api/songs', requireAuth, async (req, res) => {
         FROM daily_streams_canonical
         ORDER BY canonical_id, recorded_date DESC
       ) dsc ON s.id = dsc.canonical_id
-      WHERE s.canonical_id IS NULL
+      WHERE s.canonical_id IS NULL AND (
+        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms'))
+        OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
+      )
       ORDER BY cumulative DESC;
     `;
-    const result = await pool.query(query);
+    const result = await pool.query(query, [artistUri]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch songs error:', err);
@@ -119,6 +124,8 @@ app.get('/api/songs', requireAuth, async (req, res) => {
 });
 
 app.get('/api/stats', requireAuth, async (req, res) => {
+  const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
+  const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
     const query = `
       SELECT 
@@ -137,9 +144,13 @@ app.get('/api/stats', requireAuth, async (req, res) => {
         FROM daily_streams_canonical
         ORDER BY canonical_id, recorded_date DESC
       ) dsc
-      JOIN songs s ON s.id = dsc.canonical_id;
+      JOIN songs s ON s.id = dsc.canonical_id
+      WHERE (
+        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms'))
+        OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
+      );
     `;
-    const result = await pool.query(query);
+    const result = await pool.query(query, [artistUri]);
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Fetch stats error:', err);
@@ -148,6 +159,8 @@ app.get('/api/stats', requireAuth, async (req, res) => {
 });
 
 app.get('/api/albums', requireAuth, async (req, res) => {
+  const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
+  const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
     const query = `
       WITH album_canonical_songs AS (
@@ -175,6 +188,10 @@ app.get('/api/albums', requireAuth, async (req, res) => {
           FROM daily_streams_canonical
           ORDER BY canonical_id, recorded_date DESC
         ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
+        WHERE (
+          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms'))
+          OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
+        )
       ),
       unique_albums AS (
         SELECT DISTINCT ON (
@@ -194,28 +211,53 @@ app.get('/api/albums', requireAuth, async (req, res) => {
         CASE 
           WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '2006-09-11'::date
           ELSE release_date 
-        END AS release_date
+        END AS release_date,
+        CASE 
+          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473'
+          ELSE image_url 
+        END AS image_url
         FROM albums
-        WHERE title ILIKE 'Justified%'
-           OR title ILIKE 'FutureSex/LoveSounds%'
-           OR title ILIKE 'The 20/20 Experience%'
-           OR title ILIKE 'Man of the Woods%'
-           OR title ILIKE 'Everything I Thought It Was%'
-           OR id IN ('1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo')
+        WHERE 
+          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (
+            title ILIKE 'Justified%'
+            OR title ILIKE 'FutureSex/LoveSounds%'
+            OR title ILIKE 'The 20/20 Experience%'
+            OR title ILIKE 'Man of the Woods%'
+            OR title ILIKE 'Everything I Thought It Was%'
+            OR id IN ('1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo')
+          ))
+          OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND (
+            title ILIKE 'Alter Ego%'
+            OR title ILIKE 'LALISA%'
+            OR title ILIKE 'New Woman%'
+            OR title ILIKE 'Moonlit Floor%'
+            OR title ILIKE 'SG%'
+            OR title ILIKE 'Born Again%'
+            OR title ILIKE 'Goals%'
+            OR title ILIKE 'FXCK UP THE WORLD%'
+            OR title ILIKE 'Priceless%'
+            OR title ILIKE 'Rockstar%'
+          ))
+          OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
+            title ILIKE '%fame monster%'
+            OR title ILIKE '%mayhem%'
+            OR id = '5C7E6m8S9vJ36z0Z39O64L'
+          ))
       )
       SELECT
         ua.album_id,
         ua.album_title,
         ua.release_date,
+        ua.image_url,
         COUNT(acs.canonical_song_id)::int AS track_count,
         COALESCE(SUM(acs.cumulative), 0)::bigint AS total_streams,
         COALESCE(SUM(acs.daily_gain), 0)::bigint AS daily_gain
       FROM unique_albums ua
       LEFT JOIN album_canonical_songs acs ON ua.album_id = acs.album_id
-      GROUP BY ua.album_id, ua.album_title, ua.release_date
+      GROUP BY ua.album_id, ua.album_title, ua.release_date, ua.image_url
       ORDER BY total_streams DESC;
     `;
-    const result = await pool.query(query);
+    const result = await pool.query(query, [artistUri]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch albums error:', err);

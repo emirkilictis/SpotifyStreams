@@ -17,6 +17,7 @@ const DURATION_TOLERANCE_MS = 4000;
 const NEVER_MERGE = new Set([
   '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit (own streams, not a duplicate)
   '3VLiciQpebHm9Tbz3xNqKf', // Mirrors (Live) (own streams, not a duplicate)
+  '1JmPASoql4lnXimD5ICqRP', // Not a Bad Thing (Short/Radio Edit version)
 ]);
 
 // Force specific track IDs to be aliases of a given canonical (applied after main dedup)
@@ -44,8 +45,8 @@ function normalizeTitle(title) {
   
   t = t.replace(/\s*[\(\[][^\)\]]*(?:feat|featuring|with|ft\.?)\.?[^\)\]]*[\)\]]/gi, '');
   t = t.replace(/\s*[\(\[][^\)\]]*(?:remaster|remix|mix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|interlude|new\s+version|original|from)[^\)\]]*[\)\]]/gi, '');
-  t = t.replace(/\s*-\s*(?:remaster|remix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|new\s+version|original).*$/gi, '');
-  t = t.replace(/\b(?:interlude|explicit|clean|deluxe|remastered|remaster)\b/gi, '');
+  t = t.replace(/\s*-\s*(?:remaster|remix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|new\s+version|original|album\s+version).*$/gi, '');
+  t = t.replace(/\b(?:interlude|explicit|clean|deluxe|remastered|remaster|album version)\b/gi, '');
   t = t.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   return t;
 }

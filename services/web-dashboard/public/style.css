@@ -294,7 +294,35 @@ a {
   font-weight: 700;
   letter-spacing: -0.3px;
 }
-
+.artist-select-wrapper {
+  position: relative;
+  display: inline-block;
+  margin-left: 8px;
+}
+.artist-select-dropdown {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--card-border);
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 6px 32px 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  outline: none;
+  transition: var(--transition-smooth);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg fill='white' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+  background-repeat: no-repeat;
+  background-position: calc(100% - 8px) center;
+  background-size: 18px;
+}
+.artist-select-dropdown:hover, .artist-select-dropdown:focus {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--accent-green);
+  box-shadow: 0 0 10px var(--accent-green-glow);
+}
 .btn-secondary {
   border: 1px solid var(--card-border);
   padding: 8px 16px;
@@ -1009,11 +1037,9 @@ tbody tr.featured-row:hover {
 
 /* Responsive Mobile Layout Optimizations (< 600px) */
 @media (max-width: 600px) {
-  /* Hide Album (3rd column) and Duration (4th column) on songs list */
+  /* Hide Duration (3rd column) on songs list */
   #songs-table th:nth-child(3),
-  #songs-table td:nth-child(3),
-  #songs-table th:nth-child(4),
-  #songs-table td:nth-child(4) {
+  #songs-table td:nth-child(3) {
     display: none;
   }
   
@@ -1163,4 +1189,35 @@ tbody tr.featured-row:hover {
 .modal-table .song-link:hover {
   color: var(--album-accent) !important;
   text-decoration-color: var(--album-accent) !important;
+}
+
+/* Fallback Album Cover (Vinyl) */
+.fallback-cover {
+  background: radial-gradient(circle, #1a202c 0%, #0d0d1a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vinyl-record {
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle, #2d3748, #1a202c 10px, #2d3748 20px);
+  border: 4px solid #111;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.4s ease;
+}
+
+.album-card:hover .vinyl-record {
+  transform: rotate(45deg) scale(1.05);
+}
+
+.vinyl-record .music-icon {
+  width: 40%;
+  height: 40%;
+  color: var(--accent-green);
 }

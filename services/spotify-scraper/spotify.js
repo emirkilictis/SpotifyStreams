@@ -77,6 +77,7 @@ async function fetchArtistAlbums(page, artistId) {
         id:           a.id,
         title:        a.name,
         release_date: a.date?.isoString?.slice(0, 10) ?? null,
+        image_url:    a.coverArt?.sources?.[0]?.url ?? null,
       });
     }
   };
@@ -183,6 +184,7 @@ async function fetchArtistAppearsOn(page, artistId) {
         title:          a.name,
         release_date:   a.date?.isoString?.slice(0, 10) ?? null,
         primary_artist: primaryArtist,
+        image_url:      a.coverArt?.sources?.[0]?.url ?? null,
       });
     }
     return allAlbums;
@@ -235,6 +237,7 @@ async function fetchArtistAppearsOn(page, artistId) {
           title:          a.name,
           release_date:   a.date?.isoString?.slice(0, 10) ?? null,
           primary_artist: primaryArtist,
+          image_url:      a.coverArt?.sources?.[0]?.url ?? null,
         });
       }
       
