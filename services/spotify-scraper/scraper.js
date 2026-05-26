@@ -42,7 +42,8 @@ const BLACKLISTED_TRACK_IDS = new Set([
   '3SUQYLuMqCW7lkMAZ1Bhev', // I'm Coming Out / Mo' Money Mo' Problems
   '75e1EYhLzB3mQZQBcRmklN', // The Sound Of Silence
   '6K30Ls73FHoHL5cFGTvJM5', // I'm Not Yours - Live (not Lisa song)
-  '2RUihOx5NV6IStincNs2kV'  // 秘境 (Kick Back) - Live (not Lisa song)
+  '2RUihOx5NV6IStincNs2kV', // 秘境 (Kick Back) - Live (not Lisa song)
+  '30nku7BzuqrLBNBoXyaR7T'  // Ayo Technology - Radio Edit
 ]);
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
