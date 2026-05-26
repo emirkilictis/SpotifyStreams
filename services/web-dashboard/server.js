@@ -232,7 +232,7 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
           c.title,
           c.is_featured,
           c.duration_ms,
-          c.track_number,
+          s.track_number,
           dsc.recorded_date,
           COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
           COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain
