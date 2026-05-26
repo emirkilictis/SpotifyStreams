@@ -40,7 +40,9 @@ const BLACKLISTED_TRACK_IDS = new Set([
   '0ICPCqK5g3zagynFkt1jDX', // LoveStoned/I Think She Knows - Matrix & Futurebound Extended Remix
   '7x94lS0k2NFInyHEO1DAyg', // SexyBack (feat. Missy Elliott & Timbaland) - DJ Wayne Williams Ol' Skool Remix
   '3SUQYLuMqCW7lkMAZ1Bhev', // I'm Coming Out / Mo' Money Mo' Problems
-  '75e1EYhLzB3mQZQBcRmklN'  // The Sound Of Silence
+  '75e1EYhLzB3mQZQBcRmklN', // The Sound Of Silence
+  '6K30Ls73FHoHL5cFGTvJM5', // I'm Not Yours - Live (not Lisa song)
+  '2RUihOx5NV6IStincNs2kV'  // 秘境 (Kick Back) - Live (not Lisa song)
 ]);
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
