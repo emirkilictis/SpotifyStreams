@@ -306,7 +306,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
       modalTracks.textContent = songs.length;
       
       // Populate Table
-      modalTbody.innerHTML = songs.map(s => {
+      modalTbody.innerHTML = songs.map((s, idx) => {
         const dailyGain = Number(s.daily_gain);
         let gainHtml = '<span class="gain-cell gain-neutral">-</span>';
         if (dailyGain > 0) {
@@ -317,7 +317,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null)
         
         return `
           <tr>
-            <td><strong>${s.track_number || '-'}</strong></td>
+            <td><strong>${idx + 1}</strong></td>
             <td><span class="song-title">${s.title}</span></td>
             <td>${formatDuration(s.duration_ms)}</td>
             <td><span class="streams-count">${formatNumber(s.cumulative)}</span></td>
