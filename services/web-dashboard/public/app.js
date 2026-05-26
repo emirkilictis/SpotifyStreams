@@ -89,7 +89,7 @@ async function fetchData() {
     renderSongs();
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
-    tbody.innerHTML = `<tr><td colspan="6" class="table-empty" style="color: var(--accent-red);">Failed to load dashboard data!</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="table-empty" style="color: var(--accent-red);">Failed to load dashboard data!</td></tr>`;
   }
 }
 
@@ -150,7 +150,7 @@ function renderSongs() {
 
   // 3) Generate HTML
   if (filteredSongs.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="table-empty">No songs found matching search criteria.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="table-empty">No songs found matching search criteria.</td></tr>`;
     return;
   }
 
@@ -180,17 +180,6 @@ function renderSongs() {
               </span>
             </div>
           </div>
-        </td>
-        <td>
-          <span 
-            class="album-title" 
-            style="cursor: pointer; text-decoration: underline; transition: color 0.2s;"
-            onmouseover="this.style.color='var(--accent-green)'"
-            onmouseout="this.style.color=''"
-            onclick="openAlbumById('${song.album_id}', '${albumEscaped}', '${dateFormatted}')"
-          >
-            ${song.album_title || '-'}
-          </span>
         </td>
         <td>${formatDuration(song.duration_ms)}</td>
         <td><span class="streams-count">${formatNumber(song.cumulative)}</span></td>

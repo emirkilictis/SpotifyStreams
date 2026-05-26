@@ -29,12 +29,22 @@ function normalizeTitle(title) {
   if (t.includes('until the end of time') && t.includes('beyoncé')) {
     return 'until the end of time duet';
   }
+
+  // Detect 'radio edit' before stripping — preserve it as a distinguishing suffix
+  const isRadioEdit = /radio\s*edit/i.test(t);
+  // Detect 'live' before stripping
+  const isLive = /\blive\b/i.test(t) && !/\balive\b/i.test(t);
   
-  t = t.replace(/\s*[\(\[][^)\]]*(?:feat|featuring|with|ft\.?)\.?[^)\]]*[\)\]]/gi, '');
-  t = t.replace(/\s*[\(\[][^)\]]*(?:remaster|remix|mix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|interlude|new\s+version|original|from)[^)\]]*[\)\]]/gi, '');
+  t = t.replace(/\s*[\(\[][^\)\]]*(?:feat|featuring|with|ft\.?)\.?[^\)\]]*[\)\]]/gi, '');
+  t = t.replace(/\s*[\(\[][^\)\]]*(?:remaster|remix|mix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|interlude|new\s+version|original|from)[^\)\]]*[\)\]]/gi, '');
   t = t.replace(/\s*-\s*(?:remaster|remix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|new\s+version|original).*$/gi, '');
   t = t.replace(/\b(?:interlude|explicit|clean|deluxe|remastered|remaster)\b/gi, '');
   t = t.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Append version suffixes to keep them as separate groups
+  if (isRadioEdit) t += ' radio edit';
+  if (isLive) t += ' live';
+
   return t;
 }
 
