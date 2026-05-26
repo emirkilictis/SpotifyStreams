@@ -13,6 +13,18 @@
 
 const DURATION_TOLERANCE_MS = 4000;
 
+// Track IDs that must always remain independent — never merge into another canonical
+const NEVER_MERGE = new Set([
+  '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit (own streams, not a duplicate)
+  '3VLiciQpebHm9Tbz3xNqKf', // Mirrors (Live) (own streams, not a duplicate)
+]);
+
+// Force specific track IDs to be aliases of a given canonical (applied after main dedup)
+const FORCE_CANONICAL = {
+  '5oUnVKzkdNTaLtn4EnJjEP': '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit copy → main Radio Edit
+  '6Ffur3eTvi1KhHwu7b9TQd': '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit copy → main Radio Edit
+};
+
 /**
  * Title normalization — versionsuz/featuresız ham hali.
  *  - lowercase
@@ -29,22 +41,12 @@ function normalizeTitle(title) {
   if (t.includes('until the end of time') && t.includes('beyoncé')) {
     return 'until the end of time duet';
   }
-
-  // Detect 'radio edit' before stripping — preserve it as a distinguishing suffix
-  const isRadioEdit = /radio\s*edit/i.test(t);
-  // Detect 'live' before stripping
-  const isLive = /\blive\b/i.test(t) && !/\balive\b/i.test(t);
   
   t = t.replace(/\s*[\(\[][^\)\]]*(?:feat|featuring|with|ft\.?)\.?[^\)\]]*[\)\]]/gi, '');
   t = t.replace(/\s*[\(\[][^\)\]]*(?:remaster|remix|mix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|interlude|new\s+version|original|from)[^\)\]]*[\)\]]/gi, '');
   t = t.replace(/\s*-\s*(?:remaster|remix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|new\s+version|original).*$/gi, '');
   t = t.replace(/\b(?:interlude|explicit|clean|deluxe|remastered|remaster)\b/gi, '');
   t = t.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-
-  // Append version suffixes to keep them as separate groups
-  if (isRadioEdit) t += ' radio edit';
-  if (isLive) t += ' live';
-
   return t;
 }
 
@@ -102,6 +104,8 @@ async function dedupCanonical(client) {
     // Duration cluster'ları içinde grupla
     const clusters = [];
     for (const item of items) {
+      // Skip tracks that must remain independent
+      if (NEVER_MERGE.has(item.id)) continue;
       let placed = false;
       for (const cluster of clusters) {
         const ref = cluster[0];
@@ -136,7 +140,14 @@ async function dedupCanonical(client) {
     }
   }
 
-  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (önceki ${resetCount} sıfırlandı).`);
+  // Apply forced canonical overrides
+  for (const [trackId, canonId] of Object.entries(FORCE_CANONICAL)) {
+    await client.query(
+      `UPDATE songs SET canonical_id = $1 WHERE id = $2 AND canonical_id IS DISTINCT FROM $1`,
+      [canonId, trackId]
+    );
+  }
+  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced.`);
   return { canonicalCount, aliasCount };
 }
 
