@@ -356,12 +356,27 @@ async function downloadModalAsImage() {
   if (closeBtn) closeBtn.style.visibility = 'hidden';
   if (downloadBtn) downloadBtn.style.visibility = 'hidden';
 
+  // Save original scroll/overflow styles so we can restore them later
+  const origMaxHeight = modalCard.style.maxHeight;
+  const origOverflow = modalCard.style.overflow;
+
+  // Temporarily expand the modal to show ALL tracks (remove scroll constraints)
+  modalCard.style.maxHeight = 'none';
+  modalCard.style.overflow = 'visible';
+
+  // Also expand the backdrop so the card isn't clipped by the viewport
+  const backdrop = document.getElementById('album-modal');
+  const origBackdropOverflow = backdrop.style.overflow;
+  backdrop.style.overflow = 'visible';
+
   try {
     const canvas = await html2canvas(modalCard, {
       backgroundColor: '#080c14', // Match dashboard background color
       scale: 2, // High resolution scaling
       useCORS: true, // Allow external Spotify cover image domains
-      logging: false
+      logging: false,
+      scrollY: -window.scrollY, // Prevent scroll offset issues
+      windowHeight: modalCard.scrollHeight + 200 // Ensure full height is captured
     });
 
     const url = canvas.toDataURL('image/png');
@@ -374,6 +389,11 @@ async function downloadModalAsImage() {
     console.error('Failed to save image:', err);
     alert('Failed to generate image. Please try again.');
   } finally {
+    // Restore original scroll/overflow styles
+    modalCard.style.maxHeight = origMaxHeight;
+    modalCard.style.overflow = origOverflow;
+    backdrop.style.overflow = origBackdropOverflow;
+
     // Show UI buttons again
     if (closeBtn) closeBtn.style.visibility = 'visible';
     if (downloadBtn) downloadBtn.style.visibility = 'visible';
