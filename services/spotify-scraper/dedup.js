@@ -99,6 +99,19 @@ async function dedupCanonical(client) {
   const reset = await client.query(`UPDATE songs SET canonical_id = NULL WHERE canonical_id IS NOT NULL`);
   resetCount = reset.rowCount;
 
+function shouldKeepSeparate(title) {
+  const lower = title.toLowerCase();
+  return lower.includes('live') || 
+         lower.includes('instrumental') || 
+         lower.includes('remix') || 
+         lower.includes('edit') || 
+         lower.includes('acoustic') ||
+         lower.includes('performance') ||
+         lower.includes('acapella') ||
+         lower.includes('karaoke') ||
+         lower.includes('tribute');
+}
+
   for (const [key, items] of groups) {
     if (items.length < 2) continue;
 
@@ -110,6 +123,21 @@ async function dedupCanonical(client) {
       let placed = false;
       for (const cluster of clusters) {
         const ref = cluster[0];
+        
+        // Prevent merging different versions (live, instrumental, etc.)
+        const isRefSpecial = shouldKeepSeparate(ref.title);
+        const isItemSpecial = shouldKeepSeparate(item.title);
+        if (isRefSpecial !== isItemSpecial) continue;
+        if (isRefSpecial && isItemSpecial) {
+          const refTitleLower = ref.title.toLowerCase();
+          const itemTitleLower = item.title.toLowerCase();
+          if (refTitleLower.includes('live') !== itemTitleLower.includes('live')) continue;
+          if (refTitleLower.includes('instrumental') !== itemTitleLower.includes('instrumental')) continue;
+          if (refTitleLower.includes('remix') !== itemTitleLower.includes('remix')) continue;
+          if (refTitleLower.includes('acoustic') !== itemTitleLower.includes('acoustic')) continue;
+          if (refTitleLower.includes('performance') !== itemTitleLower.includes('performance')) continue;
+        }
+
         if (Math.abs(item.duration_ms - ref.duration_ms) <= DURATION_TOLERANCE_MS) {
           cluster.push(item);
           placed = true;
