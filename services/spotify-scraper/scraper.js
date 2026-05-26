@@ -17,6 +17,18 @@ const ARTIST_ID  = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
 const ARTIST_URI = `spotify:artist:${ARTIST_ID}`;
 const DELAY_MS   = 800;
 
+const BLACKLISTED_TRACK_IDS = new Set([
+  '3K7xYRXPFDVyen7cZF5Zk2', // Get Back Up Again (Anna Kendrick)
+  '1w1kzejjmiMhdWAOecgo4l', // They Don't Know (Ariana Grande)
+  '2jXTBrywc6ruxaUXW84Xhr', // Hello (Zooey Deschanel)
+  '6lk31ijUSG5exPmV34zFkL', // Crazy Train (Rachel Bloom)
+  '04753LTNIuoQaQ4ATBcHzY', // Barracuda (Rachel Bloom)
+  '6k2fcdMZRetgikCiVJULVq', // Rock N Roll Rules (HAIM & Ludwig Göransson)
+  '2zWc9ii8uDntk6srjMKTGY', // I Fall to Pieces (Red Velvet)
+  '15bDEMeqO9hJwl1WZ14gOI', // Rainbows, Unicorns, Everything Nice (12s line)
+  '5KY96BqBigL83cqvk4vkcl', // 4 Minutes (Bob Sinclar Mix) - Mixed (Vic Latino mix)
+]);
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function isCoverOrTribute(title) {
@@ -44,6 +56,11 @@ async function processAlbum(page, client, album, stats) {
   const tracks = await fetchAlbumTracks(page, album.id);
   let kept = 0;
   for (const track of tracks) {
+    // Skip blacklisted tracks
+    if (BLACKLISTED_TRACK_IDS.has(track.id)) {
+      console.log(`           [skip blacklist] "${track.title}" (${track.id})`);
+      continue;
+    }
     // Unconditionally skip any tracks where Justin Timberlake is not one of the artists
     if (!track.artistUris?.includes(ARTIST_URI)) continue;
     if (isCoverOrTribute(track.title)) {
