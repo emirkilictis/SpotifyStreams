@@ -135,33 +135,45 @@ async function scrapeArtist(page, client, artistId, stats) {
     await upsertAlbum(client, a);
   }
 
-  // 2. Determine albums to scrape
-  const scrapeQuery = `
+  // 2. Determine albums to scrape: combine newly discovered albums with existing database albums containing canonical songs for this artist
+  const dbAlbumsRes = await client.query(`
     SELECT a.id, a.title, a.release_date,
            COALESCE(bool_or(s.is_featured), false) as is_featured
     FROM albums a
-    LEFT JOIN songs s ON s.album_id = a.id
-    WHERE s.primary_artist = $1 AND (s.canonical_id IS NULL OR s.id IS NULL)
+    JOIN songs s ON s.album_id = a.id
+    WHERE s.primary_artist = $1 AND s.canonical_id IS NULL
     GROUP BY a.id, a.title, a.release_date
-  `;
-  // For newly discovered albums that don't have songs in DB yet, query them too
-  const albumIds = discoveredAlbums.map(x => x.id);
-  let albumsToScrape = [];
-  if (albumIds.length > 0) {
-    const dbRes = await client.query(`
-      SELECT id, title, release_date
-      FROM albums
-      WHERE id = ANY($1)
-    `, [albumIds]);
-    albumsToScrape = dbRes.rows;
+  `, [artistUri]);
+
+  const albumMap = new Map();
+  
+  // First, populate with database albums
+  for (const dbA of dbAlbumsRes.rows) {
+    albumMap.set(dbA.id, {
+      id: dbA.id,
+      title: dbA.title,
+      release_date: dbA.release_date,
+      is_featured: dbA.is_featured
+    });
   }
+  
+  // Then, add/overwrite with discovered albums
+  for (const discA of discoveredAlbums) {
+    albumMap.set(discA.id, {
+      id: discA.id,
+      title: discA.title,
+      release_date: discA.release_date,
+      is_featured: discA.is_featured
+    });
+  }
+  
+  const albumsToScrape = Array.from(albumMap.values());
   
   console.log(`[scraper] Scraping ${albumsToScrape.length} albums for ${artistId}...`);
 
   for (let i = 0; i < albumsToScrape.length; i++) {
     const a = albumsToScrape[i];
-    const discovered = discoveredAlbums.find(x => x.id === a.id);
-    const isFeatured = discovered ? discovered.is_featured : false;
+    const isFeatured = a.is_featured ?? false;
 
     const tag = isFeatured ? 'feat' : 'own ';
     console.log(`[${tag} ${i+1}/${albumsToScrape.length}] "${a.title}"`);
