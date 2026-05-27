@@ -124,20 +124,18 @@ function shouldKeepSeparate(title) {
       for (const cluster of clusters) {
         const ref = cluster[0];
         
-        // Prevent merging different versions (live, instrumental, etc.) for LISA and Gaga only
-        if (ref.primary_artist === 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' || ref.primary_artist === 'spotify:artist:1HY2Jd0NmPuamShAr6KMms') {
-          const isRefSpecial = shouldKeepSeparate(ref.title);
-          const isItemSpecial = shouldKeepSeparate(item.title);
-          if (isRefSpecial !== isItemSpecial) continue;
-          if (isRefSpecial && isItemSpecial) {
-            const refTitleLower = ref.title.toLowerCase();
-            const itemTitleLower = item.title.toLowerCase();
-            if (refTitleLower.includes('live') !== itemTitleLower.includes('live')) continue;
-            if (refTitleLower.includes('instrumental') !== itemTitleLower.includes('instrumental')) continue;
-            if (refTitleLower.includes('remix') !== itemTitleLower.includes('remix')) continue;
-            if (refTitleLower.includes('acoustic') !== itemTitleLower.includes('acoustic')) continue;
-            if (refTitleLower.includes('performance') !== itemTitleLower.includes('performance')) continue;
-          }
+        // Prevent merging different versions (live, instrumental, etc.) for all artists
+        const isRefSpecial = shouldKeepSeparate(ref.title);
+        const isItemSpecial = shouldKeepSeparate(item.title);
+        if (isRefSpecial !== isItemSpecial) continue;
+        if (isRefSpecial && isItemSpecial) {
+          const refTitleLower = ref.title.toLowerCase();
+          const itemTitleLower = item.title.toLowerCase();
+          if (refTitleLower.includes('live') !== itemTitleLower.includes('live')) continue;
+          if (refTitleLower.includes('instrumental') !== itemTitleLower.includes('instrumental')) continue;
+          if (refTitleLower.includes('remix') !== itemTitleLower.includes('remix')) continue;
+          if (refTitleLower.includes('acoustic') !== itemTitleLower.includes('acoustic')) continue;
+          if (refTitleLower.includes('performance') !== itemTitleLower.includes('performance')) continue;
         }
 
         if (Math.abs(item.duration_ms - ref.duration_ms) <= DURATION_TOLERANCE_MS) {

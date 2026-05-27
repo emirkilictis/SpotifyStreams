@@ -97,9 +97,14 @@ async function processAlbum(page, client, album, artistUri, stats) {
       }
     }
 
+    let trackTitle = track.title;
+    if (track.id === '1JmPASoql4lnXimD5ICqRP') {
+      trackTitle = 'Not a Bad Thing - Radio Edit';
+    }
+
     await upsertSong(client, {
       id:             track.id,
-      title:          track.title,
+      title:          trackTitle,
       album_id:       album.id,
       duration_ms:    track.duration_ms,
       track_number:   track.track_number,
@@ -168,6 +173,21 @@ async function scrapeArtist(page, client, artistId, stats) {
   }
   
   const albumsToScrape = Array.from(albumMap.values());
+  
+  // For JT, manually ensure the "Not a Bad Thing" Single album is scraped
+  // so that "Not a Bad Thing - Radio Edit" gets updated daily.
+  if (artistId === '31TPClRtHm23RisEBtV3X7') {
+    if (!albumMap.has('32dGD25hfIVdhugEXoVu2s')) {
+      const singleAlbum = {
+        id: '32dGD25hfIVdhugEXoVu2s',
+        title: 'Not a Bad Thing (Single)',
+        release_date: '2014-02-24',
+        is_featured: false
+      };
+      await upsertAlbum(client, singleAlbum);
+      albumsToScrape.push(singleAlbum);
+    }
+  }
   
   console.log(`[scraper] Scraping ${albumsToScrape.length} albums for ${artistId}...`);
 
