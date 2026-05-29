@@ -112,7 +112,35 @@ app.get('/api/songs', requireAuth, async (req, res) => {
       ) dsc ON s.id = dsc.canonical_id
       WHERE s.canonical_id IS NULL AND (
         ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR'))
-        OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
+        OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND (
+            a.title ILIKE 'Alter Ego%'
+            OR a.title ILIKE 'LALISA%'
+            OR a.title ILIKE 'New Woman%'
+            OR a.title ILIKE 'Moonlit Floor%'
+            OR a.title ILIKE 'SG%'
+            OR a.title ILIKE 'Born Again%'
+            OR a.title ILIKE 'Goals%'
+            OR a.title ILIKE 'FXCK UP THE WORLD%'
+            OR a.title ILIKE 'Priceless%'
+            OR a.title ILIKE 'Rockstar%'
+        ))
+        OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
+            a.title ILIKE '%fame monster%'
+            OR a.title ILIKE '%mayhem%'
+            OR a.id = '5C7E6m8S9vJ36z0Z39O64L'
+        ))
+        OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
+            a.title ILIKE 'HIT ME HARD AND SOFT%'
+        ))
+        OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
+            a.title ILIKE 'Yours Truly%'
+            OR a.title ILIKE 'My Everything%'
+            OR a.title ILIKE 'Dangerous Woman%'
+            OR a.title ILIKE 'Sweetener%'
+            OR a.title ILIKE 'thank u, next%'
+            OR a.title ILIKE 'Positions%'
+            OR a.title ILIKE 'eternal sunshine%'
+        ))
       )
       ORDER BY cumulative DESC;
     `;
@@ -147,9 +175,38 @@ app.get('/api/stats', requireAuth, async (req, res) => {
         ORDER BY canonical_id, recorded_date DESC
       ) dsc
       JOIN songs s ON s.id = dsc.canonical_id
+      JOIN albums a ON s.album_id = a.id
       WHERE (
         ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR'))
-        OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
+        OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND (
+            a.title ILIKE 'Alter Ego%'
+            OR a.title ILIKE 'LALISA%'
+            OR a.title ILIKE 'New Woman%'
+            OR a.title ILIKE 'Moonlit Floor%'
+            OR a.title ILIKE 'SG%'
+            OR a.title ILIKE 'Born Again%'
+            OR a.title ILIKE 'Goals%'
+            OR a.title ILIKE 'FXCK UP THE WORLD%'
+            OR a.title ILIKE 'Priceless%'
+            OR a.title ILIKE 'Rockstar%'
+        ))
+        OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
+            a.title ILIKE '%fame monster%'
+            OR a.title ILIKE '%mayhem%'
+            OR a.id = '5C7E6m8S9vJ36z0Z39O64L'
+        ))
+        OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
+            a.title ILIKE 'HIT ME HARD AND SOFT%'
+        ))
+        OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
+            a.title ILIKE 'Yours Truly%'
+            OR a.title ILIKE 'My Everything%'
+            OR a.title ILIKE 'Dangerous Woman%'
+            OR a.title ILIKE 'Sweetener%'
+            OR a.title ILIKE 'thank u, next%'
+            OR a.title ILIKE 'Positions%'
+            OR a.title ILIKE 'eternal sunshine%'
+        ))
       );
     `;
     const result = await pool.query(query, [artistUri]);
