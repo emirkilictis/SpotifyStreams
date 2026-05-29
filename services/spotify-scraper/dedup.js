@@ -24,6 +24,7 @@ const NEVER_MERGE = new Set([
 const FORCE_CANONICAL = {
   '5oUnVKzkdNTaLtn4EnJjEP': '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit copy → main Radio Edit
   '6Ffur3eTvi1KhHwu7b9TQd': '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit copy → main Radio Edit
+  '2iWljCivLjWnLkwItPZdRV': '13X42np3KJr0o2LkK1MG76', // My Love (Single Version) → My Love (Main Version)
 };
 
 /**
