@@ -63,7 +63,7 @@ async function upsertSong(client, song) {
 async function upsertStreamStat(client, songId, streamCount) {
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
-     VALUES ($1, $2, CURRENT_DATE, NOW())
+     VALUES ($1, $2, (NOW() AT TIME ZONE 'Europe/Istanbul')::date, NOW())
      ON CONFLICT (song_id, recorded_date) DO UPDATE
        SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
            recorded_at  = NOW()`,
