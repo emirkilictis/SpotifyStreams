@@ -9,6 +9,13 @@ let currentSortDirection = 'desc';
 let activeView = 'songs'; // 'songs' | 'albums'
 let currentArtist = '31TPClRtHm23RisEBtV3X7'; // default to JT
 
+// Artists that should only show the Albums view (no Songs tab)
+const ALBUM_ONLY_ARTISTS = new Set([
+  '1HY2Jd0NmPuamShAr6KMms', // Lady Gaga
+  '6qqNVTkY8uBg9cP3Jd7DAH', // Billie Eilish
+  '66CXWjxzNUsdJxJ2JdwvnR', // Ariana Grande
+]);
+
 // Elements
 const tbody = document.getElementById('songs-tbody');
 const searchInput = document.getElementById('search-input');
@@ -105,7 +112,7 @@ async function fetchAlbumsData() {
     allAlbums = await res.json();
     
     if (viewToggleBar) {
-      if (currentArtist === '1HY2Jd0NmPuamShAr6KMms') {
+      if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
         viewToggleBar.style.display = 'none';
       } else {
         viewToggleBar.style.display = allAlbums.length > 0 ? 'flex' : 'none';
@@ -651,8 +658,8 @@ if (artistSelector) {
     }
     document.title = `${selectedName} Spotify Streams - Fan Dashboard`;
     
-    // For Lady Gaga, force active view to 'albums'
-    if (currentArtist === '1HY2Jd0NmPuamShAr6KMms') {
+    // For album-only artists (Gaga, Billie, Ariana), force active view to 'albums'
+    if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
       activeView = 'albums';
       viewToggleBtns.forEach(b => {
         if (b.dataset.view === 'albums') b.classList.add('active');
