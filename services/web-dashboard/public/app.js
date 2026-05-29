@@ -19,6 +19,7 @@ const sortHeaders = document.querySelectorAll('th.sortable');
 const totalStreamsEl = document.getElementById('total-streams');
 const leadStreamsEl = document.getElementById('lead-streams');
 const featStreamsEl = document.getElementById('feat-streams');
+const soloStreamsEl = document.getElementById('solo-streams');
 const dailyStreamsEl = document.getElementById('daily-streams');
 const totalSongsEl = document.getElementById('total-songs');
 const lastUpdateEl = document.getElementById('last-update');
@@ -69,6 +70,7 @@ async function fetchData() {
     totalStreamsEl.textContent = formatNumber(statsData.total_streams);
     leadStreamsEl.textContent = formatNumber(statsData.lead_streams);
     featStreamsEl.textContent = formatNumber(statsData.feat_streams);
+    soloStreamsEl.textContent = formatNumber(statsData.solo_streams);
     
     // Bind daily streams total
     const dailyGainTotal = Number(statsData.daily_gain);
@@ -130,6 +132,8 @@ function renderSongs() {
     let matchesType = true;
     if (typeFilter === 'lead') {
       matchesType = !song.is_featured;
+    } else if (typeFilter === 'solo') {
+      matchesType = song.is_solo;
     } else if (typeFilter === 'featured') {
       matchesType = song.is_featured;
     }
@@ -236,6 +240,7 @@ function renderSongs() {
 
   tbody.innerHTML = filteredSongs.map(song => {
     const isFeatured = song.is_featured;
+    const isSolo = song.is_solo;
     const dailyGain = Number(song.daily_gain);
     
     let gainHtml = '<span class="gain-cell gain-neutral">-</span>';
@@ -248,6 +253,16 @@ function renderSongs() {
     const albumEscaped = song.album_title ? song.album_title.replace(/'/g, "\\'") : '';
     const dateFormatted = song.release_date || '';
 
+    let badgeClass = 'badge-lead';
+    let badgeText = 'Lead';
+    if (isFeatured) {
+      badgeClass = 'badge-feat';
+      badgeText = 'Featured';
+    } else if (isSolo) {
+      badgeClass = 'badge-solo';
+      badgeText = 'Solo';
+    }
+
     return `
       <tr class="${isFeatured ? 'featured-row' : ''}">
         <td><strong>${song.rank}</strong></td>
@@ -255,8 +270,8 @@ function renderSongs() {
           <div class="song-title-cell">
             <a href="https://open.spotify.com/track/${song.id}" target="_blank" rel="noopener noreferrer" class="song-title song-link">${song.title}</a>
             <div class="badge-wrapper">
-              <span class="badge ${isFeatured ? 'badge-feat' : 'badge-lead'}">
-                ${isFeatured ? 'Featured' : 'Lead'}
+              <span class="badge ${badgeClass}">
+                ${badgeText}
               </span>
             </div>
           </div>

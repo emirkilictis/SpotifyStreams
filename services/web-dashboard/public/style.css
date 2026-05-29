@@ -19,6 +19,9 @@
   --accent-purple: #8b5cf6;
   --accent-purple-glow: rgba(139, 92, 246, 0.3);
   
+  --accent-blue: #3b82f6;
+  --accent-blue-glow: rgba(59, 130, 246, 0.3);
+  
   --accent-red: #ef4444;
   
   --glass-blur: blur(16px);
@@ -604,6 +607,12 @@ tbody tr.featured-row:hover {
   border: 1px solid rgba(139, 92, 246, 0.3);
   color: var(--accent-purple);
   background: rgba(139, 92, 246, 0.08);
+}
+
+.badge-solo {
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: var(--accent-blue);
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .album-title {

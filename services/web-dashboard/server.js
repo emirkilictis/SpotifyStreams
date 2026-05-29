@@ -82,6 +82,7 @@ app.get('/api/songs', requireAuth, async (req, res) => {
         s.id,
         s.title,
         s.is_featured,
+        s.is_solo,
         s.duration_ms,
         CASE 
           WHEN s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
@@ -110,7 +111,7 @@ app.get('/api/songs', requireAuth, async (req, res) => {
         ORDER BY canonical_id, recorded_date DESC
       ) dsc ON s.id = dsc.canonical_id
       WHERE s.canonical_id IS NULL AND (
-        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms'))
+        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqG38t71JXMv4q7znpcr0'))
         OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
       )
       ORDER BY cumulative DESC;
@@ -132,6 +133,7 @@ app.get('/api/stats', requireAuth, async (req, res) => {
         COALESCE(SUM(dsc.cumulative), 0)::bigint AS total_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_featured), 0)::bigint AS feat_streams,
+        COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_solo), 0)::bigint AS solo_streams,
         COALESCE(SUM(dsc.daily_gain), 0)::bigint AS daily_gain,
         COUNT(*)::int AS total_songs,
         MAX(dsc.recorded_date) AS last_update
@@ -146,7 +148,7 @@ app.get('/api/stats', requireAuth, async (req, res) => {
       ) dsc
       JOIN songs s ON s.id = dsc.canonical_id
       WHERE (
-        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms'))
+        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqG38t71JXMv4q7znpcr0'))
         OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
       );
     `;
@@ -189,7 +191,7 @@ app.get('/api/albums', requireAuth, async (req, res) => {
           ORDER BY canonical_id, recorded_date DESC
         ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
         WHERE (
-          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms'))
+          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqG38t71JXMv4q7znpcr0'))
           OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
         )
       ),
@@ -242,6 +244,9 @@ app.get('/api/albums', requireAuth, async (req, res) => {
             title ILIKE '%fame monster%'
             OR title ILIKE '%mayhem%'
             OR id = '5C7E6m8S9vJ36z0Z39O64L'
+          ))
+          OR ($1 = 'spotify:artist:6qqG38t71JXMv4q7znpcr0' AND (
+            title ILIKE 'HIT ME HARD AND SOFT%'
           ))
       )
       SELECT

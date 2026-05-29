@@ -38,8 +38,8 @@ async function upsertSong(client, song) {
   //  - Mevcut own (is_featured=false) → güncelleme YAPMA
   //  - Mevcut featured → ancak title/duration güncellenebilir, album değişmez
   await client.query(
-    `INSERT INTO songs (id, title, album_id, duration_ms, track_number, is_featured, primary_artist)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO songs (id, title, album_id, duration_ms, track_number, is_featured, primary_artist, is_solo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (id) DO UPDATE
        SET title          = EXCLUDED.title,
            duration_ms    = EXCLUDED.duration_ms,
@@ -49,9 +49,10 @@ async function upsertSong(client, song) {
                                  ELSE songs.album_id END,
            is_featured    = songs.is_featured AND EXCLUDED.is_featured,
            primary_artist = CASE WHEN songs.is_featured AND NOT EXCLUDED.is_featured THEN EXCLUDED.primary_artist
-                                 ELSE songs.primary_artist END`,
+                                 ELSE songs.primary_artist END,
+           is_solo        = EXCLUDED.is_solo`,
     [song.id, song.title, song.album_id, song.duration_ms, song.track_number,
-     song.is_featured ?? false, song.primary_artist ?? null]
+     song.is_featured ?? false, song.primary_artist ?? null, song.is_solo ?? true]
   );
 }
 

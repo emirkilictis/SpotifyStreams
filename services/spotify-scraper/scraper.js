@@ -102,6 +102,11 @@ async function processAlbum(page, client, album, artistUri, stats) {
       trackTitle = 'Not a Bad Thing - Radio Edit';
     }
 
+    let isSolo = !isFeaturedTrack;
+    if (track.artistUris && track.artistUris.length > 1) {
+      isSolo = false;
+    }
+
     await upsertSong(client, {
       id:             track.id,
       title:          trackTitle,
@@ -110,6 +115,7 @@ async function processAlbum(page, client, album, artistUri, stats) {
       track_number:   track.track_number,
       is_featured:    isFeaturedTrack,
       primary_artist: artistUri,
+      is_solo:        isSolo,
     });
     if (track.playCount > 0) {
       await upsertStreamStat(client, track.id, track.playCount);
@@ -133,6 +139,15 @@ async function scrapeArtist(page, client, artistId, stats) {
       return title.includes('mayhem') || title.includes('fame monster') || a.id === '5C7E6m8S9vJ36z0Z39O64L';
     });
     console.log(`[scraper] Lady Gaga filtered to Mayhem & The Fame Monster: ${discoveredAlbums.length} albums.`);
+  }
+
+  // Billie Eilish filters: HIT ME HARD AND SOFT only
+  if (artistId === '6qqG38t71JXMv4q7znpcr0') {
+    discoveredAlbums = discoveredAlbums.filter(a => {
+      const title = a.title.toLowerCase();
+      return title.includes('hit me hard and soft');
+    });
+    console.log(`[scraper] Billie Eilish filtered to HIT ME HARD AND SOFT: ${discoveredAlbums.length} albums.`);
   }
 
   // 1. Save all discovered albums to DB
@@ -267,7 +282,10 @@ async function run() {
       await scrapeArtist(page, client, '5L1lO4eRHmJ7a0Q6csE5cT', stats);
       
       // Scrape Lady Gaga
-      // await scrapeArtist(page, client, '1HY2Jd0NmPuamShAr6KMms', stats);
+      await scrapeArtist(page, client, '1HY2Jd0NmPuamShAr6KMms', stats);
+      
+      // Scrape Billie Eilish
+      await scrapeArtist(page, client, '6qqG38t71JXMv4q7znpcr0', stats);
 
       await dedupCanonical(client);
 
