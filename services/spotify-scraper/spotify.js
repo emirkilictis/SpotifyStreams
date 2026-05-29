@@ -16,6 +16,19 @@ const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
 const CHROME_PATH = process.env.CHROME_PATH || (fs.existsSync(MAC_CHROME) ? MAC_CHROME : undefined);
 
 /**
+ * Dismisses cookie consent popup if present on the page.
+ */
+async function dismissCookieBanner(page) {
+  try {
+    await page.evaluate(() => {
+      const btn = document.getElementById('onetrust-accept-btn-handler');
+      if (btn) btn.click();
+    });
+    await new Promise(r => setTimeout(r, 800)); // wait for banner to disappear
+  } catch (e) {}
+}
+
+/**
  * Yeni bir tarayıcı + sayfa oluşturur, sp_dc cookie'sini kurar.
  */
 async function launchBrowser(spDc) {
@@ -60,6 +73,7 @@ async function fetchArtistAlbums(page, artistId) {
   await page.goto(`https://open.spotify.com/artist/${artistId}`, {
     waitUntil: 'networkidle2', timeout: 40000,
   });
+  await dismissCookieBanner(page);
   for (let i = 0; i < 15; i++) {
     if (result) break;
     await new Promise(r => setTimeout(r, 500));
@@ -109,6 +123,7 @@ async function fetchAlbumTracks(page, albumId) {
   await page.goto(`https://open.spotify.com/album/${albumId}`, {
     waitUntil: 'networkidle2', timeout: 40000,
   });
+  await dismissCookieBanner(page);
   for (let i = 0; i < 20; i++) {
     if (result) break;
     await new Promise(r => setTimeout(r, 500));
@@ -164,6 +179,7 @@ async function fetchArtistAppearsOn(page, artistId) {
     await page.goto(`https://open.spotify.com/artist/${artistId}/appears-on`, {
       waitUntil: 'networkidle2', timeout: 40000,
     });
+    await dismissCookieBanner(page);
     for (let i = 0; i < 15; i++) {
       if (result) break;
       await new Promise(r => setTimeout(r, 500));

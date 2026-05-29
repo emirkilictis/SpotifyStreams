@@ -111,7 +111,7 @@ app.get('/api/songs', requireAuth, async (req, res) => {
         ORDER BY canonical_id, recorded_date DESC
       ) dsc ON s.id = dsc.canonical_id
       WHERE s.canonical_id IS NULL AND (
-        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqG38t71JXMv4q7znpcr0'))
+        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR'))
         OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
       )
       ORDER BY cumulative DESC;
@@ -148,7 +148,7 @@ app.get('/api/stats', requireAuth, async (req, res) => {
       ) dsc
       JOIN songs s ON s.id = dsc.canonical_id
       WHERE (
-        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqG38t71JXMv4q7znpcr0'))
+        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR'))
         OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
       );
     `;
@@ -191,7 +191,7 @@ app.get('/api/albums', requireAuth, async (req, res) => {
           ORDER BY canonical_id, recorded_date DESC
         ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
         WHERE (
-          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqG38t71JXMv4q7znpcr0'))
+          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR'))
           OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
         )
       ),
@@ -245,8 +245,17 @@ app.get('/api/albums', requireAuth, async (req, res) => {
             OR title ILIKE '%mayhem%'
             OR id = '5C7E6m8S9vJ36z0Z39O64L'
           ))
-          OR ($1 = 'spotify:artist:6qqG38t71JXMv4q7znpcr0' AND (
+          OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
             title ILIKE 'HIT ME HARD AND SOFT%'
+          ))
+          OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
+            title ILIKE 'Yours Truly%'
+            OR title ILIKE 'My Everything%'
+            OR title ILIKE 'Dangerous Woman%'
+            OR title ILIKE 'Sweetener%'
+            OR title ILIKE 'thank u, next%'
+            OR title ILIKE 'Positions%'
+            OR title ILIKE 'eternal sunshine%'
           ))
       )
       SELECT

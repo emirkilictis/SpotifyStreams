@@ -382,10 +382,12 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   // Set cover art
   const modalCoverUrl = coverUrl || ALBUM_COVERS[albumId] || '';
   if (modalCoverUrl) {
+    modalCover.crossOrigin = 'anonymous';
     modalCover.src = modalCoverUrl;
     modalCover.classList.remove('hidden');
     modalCover.style.boxShadow = `0 8px 32px ${theme.glow}`;
   } else {
+    modalCover.removeAttribute('crossorigin');
     modalCover.src = 'data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%231db954\' stroke-width=\'1.5\' style=\'background:%23121212\'><circle cx=\'12\' cy=\'12\' r=\'10\'/><circle cx=\'12\' cy=\'12\' r=\'3\'/><path d=\'M12 9v6\'/></svg>';
     modalCover.classList.remove('hidden');
     modalCover.style.boxShadow = `0 8px 32px ${theme.glow}`;
@@ -487,6 +489,7 @@ async function downloadModalAsImage() {
 
   const closeBtn = document.getElementById('modal-close-btn');
   const downloadBtn = document.getElementById('modal-download-btn');
+  const backdrop = document.getElementById('album-modal');
   
   // Hide UI buttons from card capture
   if (closeBtn) closeBtn.style.visibility = 'hidden';
@@ -495,32 +498,66 @@ async function downloadModalAsImage() {
   // Save original scroll/overflow styles so we can restore them later
   const origMaxHeight = modalCard.style.maxHeight;
   const origOverflow = modalCard.style.overflow;
+  const origBackdropOverflow = backdrop ? backdrop.style.overflow : '';
 
   // Temporarily expand the modal to show ALL tracks (remove scroll constraints)
   modalCard.style.maxHeight = 'none';
   modalCard.style.overflow = 'visible';
+  if (backdrop) backdrop.style.overflow = 'visible';
 
-  // Also expand the backdrop so the card isn't clipped by the viewport
-  const backdrop = document.getElementById('album-modal');
-  const origBackdropOverflow = backdrop.style.overflow;
-  backdrop.style.overflow = 'visible';
+  const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
 
   try {
     const canvas = await html2canvas(modalCard, {
       backgroundColor: '#080c14', // Match dashboard background color
-      scale: 2, // High resolution scaling
+      scale: isMobile ? 1.2 : 2, // Use slightly lower scale on mobile to avoid memory limits
       useCORS: true, // Allow external Spotify cover image domains
       logging: false,
-      scrollY: -window.scrollY, // Prevent scroll offset issues
-      windowHeight: modalCard.scrollHeight + 200 // Ensure full height is captured
+      scrollX: 0,
+      scrollY: 0,
+      onclone: (clonedDoc) => {
+        // Change position of backdrop from fixed to absolute to avoid scroll offsets
+        const clonedBackdrop = clonedDoc.getElementById('album-modal');
+        if (clonedBackdrop) {
+          clonedBackdrop.style.position = 'absolute';
+          clonedBackdrop.style.top = '0';
+          clonedBackdrop.style.left = '0';
+          clonedBackdrop.style.width = '100%';
+          clonedBackdrop.style.height = '100%';
+          clonedBackdrop.style.backdropFilter = 'none';
+          clonedBackdrop.style.webkitBackdropFilter = 'none';
+        }
+        
+        const clonedCard = clonedDoc.querySelector('.modal-card');
+        if (clonedCard) {
+          clonedCard.style.position = 'relative';
+          clonedCard.style.maxHeight = 'none';
+          clonedCard.style.overflow = 'visible';
+          clonedCard.style.backdropFilter = 'none';
+          clonedCard.style.webkitBackdropFilter = 'none';
+          clonedCard.style.margin = '0 auto';
+        }
+
+        // Clean up backdrop filter on all elements inside the cloned tree
+        const glassElements = clonedDoc.querySelectorAll('.glass');
+        glassElements.forEach(el => {
+          el.style.backdropFilter = 'none';
+          el.style.webkitBackdropFilter = 'none';
+        });
+      }
     });
 
     const url = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
     const albumTitle = document.getElementById('modal-album-title').textContent || 'album';
-    link.download = `${albumTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_streams.png`;
-    link.href = url;
-    link.click();
+    
+    if (isMobile) {
+      showMobileImageOverlay(url, albumTitle);
+    } else {
+      const link = document.createElement('a');
+      link.download = `${albumTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_streams.png`;
+      link.href = url;
+      link.click();
+    }
   } catch (err) {
     console.error('Failed to save image:', err);
     alert('Failed to generate image. Please try again.');
@@ -528,7 +565,7 @@ async function downloadModalAsImage() {
     // Restore original scroll/overflow styles
     modalCard.style.maxHeight = origMaxHeight;
     modalCard.style.overflow = origOverflow;
-    backdrop.style.overflow = origBackdropOverflow;
+    if (backdrop) backdrop.style.overflow = origBackdropOverflow;
 
     // Show UI buttons again
     if (closeBtn) closeBtn.style.visibility = 'visible';
@@ -610,9 +647,9 @@ if (artistSelector) {
     // Update Document and Dashboard Header Title dynamically
     const selectedName = artistSelector.options[artistSelector.selectedIndex].text;
     if (dashboardTitle) {
-      dashboardTitle.textContent = `${selectedName === 'LISA' ? 'LISA' : selectedName === 'Lady Gaga' ? 'Lady Gaga' : 'JT'} Spotify Streams`;
+      dashboardTitle.textContent = `${selectedName} Spotify Streams`;
     }
-    document.title = `${selectedName === 'LISA' ? 'LISA' : selectedName === 'Lady Gaga' ? 'Lady Gaga' : 'JT'} Spotify Streams - Fan Dashboard`;
+    document.title = `${selectedName} Spotify Streams - Fan Dashboard`;
     
     // For Lady Gaga, force active view to 'albums'
     if (currentArtist === '1HY2Jd0NmPuamShAr6KMms') {
@@ -646,4 +683,46 @@ fetch(`/api/albums?artist=${currentArtist}`)
   .then(data => {
     allAlbums = data;
   }).catch(err => console.error(err));
+
+function showMobileImageOverlay(imageUrl, albumTitle) {
+  const overlay = document.createElement('div');
+  overlay.id = 'mobile-image-overlay';
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100%';
+  overlay.style.height = '100%';
+  overlay.style.backgroundColor = 'rgba(4, 6, 10, 0.85)';
+  overlay.style.backdropFilter = 'blur(16px)';
+  overlay.style.webkitBackdropFilter = 'blur(16px)';
+  overlay.style.zIndex = '9999';
+  overlay.style.display = 'flex';
+  overlay.style.flexDirection = 'column';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.padding = '24px';
+  overlay.style.boxSizing = 'border-box';
+
+  overlay.innerHTML = `
+    <div style="text-align: center; margin-bottom: 20px; color: #fff; max-width: 90%;">
+      <h3 style="margin: 0 0 8px 0; font-family: 'Outfit', sans-serif; font-size: 1.4rem; font-weight: 700; color: #1db954;">Görsel Hazır!</h3>
+      <p style="margin: 0; font-size: 0.95rem; opacity: 0.9; font-family: 'Inter', sans-serif; line-height: 1.5;">
+        Görseli kaydetmek için resmin üzerine <strong>basılı tutun</strong> ve <strong>"Fotoğraflara Ekle"</strong> veya <strong>"Resmi Kaydet"</strong> seçeneğini seçin.
+      </p>
+    </div>
+    <div style="max-width: 100%; max-height: 60vh; overflow-y: auto; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); background: #080c14;">
+      <img src="${imageUrl}" alt="${albumTitle}" style="width: 100%; height: auto; display: block; border-radius: 16px;">
+    </div>
+    <button id="close-mobile-overlay" style="margin-top: 25px; padding: 12px 32px; border: none; background: linear-gradient(135deg, rgba(29, 185, 84, 0.2) 0%, rgba(29, 185, 84, 0.1) 100%); color: #1db954; border-radius: 24px; font-weight: 700; cursor: pointer; font-family: 'Outfit', sans-serif; border: 1px solid rgba(29, 185, 84, 0.4); box-shadow: 0 4px 12px rgba(29, 185, 84, 0.15); transition: all 0.2s; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px;">
+      Kapat
+    </button>
+  `;
+
+  document.body.appendChild(overlay);
+
+  document.getElementById('close-mobile-overlay').addEventListener('click', () => {
+    overlay.remove();
+  });
+}
+
 

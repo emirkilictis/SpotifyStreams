@@ -142,12 +142,27 @@ async function scrapeArtist(page, client, artistId, stats) {
   }
 
   // Billie Eilish filters: HIT ME HARD AND SOFT only
-  if (artistId === '6qqG38t71JXMv4q7znpcr0') {
+  if (artistId === '6qqNVTkY8uBg9cP3Jd7DAH') {
     discoveredAlbums = discoveredAlbums.filter(a => {
       const title = a.title.toLowerCase();
       return title.includes('hit me hard and soft');
     });
     console.log(`[scraper] Billie Eilish filtered to HIT ME HARD AND SOFT: ${discoveredAlbums.length} albums.`);
+  }
+
+  // Ariana Grande filters: official studio albums only
+  if (artistId === '66CXWjxzNUsdJxJ2JdwvnR') {
+    discoveredAlbums = discoveredAlbums.filter(a => {
+      const title = a.title.toLowerCase();
+      return title.includes('yours truly') ||
+             title.includes('my everything') ||
+             title.includes('dangerous woman') ||
+             title.includes('sweetener') ||
+             title.includes('thank u, next') ||
+             title.includes('positions') ||
+             title.includes('eternal sunshine');
+    });
+    console.log(`[scraper] Ariana Grande filtered to studio albums: ${discoveredAlbums.length} albums.`);
   }
 
   // 1. Save all discovered albums to DB
@@ -187,22 +202,26 @@ async function scrapeArtist(page, client, artistId, stats) {
     });
   }
   
-  const albumsToScrape = Array.from(albumMap.values());
-  
-  // For JT, manually ensure the "Not a Bad Thing" Single album is scraped
-  // so that "Not a Bad Thing - Radio Edit" gets updated daily.
+  // For JT, manually ensure specific albums containing manual or featured tracks are scraped:
+  // - "Not a Bad Thing" Single (32dGD25hfIVdhugEXoVu2s)
+  // - "FutureSex/LoveSounds (Deluxe Edition)" (51lCQxAHpJHuqvvK0z12zp) containing "Pose"
+  // - "Timeless" by Sergio Mendes (4sceISkCvRuDbd74AtKeEH) containing "Loose Ends"
   if (artistId === '31TPClRtHm23RisEBtV3X7') {
-    if (!albumMap.has('32dGD25hfIVdhugEXoVu2s')) {
-      const singleAlbum = {
-        id: '32dGD25hfIVdhugEXoVu2s',
-        title: 'Not a Bad Thing (Single)',
-        release_date: '2014-02-24',
-        is_featured: false
-      };
-      await upsertAlbum(client, singleAlbum);
-      albumsToScrape.push(singleAlbum);
+    const extraAlbums = [
+      { id: '32dGD25hfIVdhugEXoVu2s', title: 'Not a Bad Thing (Single)', release_date: '2014-02-24', is_featured: false },
+      { id: '51lCQxAHpJHuqvvK0z12zp', title: 'FutureSex/LoveSounds (Deluxe Edition)', release_date: '2006-09-11', is_featured: false },
+      { id: '4sceISkCvRuDbd74AtKeEH', title: 'Timeless', release_date: '2005-12-31', is_featured: true }
+    ];
+
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
     }
   }
+
+  const albumsToScrape = Array.from(albumMap.values());
   
   console.log(`[scraper] Scraping ${albumsToScrape.length} albums for ${artistId}...`);
 
@@ -285,7 +304,10 @@ async function run() {
       await scrapeArtist(page, client, '1HY2Jd0NmPuamShAr6KMms', stats);
       
       // Scrape Billie Eilish
-      await scrapeArtist(page, client, '6qqG38t71JXMv4q7znpcr0', stats);
+      await scrapeArtist(page, client, '6qqNVTkY8uBg9cP3Jd7DAH', stats);
+      
+      // Scrape Ariana Grande
+      await scrapeArtist(page, client, '66CXWjxzNUsdJxJ2JdwvnR', stats);
 
       await dedupCanonical(client);
 
