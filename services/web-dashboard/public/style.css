@@ -1621,6 +1621,9 @@ tbody tr.featured-row:hover {
    Mobile header layout fix (stack brand above actions, prevent title wrap)
    ========================================================================== */
 @media (max-width: 600px) {
+  .dashboard-header {
+    position: static;
+  }
   .dashboard-header .header-container {
     flex-direction: column;
     align-items: stretch;

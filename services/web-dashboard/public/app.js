@@ -30,6 +30,7 @@ const soloStreamsEl = document.getElementById('solo-streams');
 const dailyStreamsEl = document.getElementById('daily-streams');
 const totalSongsEl = document.getElementById('total-songs');
 const lastUpdateEl = document.getElementById('last-update');
+const statsGrid = document.querySelector('.stats-grid');
 
 // View Toggle Elements
 const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
@@ -706,6 +707,7 @@ if (artistSelector) {
     
     // For album-only artists (Gaga, Billie, Ariana), force active view to 'albums'
     if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
+      if (statsGrid) statsGrid.classList.add('hidden');
       activeView = 'albums';
       viewToggleBtns.forEach(b => {
         if (b.dataset.view === 'albums') b.classList.add('active');
@@ -715,6 +717,7 @@ if (artistSelector) {
       albumsViewSection.classList.remove('hidden');
       await fetchAlbumsData();
     } else {
+      if (statsGrid) statsGrid.classList.remove('hidden');
       activeView = 'songs';
       viewToggleBtns.forEach(b => {
         if (b.dataset.view === 'songs') b.classList.add('active');
@@ -754,6 +757,7 @@ async function enterDashboard(artistId, artistName) {
   
   // Set correct view based on artist type
   if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
+    if (statsGrid) statsGrid.classList.add('hidden');
     activeView = 'albums';
     viewToggleBtns.forEach(b => {
       if (b.dataset.view === 'albums') b.classList.add('active');
@@ -763,6 +767,7 @@ async function enterDashboard(artistId, artistName) {
     albumsViewSection.classList.remove('hidden');
     await fetchAlbumsData();
   } else {
+    if (statsGrid) statsGrid.classList.remove('hidden');
     activeView = 'songs';
     viewToggleBtns.forEach(b => {
       if (b.dataset.view === 'songs') b.classList.add('active');
