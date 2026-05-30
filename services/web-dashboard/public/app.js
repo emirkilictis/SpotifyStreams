@@ -258,7 +258,7 @@ function renderSongs() {
     return;
   }
 
-  tbody.innerHTML = filteredSongs.map(song => {
+  tbody.innerHTML = filteredSongs.map((song, idx) => {
     const isFeatured = song.is_featured;
     const isSolo = song.is_solo;
     const dailyGain = Number(song.daily_gain);
@@ -285,7 +285,7 @@ function renderSongs() {
 
     return `
       <tr class="${isFeatured ? 'featured-row' : ''}">
-        <td><strong>${song.rank}</strong></td>
+        <td><strong>${idx + 1}</strong></td>
         <td>
           <div class="song-title-cell">
             <a href="https://open.spotify.com/track/${song.id}" target="_blank" rel="noopener noreferrer" class="song-title song-link">${song.title}</a>
