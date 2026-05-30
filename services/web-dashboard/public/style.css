@@ -1514,3 +1514,32 @@ tbody tr.featured-row:hover {
     gap: 10px;
   }
 }
+
+/* ==========================================================================
+   Mobile header layout fix (stack brand above actions, prevent title wrap)
+   ========================================================================== */
+@media (max-width: 600px) {
+  .dashboard-header .header-container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .dashboard-header .brand {
+    width: 100%;
+  }
+  .dashboard-header .brand h1 {
+    white-space: normal;
+    line-height: 1.2;
+    font-size: 1.2rem;
+  }
+  .dashboard-header .user-actions {
+    width: 100%;
+    display: flex;
+    gap: 10px;
+  }
+  .dashboard-header .user-actions .btn-secondary {
+    flex: 1;
+    text-align: center;
+    white-space: nowrap;
+  }
+}
