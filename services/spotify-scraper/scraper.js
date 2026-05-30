@@ -141,13 +141,17 @@ async function scrapeArtist(page, client, artistId, stats) {
     console.log(`[scraper] Lady Gaga filtered to Mayhem & The Fame Monster: ${discoveredAlbums.length} albums.`);
   }
 
-  // Billie Eilish filters: HIT ME HARD AND SOFT only
+  // Billie Eilish filters: official studio albums and EPs
   if (artistId === '6qqNVTkY8uBg9cP3Jd7DAH') {
     discoveredAlbums = discoveredAlbums.filter(a => {
       const title = a.title.toLowerCase();
-      return title.includes('hit me hard and soft');
+      return title.includes('hit me hard and soft') ||
+             title.includes('happier than ever') ||
+             title.includes('when we all fall asleep') ||
+             title.includes('smile at me') ||
+             title.includes('guitar songs');
     });
-    console.log(`[scraper] Billie Eilish filtered to HIT ME HARD AND SOFT: ${discoveredAlbums.length} albums.`);
+    console.log(`[scraper] Billie Eilish filtered to official albums: ${discoveredAlbums.length} albums.`);
   }
 
   // Ariana Grande filters: official studio albums only
@@ -211,6 +215,20 @@ async function scrapeArtist(page, client, artistId, stats) {
       { id: '32dGD25hfIVdhugEXoVu2s', title: 'Not a Bad Thing (Single)', release_date: '2014-02-24', is_featured: false },
       { id: '51lCQxAHpJHuqvvK0z12zp', title: 'FutureSex/LoveSounds (Deluxe Edition)', release_date: '2006-09-11', is_featured: false },
       { id: '4sceISkCvRuDbd74AtKeEH', title: 'Timeless', release_date: '2005-12-31', is_featured: true }
+    ];
+
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
+    }
+  }
+
+  // For Billie Eilish, manually ensure dont smile at me is scraped
+  if (artistId === '6qqNVTkY8uBg9cP3Jd7DAH') {
+    const extraAlbums = [
+      { id: '5YCdlD3eREt72lTZxNL7id', title: 'dont smile at me', release_date: '2017-08-11', is_featured: false }
     ];
 
     for (const extra of extraAlbums) {

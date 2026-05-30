@@ -120,6 +120,11 @@ app.get('/api/songs', requireAuth, async (req, res) => {
         ))
         OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
             a.title ILIKE 'HIT ME HARD AND SOFT%'
+            OR a.title ILIKE 'Happier Than Ever%'
+            OR a.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%'
+            OR a.title ILIKE 'dont smile at me%'
+            OR a.title ILIKE 'don''t smile at me%'
+            OR a.title ILIKE 'Guitar Songs%'
         ))
         OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
             a.title ILIKE 'Yours Truly%'
@@ -175,6 +180,11 @@ app.get('/api/stats', requireAuth, async (req, res) => {
         ))
         OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
             a.title ILIKE 'HIT ME HARD AND SOFT%'
+            OR a.title ILIKE 'Happier Than Ever%'
+            OR a.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%'
+            OR a.title ILIKE 'dont smile at me%'
+            OR a.title ILIKE 'don''t smile at me%'
+            OR a.title ILIKE 'Guitar Songs%'
         ))
         OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
             a.title ILIKE 'Yours Truly%'
@@ -282,6 +292,11 @@ app.get('/api/albums', requireAuth, async (req, res) => {
           ))
           OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
             title ILIKE 'HIT ME HARD AND SOFT%'
+            OR title ILIKE 'Happier Than Ever%'
+            OR title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%'
+            OR title ILIKE 'dont smile at me%'
+            OR title ILIKE 'don''t smile at me%'
+            OR title ILIKE 'Guitar Songs%'
           ))
           OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
             title ILIKE 'Yours Truly%'
