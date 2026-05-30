@@ -326,7 +326,7 @@ function renderAlbums() {
     const dateFormatted = album.release_date || '';
     const coverUrl = album.image_url || ALBUM_COVERS[album.album_id] || '';
     const imgHtml = coverUrl 
-      ? `<div class="album-cover-wrapper"><img src="${coverUrl}" alt="${album.album_title}" class="album-cover-img" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'100\\' height=\\'100\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%231db954\\' stroke-width=\\'1.5\\' style=\\'background:%23121212\\'><circle cx=\\'12\\' cy=\\'12\\' r=\\'10\\'/><circle cx=\\'12\\' cy=\\'12\\' r=\\'3\\'/><path d=\\'M12 9v6\\'/></svg>'"></div>`
+      ? `<div class="album-cover-wrapper"><img src="${coverUrl}" alt="${album.album_title}" class="album-cover-img" crossorigin="anonymous" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'100\\' height=\\'100\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%231db954\\' stroke-width=\\'1.5\\' style=\\'background:%23121212\\'><circle cx=\\'12\\' cy=\\'12\\' r=\\'10\\'/><circle cx=\\'12\\' cy=\\'12\\' r=\\'3\\'/><path d=\\'M12 9v6\\'/></svg>'"></div>`
       : `<div class="album-cover-wrapper fallback-cover"><div class="vinyl-record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="music-icon"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 9v6"></path></svg></div></div>`;
     const coverUrlEscaped = coverUrl ? coverUrl.replace(/'/g, "\\'") : '';
     
@@ -378,6 +378,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
 
   // Show modal layout
   albumModal.classList.remove('hidden');
+  modalCard.scrollTop = 0; // Reset scroll position to top
   modalTbody.innerHTML = `<tr><td colspan="6" class="table-loading">Loading album tracks...</td></tr>`;
   
   if (title) {
@@ -517,7 +518,7 @@ async function downloadModalAsImage() {
   try {
     const canvas = await html2canvas(modalCard, {
       backgroundColor: '#080c14', // Match dashboard background color
-      scale: isMobile ? 1.2 : 2, // Use slightly lower scale on mobile to avoid memory limits
+      scale: isMobile ? 1.0 : 2, // Set to 1.0 to avoid iOS canvas size limit crashes
       useCORS: true, // Allow external Spotify cover image domains
       logging: false,
       scrollX: 0,
