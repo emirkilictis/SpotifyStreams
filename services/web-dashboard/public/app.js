@@ -57,6 +57,18 @@ function formatDuration(ms) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
+// Convert a #rrggbb / #rgb hex color to an "r, g, b" triplet for use inside
+// rgba(). We avoid CSS color-mix()/color(srgb ...) because html2canvas 1.4.1
+// cannot parse those and the Save Card export throws on them.
+function hexToRgbTriplet(hex) {
+  if (!hex) return '30, 215, 96';
+  let h = hex.trim().replace('#', '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const num = parseInt(h, 16);
+  if (isNaN(num) || h.length !== 6) return '30, 215, 96';
+  return `${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}`;
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
@@ -371,6 +383,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   // Apply album theme
   const theme = ALBUM_THEMES[albumId] || DEFAULT_THEME;
   modalCard.style.setProperty('--album-accent', theme.accent);
+  modalCard.style.setProperty('--album-accent-rgb', hexToRgbTriplet(theme.accent));
   modalCard.style.setProperty('--album-glow', theme.glow);
   modalCard.style.background = `linear-gradient(165deg, ${theme.gradStart} 0%, ${theme.gradEnd} 100%)`;
   modalCard.style.borderColor = theme.accent + '30';

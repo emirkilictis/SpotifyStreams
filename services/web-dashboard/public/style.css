@@ -1271,29 +1271,30 @@ tbody tr.featured-row:hover {
 /* Themed Modal Enhancements */
 .modal-card {
   --album-accent: #1db954;
+  --album-accent-rgb: 30, 215, 96;
   --album-glow: rgba(29, 185, 84, 0.3);
 }
 
 .modal-stats {
-  border-color: color-mix(in srgb, var(--album-accent) 15%, transparent) !important;
-  background: color-mix(in srgb, var(--album-accent) 5%, transparent) !important;
+  border-color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.15) !important;
+  background: rgba(var(--album-accent-rgb, 30, 215, 96), 0.05) !important;
 }
 
 .modal-stat-box .label {
-  color: color-mix(in srgb, var(--album-accent) 60%, var(--text-secondary));
+  color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.75);
 }
 
 .modal-table th {
   color: var(--album-accent, var(--text-secondary));
-  border-bottom-color: color-mix(in srgb, var(--album-accent) 20%, transparent);
+  border-bottom-color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.2);
 }
 
 .modal-table tbody tr:hover {
-  background: color-mix(in srgb, var(--album-accent) 6%, transparent);
+  background: rgba(var(--album-accent-rgb, 30, 215, 96), 0.06);
 }
 
 .modal-table td {
-  border-bottom-color: color-mix(in srgb, var(--album-accent) 8%, transparent);
+  border-bottom-color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.08);
 }
 
 .modal-table .song-link:hover {
