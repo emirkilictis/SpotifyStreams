@@ -1230,3 +1230,287 @@ tbody tr.featured-row:hover {
   height: 40%;
   color: var(--accent-green);
 }
+
+/* ==========================================================================
+   Artist Picker Landing Page
+   ========================================================================== */
+.artist-picker-section {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  padding: 40px 20px;
+}
+
+/* Ambient glow orbs */
+.picker-bg-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.25;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.picker-glow-1 {
+  width: 400px;
+  height: 400px;
+  background: var(--accent-green);
+  top: -100px;
+  left: -100px;
+  animation: pickerFloat1 16s infinite alternate ease-in-out;
+}
+
+.picker-glow-2 {
+  width: 350px;
+  height: 350px;
+  background: var(--accent-purple);
+  bottom: -50px;
+  right: -80px;
+  animation: pickerFloat2 14s infinite alternate ease-in-out;
+}
+
+.picker-glow-3 {
+  width: 250px;
+  height: 250px;
+  background: var(--accent-blue);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  animation: pickerFloat3 18s infinite alternate ease-in-out;
+}
+
+@keyframes pickerFloat1 {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.2; }
+  100% { transform: translate(80px, 60px) scale(1.2); opacity: 0.35; }
+}
+
+@keyframes pickerFloat2 {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.2; }
+  100% { transform: translate(-60px, -40px) scale(1.15); opacity: 0.3; }
+}
+
+@keyframes pickerFloat3 {
+  0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.1; }
+  100% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.2; }
+}
+
+.picker-container {
+  position: relative;
+  z-index: 1;
+  max-width: 900px;
+  width: 100%;
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.picker-header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.picker-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: rgba(30, 215, 96, 0.12);
+  border: 1px solid rgba(30, 215, 96, 0.2);
+  color: var(--accent-green);
+  margin-bottom: 20px;
+  box-shadow: 0 0 30px rgba(30, 215, 96, 0.15);
+}
+
+.picker-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 2.8rem;
+  font-weight: 800;
+  letter-spacing: -1px;
+  background: linear-gradient(135deg, #ffffff 0%, #94a3b8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 12px;
+}
+
+.picker-subtitle {
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* Artist Cards Grid */
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.picker-card {
+  background: var(--card-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  padding: 0;
+  font-family: inherit;
+  color: inherit;
+  outline: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.picker-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  border-color: rgba(30, 215, 96, 0.4);
+  box-shadow: 
+    0 20px 40px rgba(0, 0, 0, 0.5),
+    0 0 40px rgba(30, 215, 96, 0.12);
+}
+
+.picker-card:active {
+  transform: translateY(-4px) scale(1.01);
+}
+
+.picker-card:focus-visible {
+  border-color: var(--accent-green);
+  box-shadow: 0 0 0 3px var(--accent-green-glow);
+}
+
+.picker-card-img-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
+
+.picker-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.picker-card:hover .picker-card-img {
+  transform: scale(1.08);
+}
+
+.picker-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(8, 12, 20, 0.9) 0%,
+    rgba(8, 12, 20, 0.1) 50%,
+    transparent 100%
+  );
+  transition: opacity 0.4s ease;
+}
+
+.picker-card:hover .picker-card-overlay {
+  background: linear-gradient(
+    to top,
+    rgba(8, 12, 20, 0.95) 0%,
+    rgba(30, 215, 96, 0.05) 50%,
+    transparent 100%
+  );
+}
+
+.picker-card-info {
+  padding: 16px 18px 20px;
+  text-align: center;
+}
+
+.picker-card-info h3 {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  transition: color 0.3s ease;
+}
+
+.picker-card:hover .picker-card-info h3 {
+  color: var(--accent-green);
+}
+
+/* Picker Footer */
+.picker-footer {
+  text-align: center;
+}
+
+.picker-logout-link {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  transition: var(--transition-smooth);
+}
+
+.picker-logout-link:hover {
+  color: var(--text-secondary);
+  border-color: var(--card-border);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Dashboard fade-in animation */
+#dashboard-wrapper {
+  animation: dashboardFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes dashboardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Artist Picker Responsive */
+@media (max-width: 600px) {
+  .picker-title {
+    font-size: 2rem;
+  }
+  
+  .picker-subtitle {
+    font-size: 0.9rem;
+  }
+  
+  .picker-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+  
+  .picker-card-info {
+    padding: 12px 14px 16px;
+  }
+  
+  .picker-card-info h3 {
+    font-size: 0.9rem;
+  }
+  
+  .picker-header {
+    margin-bottom: 32px;
+  }
+}
+
+@media (max-width: 380px) {
+  .picker-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+}

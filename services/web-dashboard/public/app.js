@@ -7,7 +7,7 @@ let typeFilter = 'all'; // 'all' | 'lead' | 'featured'
 let currentSortField = 'streams'; // 'rank' | 'title' | 'album' | 'duration' | 'streams' | 'gain'
 let currentSortDirection = 'desc';
 let activeView = 'songs'; // 'songs' | 'albums'
-let currentArtist = '31TPClRtHm23RisEBtV3X7'; // default to JT
+let currentArtist = null; // set when artist is picked
 
 // Artists that should only show the Albums view (no Songs tab)
 const ALBUM_ONLY_ARTISTS = new Set([
@@ -682,14 +682,78 @@ if (artistSelector) {
   });
 }
 
-// Initial load
-fetchData();
-// Initialize album counts/availability check
-fetch(`/api/albums?artist=${currentArtist}`)
-  .then(res => res.json())
-  .then(data => {
-    allAlbums = data;
-  }).catch(err => console.error(err));
+// ========== Artist Picker Logic ==========
+const pickerSection = document.getElementById('artist-picker');
+const dashboardWrapper = document.getElementById('dashboard-wrapper');
+const backToPickerBtn = document.getElementById('back-to-picker-btn');
+
+// Enter dashboard for a specific artist
+async function enterDashboard(artistId, artistName) {
+  currentArtist = artistId;
+  
+  // Update dropdown to match
+  if (artistSelector) {
+    artistSelector.value = artistId;
+  }
+  
+  // Update titles
+  if (dashboardTitle) {
+    dashboardTitle.textContent = `${artistName} Spotify Streams`;
+  }
+  document.title = `${artistName} Spotify Streams - Fan Dashboard`;
+  
+  // Hide picker, show dashboard
+  pickerSection.classList.add('hidden');
+  dashboardWrapper.classList.remove('hidden');
+  
+  // Set correct view based on artist type
+  if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
+    activeView = 'albums';
+    viewToggleBtns.forEach(b => {
+      if (b.dataset.view === 'albums') b.classList.add('active');
+      else b.classList.remove('active');
+    });
+    songsViewSection.classList.add('hidden');
+    albumsViewSection.classList.remove('hidden');
+    await fetchAlbumsData();
+  } else {
+    activeView = 'songs';
+    viewToggleBtns.forEach(b => {
+      if (b.dataset.view === 'songs') b.classList.add('active');
+      else b.classList.remove('active');
+    });
+    songsViewSection.classList.remove('hidden');
+    albumsViewSection.classList.add('hidden');
+    await fetchData();
+    await fetchAlbumsData();
+  }
+  
+  // Scroll to top
+  window.scrollTo(0, 0);
+}
+
+// Go back to picker
+function showPicker() {
+  dashboardWrapper.classList.add('hidden');
+  pickerSection.classList.remove('hidden');
+  window.scrollTo(0, 0);
+}
+
+// Picker card click handlers
+document.querySelectorAll('.picker-card').forEach(card => {
+  card.addEventListener('click', () => {
+    const artistId = card.dataset.artist;
+    const artistName = card.dataset.name;
+    enterDashboard(artistId, artistName);
+  });
+});
+
+// Back to picker button
+if (backToPickerBtn) {
+  backToPickerBtn.addEventListener('click', showPicker);
+}
+
+// Do NOT auto-load — wait for picker selection
 
 function showMobileImageOverlay(imageUrl, albumTitle) {
   const overlay = document.createElement('div');

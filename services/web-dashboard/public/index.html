@@ -10,6 +10,84 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="dashboard-body">
+  <!-- ========== Artist Picker Landing ========== -->
+  <section id="artist-picker" class="artist-picker-section">
+    <div class="picker-bg-glow picker-glow-1"></div>
+    <div class="picker-bg-glow picker-glow-2"></div>
+    <div class="picker-bg-glow picker-glow-3"></div>
+    
+    <div class="picker-container">
+      <div class="picker-header">
+        <div class="picker-logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 15V9l8 3-8 3z" fill="currentColor"/>
+          </svg>
+        </div>
+        <h1 class="picker-title">Spotify Streams</h1>
+        <p class="picker-subtitle">Choose an artist to view their streaming stats</p>
+      </div>
+
+      <div class="picker-grid">
+        <button class="picker-card" data-artist="31TPClRtHm23RisEBtV3X7" data-name="Justin Timberlake">
+          <div class="picker-card-img-wrap">
+            <img src="/images/jt.jpg" alt="Justin Timberlake" class="picker-card-img" loading="eager">
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3>Justin Timberlake</h3>
+          </div>
+        </button>
+
+        <button class="picker-card" data-artist="5L1lO4eRHmJ7a0Q6csE5cT" data-name="LISA">
+          <div class="picker-card-img-wrap">
+            <img src="https://i.scdn.co/image/ab6761610000e5eb5cd3b3af8b72e32be78571ec" alt="LISA" class="picker-card-img" loading="eager">
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3>LISA</h3>
+          </div>
+        </button>
+
+        <button class="picker-card" data-artist="1HY2Jd0NmPuamShAr6KMms" data-name="Lady Gaga">
+          <div class="picker-card-img-wrap">
+            <img src="https://i.scdn.co/image/ab6761610000e5ebaadc18cac8d48124357c38e6" alt="Lady Gaga" class="picker-card-img" loading="eager">
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3>Lady Gaga</h3>
+          </div>
+        </button>
+
+        <button class="picker-card" data-artist="6qqNVTkY8uBg9cP3Jd7DAH" data-name="Billie Eilish">
+          <div class="picker-card-img-wrap">
+            <img src="https://i.scdn.co/image/ab6761610000e5eb4a21b4760d2ecb7b0dcdc8da" alt="Billie Eilish" class="picker-card-img" loading="eager">
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3>Billie Eilish</h3>
+          </div>
+        </button>
+
+        <button class="picker-card" data-artist="66CXWjxzNUsdJxJ2JdwvnR" data-name="Ariana Grande">
+          <div class="picker-card-img-wrap">
+            <img src="https://i.scdn.co/image/ab6761610000e5eb766397ec42a573a53eb5fb87" alt="Ariana Grande" class="picker-card-img" loading="eager">
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3>Ariana Grande</h3>
+          </div>
+        </button>
+      </div>
+
+      <div class="picker-footer">
+        <a href="/logout" class="picker-logout-link">Log Out</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Dashboard (hidden until artist is picked) ========== -->
+  <div id="dashboard-wrapper" class="hidden">
   <header class="dashboard-header glass">
     <div class="header-container">
       <div class="brand">
@@ -25,10 +103,12 @@
         </div>
       </div>
       <div class="user-actions">
+        <button id="back-to-picker-btn" class="btn-secondary" title="Switch Artist">← Artists</button>
         <a href="/logout" class="btn-secondary">Log Out</a>
       </div>
     </div>
   </header>
+
 
   <main class="dashboard-container">
     <!-- Stats Section (6 Cards) -->
@@ -185,8 +265,9 @@
   </div>
 
   <footer class="dashboard-footer">
-    <p>&copy; 2026 Justin Timberlake Fan Club. All rights reserved.</p>
+    <p>&copy; 2026 Spotify Streams Fan Dashboard. All rights reserved.</p>
   </footer>
+  </div><!-- /dashboard-wrapper -->
 
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="/app.js"></script>
