@@ -515,11 +515,29 @@ async function downloadModalAsImage() {
 
   const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
 
+  // Make sure the cover image is fully decoded before capture. If it is
+  // broken or blocked by CORS, hide it so html2canvas does not choke on it.
+  const coverImg = document.getElementById('modal-album-cover');
+  let coverHiddenForCapture = false;
+  if (coverImg && coverImg.src) {
+    try {
+      await coverImg.decode();
+    } catch (e) {
+      coverImg.style.visibility = 'hidden';
+      coverHiddenForCapture = true;
+    }
+    if (!coverHiddenForCapture && !coverImg.naturalWidth) {
+      coverImg.style.visibility = 'hidden';
+      coverHiddenForCapture = true;
+    }
+  }
+
   try {
     const canvas = await html2canvas(modalCard, {
       backgroundColor: '#080c14', // Match dashboard background color
       scale: isMobile ? 1.0 : 2, // Set to 1.0 to avoid iOS canvas size limit crashes
       useCORS: true, // Allow external Spotify cover image domains
+      imageTimeout: 15000, // Don't hang forever on a slow cover image
       logging: false,
       scrollX: 0,
       scrollY: 0,
@@ -555,21 +573,35 @@ async function downloadModalAsImage() {
       }
     });
 
-    const url = canvas.toDataURL('image/png');
     const albumTitle = document.getElementById('modal-album-title').textContent || 'album';
-    
+    const fileName = `${albumTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_streams.png`;
+
+    // Prefer toBlob + object URL: a tall card as a base64 data URL is huge and
+    // crashes iOS Safari. Fall back to toDataURL where toBlob is unavailable.
+    let url = null;
+    if (canvas.toBlob) {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (blob) url = URL.createObjectURL(blob);
+    }
+    if (!url) url = canvas.toDataURL('image/png');
+
     if (isMobile) {
       showMobileImageOverlay(url, albumTitle);
     } else {
       const link = document.createElement('a');
-      link.download = `${albumTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_streams.png`;
+      link.download = fileName;
       link.href = url;
       link.click();
+      // Free the object URL shortly after the download has been triggered.
+      if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 10000);
     }
   } catch (err) {
     console.error('Failed to save image:', err);
-    alert('Failed to generate image. Please try again.');
+    alert('Görsel oluşturulamadı. Lütfen tekrar deneyin.');
   } finally {
+    // Restore the cover image visibility if we hid it for capture
+    if (coverHiddenForCapture && coverImg) coverImg.style.visibility = '';
+
     // Restore original scroll/overflow styles
     modalCard.style.maxHeight = origMaxHeight;
     modalCard.style.overflow = origOverflow;
@@ -794,6 +826,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   document.getElementById('close-mobile-overlay').addEventListener('click', () => {
     overlay.remove();
+    if (imageUrl && imageUrl.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
   });
 }
 

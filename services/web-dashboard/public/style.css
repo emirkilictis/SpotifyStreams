@@ -1644,3 +1644,83 @@ tbody tr.featured-row:hover {
     white-space: nowrap;
   }
 }
+
+/* ==========================================================================
+   Mobile album modal: anchor to top, compact header (row layout), smaller
+   text so the track list is visible immediately without scrolling.
+   ========================================================================== */
+@media (max-width: 600px) {
+  /* Anchor sheet near the top instead of vertically centering it */
+  #album-modal.modal-backdrop {
+    align-items: flex-start;
+  }
+  #album-modal .modal-card {
+    width: 94%;
+    max-height: 94vh;
+    margin-top: 2vh;
+    padding: 16px 12px;
+  }
+
+  /* Compact header: cover beside details (row) instead of stacked */
+  #album-modal .modal-header {
+    margin-bottom: 12px;
+  }
+  #album-modal .modal-header-flex {
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+    gap: 12px;
+  }
+  #album-modal .modal-header-details {
+    min-width: 0;
+    flex: 1;
+  }
+  #album-modal .modal-album-cover-img {
+    width: 84px;
+    height: 84px;
+  }
+  #album-modal #modal-album-title {
+    font-size: 1.15rem;
+    line-height: 1.2;
+    padding-right: 90px; /* clear the absolute Save/close buttons */
+  }
+  #album-modal .modal-subtitle {
+    font-size: 0.78rem;
+    margin-bottom: 10px;
+  }
+  #album-modal .modal-stats {
+    gap: 4px !important;
+    padding: 8px !important;
+  }
+  #album-modal .modal-stat-box .value {
+    font-size: 0.95rem !important;
+  }
+  #album-modal .modal-stat-box .label {
+    font-size: 0.6rem;
+  }
+
+  /* Smaller, denser track table for readability */
+  #album-modal .modal-body {
+    margin-top: 8px;
+  }
+  #album-modal .modal-table th {
+    font-size: 0.66rem !important;
+    padding: 7px 5px !important;
+  }
+  #album-modal .modal-table td {
+    font-size: 0.72rem !important;
+    padding: 7px 5px !important;
+  }
+
+  /* Save Card button: icon-only to free up top-right space */
+  #album-modal .modal-download-btn {
+    font-size: 0 !important;
+    padding: 7px !important;
+    right: 56px;
+    gap: 0;
+  }
+  #album-modal .modal-download-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+}
