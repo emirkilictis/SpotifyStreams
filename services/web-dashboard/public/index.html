@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body class="dashboard-body">
   <!-- ========== Artist Picker Landing ========== -->
@@ -194,6 +195,14 @@
       </div>
     </section>
 
+    <!-- Upcoming Milestones Section -->
+    <section id="milestones-section" class="milestones-section glass hidden">
+      <h2 class="section-title">Upcoming Milestones</h2>
+      <div class="milestones-grid" id="milestones-grid">
+        <!-- Dynamically generated song milestone progress cards -->
+      </div>
+    </section>
+
     <!-- View Switcher -->
     <section class="view-toggle-bar glass">
       <button class="view-toggle-btn active" data-view="songs">Songs List</button>
@@ -284,6 +293,12 @@
           </div>
         </div>
       </div>
+      
+      <!-- Album Chart Section -->
+      <div id="album-chart-section" class="chart-section hidden">
+        <div id="album-chart" class="chart-container"></div>
+      </div>
+
       <div class="modal-body">
         <div class="table-wrapper">
           <table class="modal-table">
@@ -301,6 +316,64 @@
               <!-- Song list loaded dynamically -->
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Song Detail Modal Sheet -->
+  <div class="modal-backdrop hidden" id="song-modal">
+    <div class="modal-card glass">
+      <button class="modal-close" id="song-modal-close-btn">&times;</button>
+      <div class="modal-header">
+        <div class="modal-header-flex">
+          <div class="modal-header-details">
+            <h2 id="modal-song-title">Song Title</h2>
+            <p class="modal-subtitle" id="modal-song-subtitle">Album Title</p>
+            <div class="modal-stats">
+              <div class="modal-stat-box">
+                <span class="label">Total Streams</span>
+                <span class="value" id="modal-song-streams">-</span>
+              </div>
+              <div class="modal-stat-box">
+                <span class="label">Daily Streams</span>
+                <span class="value gain-positive" id="modal-song-gain">-</span>
+              </div>
+              <div class="modal-stat-box">
+                <span class="label">Duration</span>
+                <span class="value" id="modal-song-duration">-</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <!-- Milestone Sub-section in Song Modal -->
+        <div class="song-milestone-box glass">
+          <div class="milestone-box-header">
+            <span class="milestone-name">Next Milestone: <strong id="song-modal-next-milestone">-</strong></span>
+            <span class="milestone-eta" id="song-modal-milestone-eta">-</span>
+          </div>
+          <div class="milestone-progress-bar-container">
+            <div class="milestone-progress-bar" id="song-modal-milestone-progress" style="width: 0%;"></div>
+          </div>
+          <div class="milestone-percent-completed" id="song-modal-milestone-percent">-</div>
+        </div>
+        
+        <!-- Chart Container for Song -->
+        <div class="chart-section">
+          <div class="chart-toggle-bar">
+            <button class="chart-toggle-btn active" data-chart-type="cumulative">Total Streams Growth</button>
+            <button class="chart-toggle-btn" data-chart-type="daily">Daily Streams Trend</button>
+          </div>
+          <div id="song-chart" class="chart-container"></div>
+        </div>
+
+        <div style="margin-top: 24px; text-align: center;">
+          <a href="" id="song-modal-spotify-link" target="_blank" rel="noopener noreferrer" class="btn-primary" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; padding: 12px 24px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.438-5.305-1.764-8.788-.97-.336.077-.67-.135-.746-.47-.077-.337.135-.67.472-.747 3.81-.87 7.078-.5 9.71 1.114.294.18.385.563.209.857zm1.226-2.72c-.226.367-.707.487-1.074.26-2.69-1.654-6.79-2.135-9.97-1.17-.413.125-.847-.11-1.97-.523-.125-.413.11-.847.522-.97 3.63-1.102 8.14-.567 11.23 1.33.367.226.487.707.26 1.074zm.106-2.833C14.384 8.782 8.543 8.588 5.176 9.61c-.516.156-1.053-.137-1.21-.653-.156-.516.137-1.053.653-1.21 3.864-1.173 10.32-.95 14.38 1.46.46.273.61.874.337 1.336-.273.463-.874.61-1.336.337z"/></svg>
+            Open in Spotify
+          </a>
         </div>
       </div>
     </div>

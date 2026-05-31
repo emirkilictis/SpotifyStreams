@@ -8,6 +8,10 @@ let currentSortField = 'streams'; // 'rank' | 'title' | 'album' | 'duration' | '
 let currentSortDirection = 'desc';
 let activeView = 'songs'; // 'songs' | 'albums'
 let currentArtist = null; // set when artist is picked
+let activeSongChart = null;
+let activeAlbumChart = null;
+let activeSongHistory = [];
+let songChartType = 'cumulative'; // 'cumulative' | 'daily'
 
 // Artists that should only show the Albums view (no Songs tab)
 const ALBUM_ONLY_ARTISTS = new Set([
@@ -43,6 +47,24 @@ const albumsContainer = document.getElementById('albums-container');
 const albumModal = document.getElementById('album-modal');
 const modalCloseBtn = document.getElementById('modal-close-btn');
 const modalDownloadBtn = document.getElementById('modal-download-btn');
+
+// Song Modal Elements
+const songModal = document.getElementById('song-modal');
+const songModalCloseBtn = document.getElementById('song-modal-close-btn');
+const modalSongTitle = document.getElementById('modal-song-title');
+const modalSongSubtitle = document.getElementById('modal-song-subtitle');
+const modalSongStreams = document.getElementById('modal-song-streams');
+const modalSongGain = document.getElementById('modal-song-gain');
+const modalSongDuration = document.getElementById('modal-song-duration');
+const songModalNextMilestone = document.getElementById('song-modal-next-milestone');
+const songModalMilestoneEta = document.getElementById('song-modal-milestone-eta');
+const songModalMilestoneProgress = document.getElementById('song-modal-milestone-progress');
+const songModalMilestonePercent = document.getElementById('song-modal-milestone-percent');
+const songModalSpotifyLink = document.getElementById('song-modal-spotify-link');
+
+// Milestones Section Elements
+const milestonesSection = document.getElementById('milestones-section');
+const milestonesGrid = document.getElementById('milestones-grid');
 
 // Formatting Helpers
 function formatNumber(num) {
@@ -114,6 +136,7 @@ async function fetchData() {
     }));
     
     renderSongs();
+    renderMilestones();
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
     tbody.innerHTML = `<tr><td colspan="5" class="table-empty" style="color: var(--accent-red);">Failed to load dashboard data!</td></tr>`;
@@ -295,7 +318,7 @@ function renderSongs() {
         <td><strong>${idx + 1}</strong></td>
         <td>
           <div class="song-title-cell">
-            <a href="https://open.spotify.com/track/${song.id}" target="_blank" rel="noopener noreferrer" class="song-title song-link">${song.title}</a>
+            <span class="song-title song-link" onclick="openSongById('${song.id}')">${song.title}</span>
             <div class="badge-wrapper">
               <span class="badge ${badgeClass}">
                 ${badgeText}
@@ -428,6 +451,107 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
     const res = await fetch(`/api/albums/${albumId}/songs`, { headers });
     const songs = await res.json();
     
+    // Add these songs to allSongs if they aren't already there (helps with opening song details modal)
+    songs.forEach(s => {
+      if (!allSongs.some(existing => existing.id === s.id)) {
+        allSongs.push({
+          id: s.id,
+          title: s.title,
+          duration_ms: s.duration_ms,
+          cumulative: s.cumulative,
+          daily_gain: s.daily_gain,
+          album_id: albumId,
+          album_title: title || 'Album',
+          is_featured: s.is_featured,
+          is_solo: s.is_solo || false
+        });
+      }
+    });
+
+    // Fetch Album History for Chart
+    const albumChartSection = document.getElementById('album-chart-section');
+    const albumChartContainer = document.getElementById('album-chart');
+    if (albumChartSection) albumChartSection.classList.add('hidden');
+    
+    if (activeAlbumChart) {
+      activeAlbumChart.destroy();
+      activeAlbumChart = null;
+    }
+
+    try {
+      const historyRes = await fetch(`/api/albums/${albumId}/history`, { headers });
+      const albumHistory = await historyRes.json();
+      
+      if (albumHistory && albumHistory.length > 0 && albumChartSection) {
+        albumChartSection.classList.remove('hidden');
+        
+        const dates = albumHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
+        const dataPoints = albumHistory.map(row => Number(row.cumulative));
+        
+        const options = {
+          series: [{
+            name: 'Total Streams',
+            data: dataPoints
+          }],
+          chart: {
+            type: 'area',
+            height: 200,
+            background: 'transparent',
+            foreColor: '#94a3b8',
+            toolbar: { show: false }
+          },
+          colors: [theme.accent],
+          fill: {
+            type: 'gradient',
+            gradient: {
+              shadeIntensity: 1,
+              opacityFrom: 0.4,
+              opacityTo: 0.02,
+              stops: [0, 100]
+            }
+          },
+          dataLabels: { enabled: false },
+          stroke: {
+            curve: 'smooth',
+            width: 3
+          },
+          xaxis: {
+            categories: dates,
+            axisBorder: { show: false },
+            axisTicks: { show: false },
+            tooltip: { enabled: false }
+          },
+          yaxis: {
+            labels: {
+              formatter: function (val) {
+                if (val >= 1000000000) return (val / 1000000000).toFixed(1) + 'B';
+                if (val >= 1000000) return (val / 1000000).toFixed(0) + 'M';
+                return val.toLocaleString();
+              }
+            }
+          },
+          grid: {
+            borderColor: 'rgba(255,255,255,0.04)',
+            strokeDashArray: 4
+          },
+          tooltip: {
+            theme: 'dark',
+            x: { show: true },
+            y: {
+              formatter: function (val) {
+                return val.toLocaleString();
+              }
+            }
+          }
+        };
+        
+        activeAlbumChart = new ApexCharts(albumChartContainer, options);
+        activeAlbumChart.render();
+      }
+    } catch (chartErr) {
+      console.error('Error rendering album history chart:', chartErr);
+    }
+    
     if (songs.length > 0) {
       if (!title) {
         const sampleSong = allSongs.find(s => s.album_id === albumId);
@@ -479,7 +603,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
         return `
           <tr>
             <td><strong>${idx + 1}</strong></td>
-            <td><a href="https://open.spotify.com/track/${s.id}" target="_blank" rel="noopener noreferrer" class="song-title song-link">${s.title}</a></td>
+            <td><span class="song-title song-link" onclick="openSongById('${s.id}')">${s.title}</span></td>
             <td>${formatDuration(s.duration_ms)}</td>
             <td><span class="streams-count">${formatNumber(s.cumulative)}</span></td>
             <td>${gainHtml}</td>
@@ -499,6 +623,10 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
 // Close Modal
 function closeModal() {
   albumModal.classList.add('hidden');
+  if (activeAlbumChart) {
+    activeAlbumChart.destroy();
+    activeAlbumChart = null;
+  }
   // Reset theme styles
   const modalCard = document.querySelector('.modal-card');
   if (modalCard) {
@@ -556,6 +684,9 @@ async function downloadModalAsImage() {
   }
 
   try {
+    const rowCount = modalCard.querySelectorAll('.modal-table tbody tr').length || 10;
+    const virtualHeight = Math.max(2000, 600 + rowCount * 60);
+
     const canvas = await html2canvas(modalCard, {
       backgroundColor: '#080c14', // Match dashboard background color
       scale: isMobile ? 1.0 : 2, // Set to 1.0 to avoid iOS canvas size limit crashes
@@ -564,28 +695,105 @@ async function downloadModalAsImage() {
       logging: false,
       scrollX: 0,
       scrollY: 0,
+      width: 800, // Force canvas width to match the card width (800px)
+      windowWidth: 900, // Virtual window width for desktop viewport
+      windowHeight: virtualHeight, // Virtual window height to fit all tracks without clipping
       onclone: (clonedDoc) => {
         // Change position of backdrop from fixed to absolute to avoid scroll offsets
         const clonedBackdrop = clonedDoc.getElementById('album-modal');
         if (clonedBackdrop) {
-          clonedBackdrop.style.position = 'absolute';
-          clonedBackdrop.style.top = '0';
-          clonedBackdrop.style.left = '0';
-          clonedBackdrop.style.width = '100%';
-          clonedBackdrop.style.height = '100%';
-          clonedBackdrop.style.backdropFilter = 'none';
-          clonedBackdrop.style.webkitBackdropFilter = 'none';
+          clonedBackdrop.style.setProperty('position', 'absolute', 'important');
+          clonedBackdrop.style.setProperty('top', '0', 'important');
+          clonedBackdrop.style.setProperty('left', '0', 'important');
+          clonedBackdrop.style.setProperty('width', '100%', 'important');
+          clonedBackdrop.style.setProperty('height', '100%', 'important');
+          clonedBackdrop.style.setProperty('backdrop-filter', 'none', 'important');
+          clonedBackdrop.style.setProperty('webkit-backdrop-filter', 'none', 'important');
         }
         
         const clonedCard = clonedDoc.querySelector('.modal-card');
         if (clonedCard) {
-          clonedCard.style.position = 'relative';
-          clonedCard.style.maxHeight = 'none';
-          clonedCard.style.overflow = 'visible';
-          clonedCard.style.backdropFilter = 'none';
-          clonedCard.style.webkitBackdropFilter = 'none';
-          clonedCard.style.margin = '0 auto';
+          clonedCard.style.setProperty('position', 'relative', 'important');
+          clonedCard.style.setProperty('max-height', 'none', 'important');
+          clonedCard.style.setProperty('overflow', 'visible', 'important');
+          clonedCard.style.setProperty('backdrop-filter', 'none', 'important');
+          clonedCard.style.setProperty('webkit-backdrop-filter', 'none', 'important');
+          clonedCard.style.setProperty('margin', '0 auto', 'important');
+          clonedCard.style.setProperty('width', '800px', 'important');
+          clonedCard.style.setProperty('max-width', '800px', 'important');
+          clonedCard.style.setProperty('padding', '36px', 'important');
         }
+
+        // Force desktop-level sizes inside the cloned modal header for capture
+        const clonedCover = clonedDoc.getElementById('modal-album-cover');
+        if (clonedCover) {
+          clonedCover.style.setProperty('width', '130px', 'important');
+          clonedCover.style.setProperty('height', '130px', 'important');
+          clonedCover.style.setProperty('border-radius', '10px', 'important');
+        }
+
+        const clonedHeaderFlex = clonedDoc.querySelector('.modal-header-flex');
+        if (clonedHeaderFlex) {
+          clonedHeaderFlex.style.setProperty('flex-direction', 'row', 'important');
+          clonedHeaderFlex.style.setProperty('align-items', 'center', 'important');
+          clonedHeaderFlex.style.setProperty('text-align', 'left', 'important');
+          clonedHeaderFlex.style.setProperty('gap', '28px', 'important');
+          clonedHeaderFlex.style.setProperty('margin-bottom', '0', 'important');
+        }
+
+        const clonedTitle = clonedDoc.getElementById('modal-album-title');
+        if (clonedTitle) {
+          clonedTitle.style.setProperty('font-size', '1.8rem', 'important');
+          clonedTitle.style.setProperty('white-space', 'normal', 'important');
+          clonedTitle.style.setProperty('overflow', 'visible', 'important');
+          clonedTitle.style.setProperty('text-overflow', 'clip', 'important');
+        }
+
+        const clonedSubtitle = clonedDoc.getElementById('modal-album-subtitle');
+        if (clonedSubtitle) {
+          clonedSubtitle.style.setProperty('font-size', '0.95rem', 'important');
+          clonedSubtitle.style.setProperty('margin-bottom', '20px', 'important');
+        }
+
+        const clonedStats = clonedDoc.querySelector('.modal-stats');
+        if (clonedStats) {
+          clonedStats.style.setProperty('flex-direction', 'row', 'important');
+          clonedStats.style.setProperty('gap', '32px', 'important');
+          clonedStats.style.setProperty('padding', '16px 24px', 'important');
+          clonedStats.style.setProperty('margin-top', '0', 'important');
+        }
+
+        const clonedStatBoxes = clonedDoc.querySelectorAll('.modal-stat-box');
+        clonedStatBoxes.forEach(box => {
+          const label = box.querySelector('.label');
+          const value = box.querySelector('.value');
+          if (label) label.style.setProperty('font-size', '0.75rem', 'important');
+          if (value) value.style.setProperty('font-size', '1.4rem', 'important');
+        });
+
+        // Ensure all table columns (including hidden ones like Duration) are visible in capture
+        const clonedTableHeaders = clonedDoc.querySelectorAll('.modal-table th');
+        clonedTableHeaders.forEach(th => {
+          th.style.setProperty('display', 'table-cell', 'important');
+          th.style.setProperty('padding', '12px 14px', 'important');
+          th.style.setProperty('font-size', '0.8rem', 'important');
+        });
+
+        const clonedTableCells = clonedDoc.querySelectorAll('.modal-table td');
+        clonedTableCells.forEach(td => {
+          td.style.setProperty('display', 'table-cell', 'important');
+          td.style.setProperty('padding', '14px', 'important');
+          td.style.setProperty('font-size', '0.9rem', 'important');
+        });
+
+        const clonedSongTitles = clonedDoc.querySelectorAll('.modal-table td .song-title');
+        clonedSongTitles.forEach(el => el.style.setProperty('font-size', '0.9rem', 'important'));
+
+        const clonedStreams = clonedDoc.querySelectorAll('.modal-table td .streams-count');
+        clonedStreams.forEach(el => el.style.setProperty('font-size', '0.9rem', 'important'));
+
+        const clonedGains = clonedDoc.querySelectorAll('.modal-table td .gain-cell');
+        clonedGains.forEach(el => el.style.setProperty('font-size', '0.9rem', 'important'));
 
         // Clean up backdrop filter on all elements inside the cloned tree
         const glassElements = clonedDoc.querySelectorAll('.glass');
@@ -700,6 +908,290 @@ sortHeaders.forEach(th => {
   });
 });
 
+// Milestones Engine
+function getNextMilestone(streams) {
+  const milestones = [
+    10000000, 25000000, 50000000,
+    100000000, 200000000, 300000000, 400000000, 500000000,
+    600000000, 700000000, 800000000, 900000000, 1000000000,
+    1200000000, 1500000000, 1800000000, 2000000000, 2500000000,
+    3000000000, 3500000000, 4000000000, 4500000000, 5000000000
+  ];
+  for (let m of milestones) {
+    if (streams < m) return m;
+  }
+  return Math.ceil(streams / 1000000000) * 1000000000;
+}
+
+function formatMilestoneName(val) {
+  if (val >= 1000000000) {
+    return (val / 1000000000).toFixed(1).replace('.0', '') + ' Billion';
+  }
+  return (val / 1000000).toFixed(0) + ' Million';
+}
+
+function renderMilestones() {
+  if (!allSongs || allSongs.length === 0) {
+    milestonesSection.classList.add('hidden');
+    return;
+  }
+
+  // Calculate milestone stats for each song
+  const songMilestones = allSongs
+    .filter(song => Number(song.cumulative) > 0)
+    .map(song => {
+      const cumulative = Number(song.cumulative);
+      const dailyGain = Number(song.daily_gain);
+      const nextMilestone = getNextMilestone(cumulative);
+      const percent = (cumulative / nextMilestone) * 100;
+      const dailyAvg = dailyGain > 0 ? dailyGain : 1;
+      const daysRemaining = Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyAvg));
+      return {
+        ...song,
+        nextMilestone,
+        percent,
+        daysRemaining
+      };
+    });
+
+  // Sort by percentage completed desc
+  songMilestones.sort((a, b) => b.percent - a.percent);
+
+  // Take top 4 closest
+  const topMilestones = songMilestones.slice(0, 4);
+
+  if (topMilestones.length === 0) {
+    milestonesSection.classList.add('hidden');
+    return;
+  }
+
+  milestonesSection.classList.remove('hidden');
+  milestonesGrid.innerHTML = topMilestones.map(item => {
+    const isFeatured = item.is_featured;
+    const isSolo = item.is_solo;
+    let badgeClass = 'badge-lead';
+    let badgeText = 'Lead';
+    if (isFeatured) {
+      badgeClass = 'badge-feat';
+      badgeText = 'Featured';
+    } else if (isSolo) {
+      badgeClass = 'badge-solo';
+      badgeText = 'Solo';
+    }
+    
+    let etaText = `${item.daysRemaining} days left`;
+    if (item.daysRemaining > 365) {
+      etaText = `${(item.daysRemaining / 365).toFixed(1)} years left`;
+    } else if (item.daysRemaining === 1) {
+      etaText = `1 day left`;
+    }
+    
+    return `
+      <div class="milestone-card glass" onclick="openSongById('${item.id}')" style="cursor: pointer;">
+        <div class="milestone-card-header">
+          <h4 title="${item.title}">${item.title}</h4>
+          <span class="eta-badge">${etaText}</span>
+        </div>
+        <div class="milestone-target">
+          Target: <strong>${formatMilestoneName(item.nextMilestone)}</strong>
+        </div>
+        <div class="milestone-progress-bar-container">
+          <div class="milestone-progress-bar" style="width: ${item.percent.toFixed(1)}%;"></div>
+        </div>
+        <div class="milestone-percent-completed">
+          ${item.percent.toFixed(1)}% (${formatNumber(item.cumulative)})
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.openSongById = async function(songId) {
+  const song = allSongs.find(s => s.id === songId);
+  if (!song) return;
+  
+  // Apply theme to modal
+  const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
+  const songModalCard = document.querySelector('#song-modal .modal-card');
+  songModalCard.style.setProperty('--album-accent', theme.accent);
+  songModalCard.style.setProperty('--album-accent-rgb', hexToRgbTriplet(theme.accent));
+  songModalCard.style.setProperty('--album-glow', theme.accentGlow);
+  songModalCard.style.background = theme.bgGradient;
+  songModalCard.style.borderColor = theme.accent + '30';
+  songModalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${theme.accentGlow}`;
+
+  // Populate basic info
+  modalSongTitle.textContent = song.title;
+  modalSongSubtitle.textContent = song.album_title || 'Single';
+  modalSongStreams.textContent = formatNumber(song.cumulative);
+  modalSongGain.textContent = (Number(song.daily_gain) > 0 ? '+' : '') + formatNumber(song.daily_gain);
+  modalSongDuration.textContent = formatDuration(song.duration_ms);
+  
+  // Spotify Link
+  songModalSpotifyLink.href = `https://open.spotify.com/track/${song.id}`;
+  
+  // Milestone Progress
+  const cumulative = Number(song.cumulative);
+  const dailyGain = Number(song.daily_gain);
+  const nextMilestone = getNextMilestone(cumulative);
+  const percent = (cumulative / nextMilestone) * 100;
+  const dailyAvg = dailyGain > 0 ? dailyGain : 1;
+  const daysRemaining = Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyAvg));
+
+  songModalNextMilestone.textContent = formatMilestoneName(nextMilestone);
+  
+  let etaText = `ETA: ${daysRemaining} days remaining`;
+  if (daysRemaining > 365) {
+    etaText = `ETA: ${(daysRemaining / 365).toFixed(1)} years remaining`;
+  } else if (daysRemaining === 1) {
+    etaText = `ETA: 1 day remaining`;
+  }
+  songModalMilestoneEta.textContent = etaText;
+  songModalMilestoneProgress.style.width = `${percent.toFixed(1)}%`;
+  songModalMilestonePercent.textContent = `${percent.toFixed(1)}% completed`;
+
+  // Show modal
+  songModal.classList.remove('hidden');
+  songModalCard.scrollTop = 0;
+
+  // Fetch History for Chart
+  try {
+    const headers = {};
+    if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+    const historyRes = await fetch(`/api/songs/${songId}/history`, { headers });
+    activeSongHistory = await historyRes.json();
+    
+    // Set default chart tab
+    songChartType = 'cumulative';
+    const tabs = document.querySelectorAll('#song-modal .chart-toggle-btn');
+    tabs.forEach(btn => {
+      if (btn.dataset.chartType === 'cumulative') btn.classList.add('active');
+      else btn.classList.remove('active');
+    });
+
+    renderSongChart();
+  } catch (err) {
+    console.error('Error fetching song history:', err);
+    document.getElementById('song-chart').innerHTML = `<div class="table-empty" style="color: var(--accent-red);">Failed to load history chart.</div>`;
+  }
+};
+
+function renderSongChart() {
+  if (!activeSongHistory || activeSongHistory.length === 0) {
+    document.getElementById('song-chart').innerHTML = `<div class="table-empty">No streaming history available.</div>`;
+    return;
+  }
+
+  // Destroy existing chart
+  if (activeSongChart) {
+    activeSongChart.destroy();
+    activeSongChart = null;
+  }
+
+  const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
+  
+  const dates = activeSongHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
+  let dataPoints = [];
+  let seriesName = '';
+  
+  if (songChartType === 'cumulative') {
+    dataPoints = activeSongHistory.map(row => Number(row.cumulative));
+    seriesName = 'Total Streams';
+  } else {
+    dataPoints = activeSongHistory.map(row => Number(row.daily_gain));
+    seriesName = 'Daily Gain';
+  }
+
+  const options = {
+    series: [{
+      name: seriesName,
+      data: dataPoints
+    }],
+    chart: {
+      type: songChartType === 'cumulative' ? 'area' : 'bar',
+      height: 280,
+      background: 'transparent',
+      foreColor: '#94a3b8',
+      toolbar: { show: false }
+    },
+    colors: [theme.accent],
+    fill: {
+      type: 'gradient',
+      gradient: {
+        shadeIntensity: 1,
+        opacityFrom: 0.4,
+        opacityTo: 0.02,
+        stops: [0, 100]
+      }
+    },
+    dataLabels: { enabled: false },
+    stroke: {
+      curve: 'smooth',
+      width: 3
+    },
+    xaxis: {
+      categories: dates,
+      axisBorder: { show: false },
+      axisTicks: { show: false },
+      tooltip: { enabled: false }
+    },
+    yaxis: {
+      labels: {
+        formatter: function (val) {
+          if (val >= 1000000000) return (val / 1000000000).toFixed(1) + 'B';
+          if (val >= 1000000) return (val / 1000000).toFixed(0) + 'M';
+          return val.toLocaleString();
+        }
+      }
+    },
+    grid: {
+      borderColor: 'rgba(255,255,255,0.04)',
+      strokeDashArray: 4
+    },
+    tooltip: {
+      theme: 'dark',
+      x: { show: true },
+      y: {
+        formatter: function (val) {
+          return val.toLocaleString();
+        }
+      }
+    }
+  };
+
+  activeSongChart = new ApexCharts(document.querySelector('#song-chart'), options);
+  activeSongChart.render();
+}
+
+function closeSongModal() {
+  songModal.classList.add('hidden');
+  if (activeSongChart) {
+    activeSongChart.destroy();
+    activeSongChart = null;
+  }
+}
+
+// Bind Song Modal Close Elements
+if (songModalCloseBtn) {
+  songModalCloseBtn.addEventListener('click', closeSongModal);
+}
+if (songModal) {
+  songModal.addEventListener('click', (e) => {
+    if (e.target === songModal) closeSongModal();
+  });
+}
+
+// Bind Song Chart Toggle Elements
+const chartToggleBtns = document.querySelectorAll('#song-modal .chart-toggle-btn');
+chartToggleBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    chartToggleBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    songChartType = btn.dataset.chartType;
+    renderSongChart();
+  });
+});
+
 // Artist Theme Configurations (accent, accentHover, accentGlow, borderGlow, bgGradient)
 const ARTIST_THEMES = {
   '31TPClRtHm23RisEBtV3X7': { // Justin Timberlake
@@ -796,6 +1288,7 @@ if (artistSelector) {
       });
       songsViewSection.classList.add('hidden');
       albumsViewSection.classList.remove('hidden');
+      await fetchData();
       await fetchAlbumsData();
     } else {
       if (statsGrid) statsGrid.classList.remove('hidden');
@@ -849,6 +1342,7 @@ async function enterDashboard(artistId, artistName) {
     });
     songsViewSection.classList.add('hidden');
     albumsViewSection.classList.remove('hidden');
+    await fetchData();
     await fetchAlbumsData();
   } else {
     if (statsGrid) statsGrid.classList.remove('hidden');

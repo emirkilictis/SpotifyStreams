@@ -1052,18 +1052,16 @@ tbody tr.featured-row:hover {
     display: none;
   }
   
-  /* Hide Duration (3rd column) and Trend (6th column) on album detail modal table */
+  /* Hide Duration (3rd column) on album detail modal table. Trend (6th column) remains visible */
   .modal-table th:nth-child(3),
-  .modal-table td:nth-child(3),
-  .modal-table th:nth-child(6),
-  .modal-table td:nth-child(6) {
+  .modal-table td:nth-child(3) {
     display: none;
   }
   
   /* Simplify table styling for readability */
   th, td {
-    padding: 10px 8px !important;
-    font-size: 0.82rem !important;
+    padding: 10px 8px;
+    font-size: 0.82rem;
   }
   
   .song-title {
@@ -1077,63 +1075,63 @@ tbody tr.featured-row:hover {
   
   /* Modal responsive adjustment */
   .modal-card {
-    padding: 12px 10px !important;
-    max-height: 90vh !important;
-    width: 95% !important;
+    padding: 12px 10px;
+    max-height: 90vh;
+    width: 95%;
   }
 
   .modal-header-flex {
-    flex-direction: row !important;
-    align-items: center !important;
-    text-align: left !important;
-    gap: 12px !important;
-    margin-bottom: 12px !important;
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+    gap: 12px;
+    margin-bottom: 12px;
   }
   
   .modal-album-cover-img {
-    width: 64px !important;
-    height: 64px !important;
-    border-radius: 8px !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+    width: 64px;
+    height: 64px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   }
 
   .modal-header-details {
-    min-width: 0 !important;
-    flex: 1 !important;
+    min-width: 0;
+    flex: 1;
   }
 
   .modal-header-details h2 {
-    font-size: 1.15rem !important;
-    margin-bottom: 2px !important;
+    font-size: 1.15rem;
+    margin-bottom: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .modal-subtitle {
-    font-size: 0.75rem !important;
-    margin-bottom: 0 !important;
+    font-size: 0.75rem;
+    margin-bottom: 0;
   }
   
   .modal-stats {
-    flex-direction: row !important;
-    justify-content: space-between !important;
-    width: 100% !important;
-    gap: 8px !important;
-    padding: 6px 10px !important;
-    margin-top: 8px !important;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-top: 8px;
   }
   
   .modal-stat-box {
-    gap: 2px !important;
+    gap: 2px;
   }
 
   .modal-stat-box .label {
-    font-size: 0.6rem !important;
+    font-size: 0.6rem;
   }
 
   .modal-stat-box .value {
-    font-size: 0.9rem !important;
+    font-size: 0.9rem;
   }
 
   .modal-download-btn span {
@@ -1141,73 +1139,73 @@ tbody tr.featured-row:hover {
   }
 
   .modal-download-btn {
-    padding: 8px !important;
-    top: 12px !important;
-    right: 48px !important;
-    border-radius: 50% !important;
-    width: 32px !important;
-    height: 32px !important;
-    display: flex !important;
-    justify-content: center !important;
-    align-items: center !important;
-    background: rgba(255, 255, 255, 0.05) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    padding: 8px;
+    top: 12px;
+    right: 48px;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .modal-download-btn svg {
-    width: 16px !important;
-    height: 16px !important;
-    margin: 0 !important;
+    width: 16px;
+    height: 16px;
+    margin: 0;
   }
 
   .modal-close {
-    top: 10px !important;
-    right: 12px !important;
-    font-size: 1.6rem !important;
-    width: 32px !important;
-    height: 32px !important;
-    display: flex !important;
-    justify-content: center !important;
-    align-items: center !important;
+    top: 10px;
+    right: 12px;
+    font-size: 1.6rem;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
   }
 
   .modal-body {
-    margin-top: 10px !important;
+    margin-top: 10px;
   }
 
   .modal-table th {
-    padding: 6px 8px !important;
-    font-size: 0.72rem !important;
+    padding: 6px 8px;
+    font-size: 0.72rem;
   }
 
   .modal-table td {
-    padding: 8px 8px !important;
-    font-size: 0.75rem !important;
+    padding: 8px 8px;
+    font-size: 0.75rem;
   }
 
   .modal-table td strong {
-    font-size: 0.75rem !important;
+    font-size: 0.75rem;
   }
 
   .modal-table td .song-title {
-    font-size: 0.78rem !important;
+    font-size: 0.78rem;
   }
 
   .modal-table td .streams-count {
-    font-size: 0.75rem !important;
+    font-size: 0.75rem;
   }
 
   .modal-table td .gain-cell {
-    font-size: 0.75rem !important;
+    font-size: 0.75rem;
   }
   
   /* Stat cards adjustments */
   .stat-card {
-    padding: 14px !important;
+    padding: 14px;
   }
   
   .stat-info p {
-    font-size: 1.5rem !important;
+    font-size: 1.5rem;
   }
 }
 
@@ -1766,4 +1764,220 @@ tbody tr.featured-row:hover {
 .lock-svg {
   width: 48px;
   height: 48px;
+}
+
+/* ==========================================================================
+   Milestones & Analytics Features
+   ========================================================================== */
+
+/* Milestones Section */
+.milestones-section {
+  padding: 24px;
+  margin-bottom: 24px;
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+.milestones-section .section-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+
+.milestones-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+/* Milestone Card */
+.milestone-card {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 12px;
+  transition: var(--transition-smooth);
+}
+
+.milestone-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-green-glow);
+}
+
+.milestone-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.milestone-card-header h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.milestone-card-header .eta-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent-green);
+  background: rgba(30, 215, 96, 0.1);
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(30, 215, 96, 0.2);
+  white-space: nowrap;
+}
+
+.milestone-card .milestone-target {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.milestone-card .milestone-target strong {
+  color: var(--accent-green);
+}
+
+/* Progress Bar Container */
+.milestone-progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.milestone-progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-green-hover) 100%);
+  box-shadow: 0 0 10px var(--accent-green-glow);
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.milestone-percent-completed {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* Song Milestone Box in Modal */
+.song-milestone-box {
+  padding: 16px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(var(--album-accent-rgb, 30, 215, 96), 0.03) !important;
+  border: 1px solid rgba(var(--album-accent-rgb, 30, 215, 96), 0.1) !important;
+}
+
+.song-milestone-box .milestone-progress-bar {
+  background: linear-gradient(90deg, var(--album-accent, var(--accent-green)) 0%, rgba(var(--album-accent-rgb, 30, 215, 96), 0.8) 100%);
+  box-shadow: 0 0 10px var(--album-glow);
+}
+
+.song-milestone-box .milestone-progress-bar-container {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.milestone-box-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.milestone-box-header strong {
+  color: var(--album-accent, var(--accent-green));
+}
+
+.milestone-box-header .milestone-eta {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Chart Styles */
+.chart-section {
+  margin-top: 20px;
+  border-radius: 12px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.chart-toggle-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chart-toggle-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: var(--transition-smooth);
+}
+
+.chart-toggle-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.chart-toggle-btn.active {
+  color: var(--album-accent, var(--accent-green));
+  background: rgba(var(--album-accent-rgb, 30, 215, 96), 0.1) !important;
+  border-color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.2) !important;
+}
+
+.chart-container {
+  min-height: 280px;
+  width: 100%;
+}
+
+/* Song Title cursor hover indicator */
+#songs-tbody td .song-title {
+  cursor: pointer;
+}
+
+/* Media Query Adaptations for Milestones & Charts */
+@media (max-width: 600px) {
+  .milestones-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .milestones-section {
+    padding: 16px;
+  }
+
+  .chart-section {
+    padding: 10px;
+  }
+
+  .chart-toggle-bar {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .chart-toggle-btn {
+    flex: 1;
+    font-size: 0.75rem;
+    text-align: center;
+    padding: 6px 4px;
+  }
 }

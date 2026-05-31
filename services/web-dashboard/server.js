@@ -479,6 +479,86 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
+  try {
+    const songCheck = await pool.query(
+      `SELECT primary_artist FROM songs WHERE id = $1`,
+      [req.params.id]
+    );
+    if (songCheck.rows.length > 0) {
+      const primaryArtist = songCheck.rows[0].primary_artist;
+      if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
+        const passcode = req.headers['x-jc-passcode'];
+        if (passcode !== 'peakedinhighschool') {
+          return res.status(403).json({ error: 'Forbidden: Access to this song is locked.' });
+        }
+      }
+    }
+
+    const query = `
+      SELECT recorded_date, cumulative, daily_gain
+      FROM daily_streams_canonical
+      WHERE canonical_id = $1
+      ORDER BY recorded_date ASC;
+    `;
+    const result = await pool.query(query, [req.params.id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Fetch song history error:', err);
+    res.status(500).json({ error: 'Failed to load song history.' });
+  }
+});
+
+app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
+  try {
+    const albumCheck = await pool.query(
+      `SELECT DISTINCT s.primary_artist 
+       FROM songs s 
+       WHERE s.album_id = $1`,
+      [req.params.id]
+    );
+    if (albumCheck.rows.length > 0) {
+      const primaryArtist = albumCheck.rows[0].primary_artist;
+      if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
+        const passcode = req.headers['x-jc-passcode'];
+        if (passcode !== 'peakedinhighschool') {
+          return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
+        }
+      }
+    }
+
+    const query = `
+      SELECT 
+        dsc.recorded_date,
+        SUM(dsc.cumulative)::bigint AS cumulative,
+        SUM(dsc.daily_gain)::bigint AS daily_gain
+      FROM daily_streams_canonical dsc
+      JOIN songs s ON s.id = dsc.canonical_id
+      WHERE 
+        (
+          $1 = '0tcExuDWMQdBbwSpqN8Ku2' 
+          AND s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo')
+        )
+        OR (
+          $1 = '5EYKrEDnKhhcNxGedaRQeK' 
+          AND s.album_id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp')
+        )
+        OR (
+          $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
+          AND $1 <> '5EYKrEDnKhhcNxGedaRQeK'
+          AND s.album_id = $1
+        )
+      GROUP BY dsc.recorded_date
+      ORDER BY dsc.recorded_date ASC;
+    `;
+    const result = await pool.query(query, [req.params.id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Fetch album history error:', err);
+    res.status(500).json({ error: 'Failed to load album history.' });
+  }
+});
+
 // Protected Static Files
 app.use(requireAuth, express.static(path.join(__dirname, 'public')));
 
