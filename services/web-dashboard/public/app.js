@@ -971,6 +971,18 @@ sortHeaders.forEach(th => {
 
 // Milestones Engine
 function getNextMilestone(streams) {
+  if (currentArtist === '3LHYvj5ZejV1NLqncEObSJ') {
+    // Custom small milestones for Vaelis
+    const vaelisMilestones = [
+      1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
+      15000, 20000, 25000, 50000, 100000, 250000, 500000, 1000000
+    ];
+    for (let m of vaelisMilestones) {
+      if (streams < m) return m;
+    }
+    return Math.ceil(streams / 1000000) * 1000000;
+  }
+
   const milestones = [
     10000000, 25000000, 50000000,
     100000000, 200000000, 300000000, 400000000, 500000000,
@@ -988,7 +1000,13 @@ function formatMilestoneName(val) {
   if (val >= 1000000000) {
     return (val / 1000000000).toFixed(1).replace('.0', '') + ' Billion';
   }
-  return (val / 1000000).toFixed(0) + ' Million';
+  if (val >= 1000000) {
+    return (val / 1000000).toFixed(0) + ' Million';
+  }
+  if (val >= 1000) {
+    return (val / 1000).toFixed(0) + ' Thousand';
+  }
+  return val.toString();
 }
 
 function renderMilestones() {
