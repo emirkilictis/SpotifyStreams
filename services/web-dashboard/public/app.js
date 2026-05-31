@@ -790,12 +790,70 @@ function showPicker() {
   window.scrollTo(0, 0);
 }
 
+// Function to dynamically add JC Chasez to the dropdown selector
+function addJcToDropdown() {
+  const artistSelector = document.getElementById('artist-selector');
+  if (artistSelector) {
+    const exists = Array.from(artistSelector.options).some(opt => opt.value === '3p3U04w2DaiBzuYMZnYr00');
+    if (!exists) {
+      const option = document.createElement('option');
+      option.value = '3p3U04w2DaiBzuYMZnYr00';
+      option.text = 'JC Chasez';
+      artistSelector.appendChild(option);
+    }
+  }
+}
+
+// Function to unlock JC Chasez UI elements
+function unlockJcChasezUI() {
+  const jcCard = document.getElementById('jc-card');
+  const jcImgWrap = document.getElementById('jc-img-wrap');
+  const jcCardTitle = document.getElementById('jc-card-title');
+  
+  if (jcCard) {
+    jcCard.classList.remove('locked-card');
+    jcCard.dataset.name = 'JC Chasez';
+  }
+  
+  if (jcImgWrap) {
+    jcImgWrap.classList.remove('locked-img-wrap');
+    jcImgWrap.innerHTML = `
+      <img src="https://i.scdn.co/image/ab6761610000e5eb784d1c3b5bb30c5db83c8fe2" alt="JC Chasez" class="picker-card-img" loading="eager" crossorigin="anonymous">
+      <div class="picker-card-overlay"></div>
+    `;
+  }
+  
+  if (jcCardTitle) {
+    jcCardTitle.textContent = 'JC Chasez';
+  }
+  
+  addJcToDropdown();
+}
+
+let jcUnlocked = false;
+
 // Picker card click handlers
 document.querySelectorAll('.picker-card').forEach(card => {
   card.addEventListener('click', () => {
     const artistId = card.dataset.artist;
     const artistName = card.dataset.name;
-    enterDashboard(artistId, artistName);
+    
+    if (artistId === '3p3U04w2DaiBzuYMZnYr00') {
+      if (jcUnlocked) {
+        enterDashboard(artistId, 'JC Chasez');
+      } else {
+        const code = prompt("Gizli sanatçıyı açmak için erişim kodunu girin:");
+        if (code === 'peakedinhighschool') {
+          jcUnlocked = true;
+          unlockJcChasezUI();
+          enterDashboard(artistId, 'JC Chasez');
+        } else if (code !== null) {
+          alert("Geçersiz kod!");
+        }
+      }
+    } else {
+      enterDashboard(artistId, artistName);
+    }
   });
 });
 

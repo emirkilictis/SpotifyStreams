@@ -105,7 +105,6 @@ function shouldKeepSeparate(title) {
   return lower.includes('live') || 
          lower.includes('instrumental') || 
          lower.includes('remix') || 
-         lower.includes('edit') || 
          lower.includes('acoustic') ||
          lower.includes('performance') ||
          lower.includes('acapella') ||

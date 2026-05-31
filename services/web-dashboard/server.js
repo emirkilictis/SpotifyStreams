@@ -111,8 +111,10 @@ app.get('/api/songs', requireAuth, async (req, res) => {
         ORDER BY canonical_id, recorded_date DESC
       ) dsc ON s.id = dsc.canonical_id
       WHERE s.canonical_id IS NULL AND (
-        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR'))
+        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00'))
         OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT')
+        OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o')
+        OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
         OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
             a.title ILIKE '%fame monster%'
             OR a.title ILIKE '%mayhem%'
@@ -171,8 +173,10 @@ app.get('/api/stats', requireAuth, async (req, res) => {
       JOIN songs s ON s.id = dsc.canonical_id
       JOIN albums a ON s.album_id = a.id
       WHERE (
-        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR'))
+        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00'))
         OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT')
+        OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o')
+        OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
         OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
             a.title ILIKE '%fame monster%'
             OR a.title ILIKE '%mayhem%'
@@ -236,7 +240,7 @@ app.get('/api/albums', requireAuth, async (req, res) => {
           ORDER BY canonical_id, recorded_date DESC
         ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
         WHERE (
-          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR'))
+          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00'))
           OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
         )
       ),
@@ -284,6 +288,22 @@ app.get('/api/albums', requireAuth, async (req, res) => {
             OR title ILIKE 'FXCK UP THE WORLD%'
             OR title ILIKE 'Priceless%'
             OR title ILIKE 'Rockstar%'
+          ))
+          OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND (
+            title ILIKE 'Celebrity%'
+            OR title ILIKE 'No Strings Attached%'
+            OR title ILIKE 'The Winter Album%'
+            OR title ILIKE 'Home For Christmas%'
+            OR title ILIKE 'Home for Christmas%'
+            OR title ILIKE '%N Sync%'
+            OR title ILIKE '%*NSYNC%'
+            OR title ILIKE 'The Essential *NSYNC%'
+            OR title ILIKE 'The Collection%'
+            OR title ILIKE 'Greatest Hits%'
+          ))
+          OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND (
+            title ILIKE 'Schizophrenic%'
+            OR title ILIKE 'Playing With Fire%'
           ))
           OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
             title ILIKE '%fame monster%'

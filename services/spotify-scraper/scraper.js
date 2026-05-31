@@ -312,20 +312,26 @@ async function run() {
 
       const stats  = { tracksProcessed: 0, streamsUpdated: 0 };
       
-      // Scrape Justin Timberlake
-      await scrapeArtist(page, client, '31TPClRtHm23RisEBtV3X7', stats);
-      
-      // Scrape LISA
-      await scrapeArtist(page, client, '5L1lO4eRHmJ7a0Q6csE5cT', stats);
-      
-      // Scrape Lady Gaga
-      await scrapeArtist(page, client, '1HY2Jd0NmPuamShAr6KMms', stats);
-      
-      // Scrape Billie Eilish
-      await scrapeArtist(page, client, '6qqNVTkY8uBg9cP3Jd7DAH', stats);
-      
-      // Scrape Ariana Grande
-      await scrapeArtist(page, client, '66CXWjxzNUsdJxJ2JdwvnR', stats);
+      const artistFilterArg = process.argv.find(arg => arg.startsWith('--artists='));
+      let artistsToRun = [
+        { id: '31TPClRtHm23RisEBtV3X7', name: 'Justin Timberlake' },
+        { id: '5L1lO4eRHmJ7a0Q6csE5cT', name: 'LISA' },
+        { id: '1HY2Jd0NmPuamShAr6KMms', name: 'Lady Gaga' },
+        { id: '6qqNVTkY8uBg9cP3Jd7DAH', name: 'Billie Eilish' },
+        { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande' },
+        { id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC' },
+        { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez' }
+      ];
+
+      if (artistFilterArg) {
+        const allowedIds = artistFilterArg.split('=')[1].split(',');
+        artistsToRun = artistsToRun.filter(a => allowedIds.includes(a.id));
+        console.log(`[scraper] Filtering run to artists: ${artistsToRun.map(a => a.name).join(', ')}`);
+      }
+
+      for (const artist of artistsToRun) {
+        await scrapeArtist(page, client, artist.id, stats);
+      }
 
       await dedupCanonical(client);
 
