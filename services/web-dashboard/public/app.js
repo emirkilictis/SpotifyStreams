@@ -16,6 +16,7 @@ let activeAlbumId = null;
 let songChartType = 'cumulative'; // 'cumulative' | 'daily'
 let songChartRange = '30'; // '7' | '30' | 'all'
 let albumChartRange = '30'; // '7' | '30' | 'all'
+let showDetailedAnalysis = false;
 
 // Artists that should only show the Albums view (no Songs tab)
 const ALBUM_ONLY_ARTISTS = new Set([
@@ -499,6 +500,17 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
 
     activeAlbumId = albumId;
     activeAlbumHistory = [];
+    showDetailedAnalysis = false;
+
+    // Reset toggle button
+    const toggleBtn = document.getElementById('toggle-detailed-analysis-btn');
+    if (toggleBtn) {
+      toggleBtn.classList.remove('active');
+      const chevron = toggleBtn.querySelector('.chevron-icon');
+      if (chevron) chevron.style.transform = 'rotate(0deg)';
+      const textSpan = toggleBtn.querySelector('span');
+      if (textSpan) textSpan.textContent = 'Detailed Analysis';
+    }
 
     try {
       const historyRes = await fetch(`/api/albums/${albumId}/history`, { headers });
@@ -595,7 +607,7 @@ function renderAlbumChart() {
     activeAlbumChart = null;
   }
 
-  if (activeAlbumHistory && activeAlbumHistory.length > 0 && albumChartSection) {
+  if (showDetailedAnalysis && activeAlbumHistory && activeAlbumHistory.length > 0 && albumChartSection) {
     albumChartSection.classList.remove('hidden');
     
     // Filter history by range
@@ -680,6 +692,42 @@ albumRangeBtns.forEach(btn => {
     renderAlbumChart();
   });
 });
+
+// Bind Toggle Detailed Analysis Button
+const toggleDetailedAnalysisBtn = document.getElementById('toggle-detailed-analysis-btn');
+if (toggleDetailedAnalysisBtn) {
+  toggleDetailedAnalysisBtn.addEventListener('click', () => {
+    showDetailedAnalysis = !showDetailedAnalysis;
+    
+    // Toggle active class for custom styles
+    if (showDetailedAnalysis) {
+      toggleDetailedAnalysisBtn.classList.add('active');
+    } else {
+      toggleDetailedAnalysisBtn.classList.remove('active');
+    }
+
+    const chevron = toggleDetailedAnalysisBtn.querySelector('.chevron-icon');
+    if (chevron) {
+      chevron.style.transform = showDetailedAnalysis ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+
+    const textSpan = toggleDetailedAnalysisBtn.querySelector('span');
+    if (textSpan) {
+      textSpan.textContent = showDetailedAnalysis ? 'Hide Analysis' : 'Detailed Analysis';
+    }
+
+    renderAlbumChart();
+
+    if (showDetailedAnalysis) {
+      const modalBody = document.querySelector('#album-modal .modal-card');
+      if (modalBody) {
+        setTimeout(() => {
+          modalBody.scrollTo({ top: modalBody.scrollHeight, behavior: 'smooth' });
+        }, 100);
+      }
+    }
+  });
+}
 
 // Close Modal
 function closeModal() {

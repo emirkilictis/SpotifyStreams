@@ -293,19 +293,6 @@
           </div>
         </div>
       </div>
-      
-      <!-- Album Chart Section -->
-      <div id="album-chart-section" class="chart-section hidden">
-        <div class="chart-toggle-bar" style="justify-content: flex-end;">
-          <div class="toggle-group">
-            <button class="album-range-toggle-btn" data-range="7">7D</button>
-            <button class="album-range-toggle-btn active" data-range="30">30D</button>
-            <button class="album-range-toggle-btn" data-range="all">All</button>
-          </div>
-        </div>
-        <div id="album-chart" class="chart-container"></div>
-      </div>
-
       <div class="modal-body">
         <div class="table-wrapper">
           <table class="modal-table">
@@ -323,6 +310,26 @@
               <!-- Song list loaded dynamically -->
             </tbody>
           </table>
+        </div>
+
+        <!-- Toggle button for Detailed Analysis -->
+        <div class="detailed-analysis-toggle-container" style="text-align: center; margin-top: 24px; margin-bottom: 8px;">
+          <button id="toggle-detailed-analysis-btn" class="btn-secondary" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-primary);">
+            <span>Detailed Analysis</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+        </div>
+
+        <!-- Album Chart Section -->
+        <div id="album-chart-section" class="chart-section hidden" style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 20px;">
+          <div class="chart-toggle-bar" style="justify-content: flex-end;">
+            <div class="toggle-group">
+              <button class="album-range-toggle-btn" data-range="7">7D</button>
+              <button class="album-range-toggle-btn active" data-range="30">30D</button>
+              <button class="album-range-toggle-btn" data-range="all">All</button>
+            </div>
+          </div>
+          <div id="album-chart" class="chart-container"></div>
         </div>
       </div>
     </div>
