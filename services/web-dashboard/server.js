@@ -341,7 +341,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           ))
           OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
             title ILIKE 'HIT ME HARD AND SOFT%'
-            OR title ILIKE 'Happier Than Ever%'
+            OR (title ILIKE 'Happier Than Ever%' AND title NOT ILIKE '%edit%')
             OR title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%'
             OR title ILIKE 'dont smile at me%'
             OR title ILIKE 'don''t smile at me%'

@@ -146,7 +146,7 @@ async function scrapeArtist(page, client, artistId, stats) {
     discoveredAlbums = discoveredAlbums.filter(a => {
       const title = a.title.toLowerCase();
       return title.includes('hit me hard and soft') ||
-             title.includes('happier than ever') ||
+             (title.includes('happier than ever') && !title.includes('edit')) ||
              title.includes('when we all fall asleep') ||
              title.includes('smile at me') ||
              title.includes('guitar songs');
@@ -228,7 +228,7 @@ async function scrapeArtist(page, client, artistId, stats) {
   // For Billie Eilish, manually ensure dont smile at me is scraped
   if (artistId === '6qqNVTkY8uBg9cP3Jd7DAH') {
     const extraAlbums = [
-      { id: '5YCdlD3eREt72lTZxNL7id', title: 'dont smile at me', release_date: '2017-08-11', is_featured: false }
+      { id: '5YCdlD3eREt72lTZxNL7id', title: 'dont smile at me', release_date: '2017-08-11', is_featured: false, image_url: 'https://i.scdn.co/image/ab67616d0000b2739c05fec02bd9b81ee1246b2f' }
     ];
 
     for (const extra of extraAlbums) {
