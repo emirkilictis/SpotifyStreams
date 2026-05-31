@@ -1916,14 +1916,25 @@ tbody tr.featured-row:hover {
 
 .chart-toggle-bar {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-bottom: 12px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
-.chart-toggle-btn {
+.toggle-group {
+  display: flex;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.chart-toggle-btn, .range-toggle-btn, .album-range-toggle-btn {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid transparent;
   color: var(--text-secondary);
   font-family: 'Outfit', sans-serif;
   font-size: 0.8rem;
@@ -1934,15 +1945,16 @@ tbody tr.featured-row:hover {
   transition: var(--transition-smooth);
 }
 
-.chart-toggle-btn:hover {
+.chart-toggle-btn:hover, .range-toggle-btn:hover, .album-range-toggle-btn:hover {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.04);
 }
 
-.chart-toggle-btn.active {
-  color: var(--album-accent, var(--accent-green));
+.chart-toggle-btn.active, .range-toggle-btn.active, .album-range-toggle-btn.active {
+  color: var(--album-accent, var(--accent-green)) !important;
   background: rgba(var(--album-accent-rgb, 30, 215, 96), 0.1) !important;
   border-color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.2) !important;
+  box-shadow: 0 0 10px rgba(var(--album-accent-rgb, 30, 215, 96), 0.1);
 }
 
 .chart-container {
@@ -1971,10 +1983,16 @@ tbody tr.featured-row:hover {
 
   .chart-toggle-bar {
     justify-content: center;
+    gap: 8px;
     width: 100%;
   }
 
-  .chart-toggle-btn {
+  .toggle-group {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .chart-toggle-btn, .range-toggle-btn, .album-range-toggle-btn {
     flex: 1;
     font-size: 0.75rem;
     text-align: center;

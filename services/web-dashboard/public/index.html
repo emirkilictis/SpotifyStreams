@@ -296,6 +296,13 @@
       
       <!-- Album Chart Section -->
       <div id="album-chart-section" class="chart-section hidden">
+        <div class="chart-toggle-bar" style="justify-content: flex-end;">
+          <div class="toggle-group">
+            <button class="album-range-toggle-btn" data-range="7">7D</button>
+            <button class="album-range-toggle-btn active" data-range="30">30D</button>
+            <button class="album-range-toggle-btn" data-range="all">All</button>
+          </div>
+        </div>
         <div id="album-chart" class="chart-container"></div>
       </div>
 
@@ -363,8 +370,15 @@
         <!-- Chart Container for Song -->
         <div class="chart-section">
           <div class="chart-toggle-bar">
-            <button class="chart-toggle-btn active" data-chart-type="cumulative">Total Streams Growth</button>
-            <button class="chart-toggle-btn" data-chart-type="daily">Daily Streams Trend</button>
+            <div class="toggle-group">
+              <button class="chart-toggle-btn active" data-chart-type="cumulative">Total Streams</button>
+              <button class="chart-toggle-btn" data-chart-type="daily">Daily Gains</button>
+            </div>
+            <div class="toggle-group">
+              <button class="range-toggle-btn" data-range="7">7D</button>
+              <button class="range-toggle-btn active" data-range="30">30D</button>
+              <button class="range-toggle-btn" data-range="all">All</button>
+            </div>
           </div>
           <div id="song-chart" class="chart-container"></div>
         </div>

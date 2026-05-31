@@ -11,7 +11,11 @@ let currentArtist = null; // set when artist is picked
 let activeSongChart = null;
 let activeAlbumChart = null;
 let activeSongHistory = [];
+let activeAlbumHistory = [];
+let activeAlbumId = null;
 let songChartType = 'cumulative'; // 'cumulative' | 'daily'
+let songChartRange = '30'; // '7' | '30' | 'all'
+let albumChartRange = '30'; // '7' | '30' | 'all'
 
 // Artists that should only show the Albums view (no Songs tab)
 const ALBUM_ONLY_ARTISTS = new Set([
@@ -97,6 +101,22 @@ function formatDate(dateStr) {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr.slice(0, 10);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function filterHistoryByRange(history, range) {
+  if (!history || history.length === 0) return [];
+  if (range === 'all') return history;
+
+  const maxDateMs = Math.max(...history.map(row => new Date(row.recorded_date).getTime()).filter(t => !isNaN(t)));
+  const baseDate = maxDateMs > 0 ? new Date(maxDateMs) : new Date();
+
+  const cutoffDate = new Date(baseDate);
+  cutoffDate.setDate(baseDate.getDate() - parseInt(range));
+
+  return history.filter(row => {
+    const d = new Date(row.recorded_date);
+    return !isNaN(d.getTime()) && d >= cutoffDate;
+  });
 }
 
 // Fetch Songs and Stats
@@ -470,7 +490,6 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
 
     // Fetch Album History for Chart
     const albumChartSection = document.getElementById('album-chart-section');
-    const albumChartContainer = document.getElementById('album-chart');
     if (albumChartSection) albumChartSection.classList.add('hidden');
     
     if (activeAlbumChart) {
@@ -478,76 +497,22 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       activeAlbumChart = null;
     }
 
+    activeAlbumId = albumId;
+    activeAlbumHistory = [];
+
     try {
       const historyRes = await fetch(`/api/albums/${albumId}/history`, { headers });
-      const albumHistory = await historyRes.json();
+      activeAlbumHistory = await historyRes.json();
       
-      if (albumHistory && albumHistory.length > 0 && albumChartSection) {
-        albumChartSection.classList.remove('hidden');
-        
-        const dates = albumHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
-        const dataPoints = albumHistory.map(row => Number(row.cumulative));
-        
-        const options = {
-          series: [{
-            name: 'Total Streams',
-            data: dataPoints
-          }],
-          chart: {
-            type: 'area',
-            height: 200,
-            background: 'transparent',
-            foreColor: '#94a3b8',
-            toolbar: { show: false }
-          },
-          colors: [theme.accent],
-          fill: {
-            type: 'gradient',
-            gradient: {
-              shadeIntensity: 1,
-              opacityFrom: 0.4,
-              opacityTo: 0.02,
-              stops: [0, 100]
-            }
-          },
-          dataLabels: { enabled: false },
-          stroke: {
-            curve: 'smooth',
-            width: 3
-          },
-          xaxis: {
-            categories: dates,
-            axisBorder: { show: false },
-            axisTicks: { show: false },
-            tooltip: { enabled: false }
-          },
-          yaxis: {
-            labels: {
-              formatter: function (val) {
-                if (val >= 1000000000) return (val / 1000000000).toFixed(1) + 'B';
-                if (val >= 1000000) return (val / 1000000).toFixed(0) + 'M';
-                return val.toLocaleString();
-              }
-            }
-          },
-          grid: {
-            borderColor: 'rgba(255,255,255,0.04)',
-            strokeDashArray: 4
-          },
-          tooltip: {
-            theme: 'dark',
-            x: { show: true },
-            y: {
-              formatter: function (val) {
-                return val.toLocaleString();
-              }
-            }
-          }
-        };
-        
-        activeAlbumChart = new ApexCharts(albumChartContainer, options);
-        activeAlbumChart.render();
-      }
+      // Reset range selector tab
+      albumChartRange = '30';
+      const albumRangeBtns = document.querySelectorAll('#album-modal .album-range-toggle-btn');
+      albumRangeBtns.forEach(btn => {
+        if (btn.dataset.range === '30') btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+
+      renderAlbumChart();
     } catch (chartErr) {
       console.error('Error rendering album history chart:', chartErr);
     }
@@ -619,6 +584,102 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
     modalTbody.innerHTML = `<tr><td colspan="6" class="table-empty" style="color: var(--accent-red);">Failed to load album tracks!</td></tr>`;
   }
 };
+
+function renderAlbumChart() {
+  const albumChartSection = document.getElementById('album-chart-section');
+  const albumChartContainer = document.getElementById('album-chart');
+  if (!albumChartContainer) return;
+
+  if (activeAlbumChart) {
+    activeAlbumChart.destroy();
+    activeAlbumChart = null;
+  }
+
+  if (activeAlbumHistory && activeAlbumHistory.length > 0 && albumChartSection) {
+    albumChartSection.classList.remove('hidden');
+    
+    // Filter history by range
+    const filteredHistory = filterHistoryByRange(activeAlbumHistory, albumChartRange);
+
+    const dates = filteredHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
+    const dataPoints = filteredHistory.map(row => Number(row.cumulative));
+    
+    const theme = ALBUM_THEMES[activeAlbumId] || DEFAULT_THEME;
+
+    const options = {
+      series: [{
+        name: 'Total Streams',
+        data: dataPoints
+      }],
+      chart: {
+        type: 'area',
+        height: 200,
+        background: 'transparent',
+        foreColor: '#94a3b8',
+        toolbar: { show: false }
+      },
+      colors: [theme.accent],
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shadeIntensity: 1,
+          opacityFrom: 0.4,
+          opacityTo: 0.02,
+          stops: [0, 100]
+        }
+      },
+      dataLabels: { enabled: false },
+      stroke: {
+        curve: 'smooth',
+        width: 3
+      },
+      xaxis: {
+        categories: dates,
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        tooltip: { enabled: false }
+      },
+      yaxis: {
+        labels: {
+          formatter: function (val) {
+            if (val >= 1000000000) return (val / 1000000000).toFixed(1) + 'B';
+            if (val >= 1000000) return (val / 1000000).toFixed(0) + 'M';
+            return val.toLocaleString();
+          }
+        }
+      },
+      grid: {
+        borderColor: 'rgba(255,255,255,0.04)',
+        strokeDashArray: 4
+      },
+      tooltip: {
+        theme: 'dark',
+        x: { show: true },
+        y: {
+          formatter: function (val) {
+            return val.toLocaleString();
+          }
+        }
+      }
+    };
+    
+    activeAlbumChart = new ApexCharts(albumChartContainer, options);
+    activeAlbumChart.render();
+  } else if (albumChartSection) {
+    albumChartSection.classList.add('hidden');
+  }
+}
+
+// Bind Album Range Selector Elements
+const albumRangeBtns = document.querySelectorAll('#album-modal .album-range-toggle-btn');
+albumRangeBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    albumRangeBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    albumChartRange = btn.dataset.range;
+    renderAlbumChart();
+  });
+});
 
 // Close Modal
 function closeModal() {
@@ -1061,11 +1122,18 @@ window.openSongById = async function(songId) {
     const historyRes = await fetch(`/api/songs/${songId}/history`, { headers });
     activeSongHistory = await historyRes.json();
     
-    // Set default chart tab
+    // Set default chart tab and range tab
     songChartType = 'cumulative';
+    songChartRange = '30';
     const tabs = document.querySelectorAll('#song-modal .chart-toggle-btn');
     tabs.forEach(btn => {
       if (btn.dataset.chartType === 'cumulative') btn.classList.add('active');
+      else btn.classList.remove('active');
+    });
+
+    const rangeBtns = document.querySelectorAll('#song-modal .range-toggle-btn');
+    rangeBtns.forEach(btn => {
+      if (btn.dataset.range === '30') btn.classList.add('active');
       else btn.classList.remove('active');
     });
 
@@ -1090,15 +1158,17 @@ function renderSongChart() {
 
   const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
   
-  const dates = activeSongHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
+  const filteredHistory = filterHistoryByRange(activeSongHistory, songChartRange);
+
+  const dates = filteredHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
   let dataPoints = [];
   let seriesName = '';
   
   if (songChartType === 'cumulative') {
-    dataPoints = activeSongHistory.map(row => Number(row.cumulative));
+    dataPoints = filteredHistory.map(row => Number(row.cumulative));
     seriesName = 'Total Streams';
   } else {
-    dataPoints = activeSongHistory.map(row => Number(row.daily_gain));
+    dataPoints = filteredHistory.map(row => Number(row.daily_gain));
     seriesName = 'Daily Gain';
   }
 
@@ -1188,6 +1258,16 @@ chartToggleBtns.forEach(btn => {
     chartToggleBtns.forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     songChartType = btn.dataset.chartType;
+    renderSongChart();
+  });
+});
+
+const rangeToggleBtns = document.querySelectorAll('#song-modal .range-toggle-btn');
+rangeToggleBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    rangeToggleBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    songChartRange = btn.dataset.range;
     renderSongChart();
   });
 });
