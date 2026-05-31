@@ -17,6 +17,7 @@ let songChartType = 'cumulative'; // 'cumulative' | 'daily'
 let songChartRange = '30'; // '7' | '30' | 'all'
 let albumChartRange = '30'; // '7' | '30' | 'all'
 let showDetailedAnalysis = false;
+let loadingAlbumHistory = false;
 
 // Artists that should only show the Albums view (no Songs tab)
 const ALBUM_ONLY_ARTISTS = new Set([
@@ -512,9 +513,11 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       if (textSpan) textSpan.textContent = 'Detailed Analysis';
     }
 
+    loadingAlbumHistory = true;
     try {
       const historyRes = await fetch(`/api/albums/${albumId}/history`, { headers });
       activeAlbumHistory = await historyRes.json();
+      loadingAlbumHistory = false;
       
       // Reset range selector tab
       albumChartRange = '30';
@@ -526,7 +529,9 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
 
       renderAlbumChart();
     } catch (chartErr) {
+      loadingAlbumHistory = false;
       console.error('Error rendering album history chart:', chartErr);
+      renderAlbumChart();
     }
     
     if (songs.length > 0) {
@@ -600,6 +605,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
 function renderAlbumChart() {
   const albumChartSection = document.getElementById('album-chart-section');
   const albumChartContainer = document.getElementById('album-chart');
+  const chartToggleBar = albumChartSection ? albumChartSection.querySelector('.chart-toggle-bar') : null;
   if (!albumChartContainer) return;
 
   if (activeAlbumChart) {
@@ -607,8 +613,33 @@ function renderAlbumChart() {
     activeAlbumChart = null;
   }
 
-  if (showDetailedAnalysis && activeAlbumHistory && activeAlbumHistory.length > 0 && albumChartSection) {
+  if (showDetailedAnalysis && albumChartSection) {
     albumChartSection.classList.remove('hidden');
+
+    if (loadingAlbumHistory) {
+      if (chartToggleBar) chartToggleBar.style.display = 'none';
+      albumChartContainer.innerHTML = `
+        <div class="chart-loading" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary); gap: 12px;">
+          <div class="spinner" style="width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--album-accent, var(--accent-green)); border-radius: 50%; animation: spinner 1s linear infinite;"></div>
+          <span>Loading streaming history...</span>
+        </div>
+      `;
+      return;
+    }
+
+    if (!activeAlbumHistory || activeAlbumHistory.length === 0) {
+      if (chartToggleBar) chartToggleBar.style.display = 'none';
+      albumChartContainer.innerHTML = `
+        <div class="chart-empty" style="display: flex; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary);">
+          No streaming history available for this album.
+        </div>
+      `;
+      return;
+    }
+
+    // Show the toggle bar since we have data
+    if (chartToggleBar) chartToggleBar.style.display = 'flex';
+    albumChartContainer.innerHTML = ''; // Clear container
     
     // Filter history by range
     const filteredHistory = filterHistoryByRange(activeAlbumHistory, albumChartRange);
@@ -675,8 +706,15 @@ function renderAlbumChart() {
       }
     };
     
-    activeAlbumChart = new ApexCharts(albumChartContainer, options);
-    activeAlbumChart.render();
+    // Slight delay to ensure DOM has updated display none -> block before ApexCharts computes dimensions
+    setTimeout(() => {
+      if (!showDetailedAnalysis) return; // Guard against rapid toggling
+      if (activeAlbumChart) {
+        activeAlbumChart.destroy();
+      }
+      activeAlbumChart = new ApexCharts(albumChartContainer, options);
+      activeAlbumChart.render();
+    }, 50);
   } else if (albumChartSection) {
     albumChartSection.classList.add('hidden');
   }
