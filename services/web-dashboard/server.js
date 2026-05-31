@@ -366,7 +366,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
         COALESCE(SUM(acs.cumulative), 0)::bigint AS total_streams,
         COALESCE(SUM(acs.daily_gain), 0)::bigint AS daily_gain
       FROM unique_albums ua
-      LEFT JOIN album_canonical_songs acs ON ua.album_id = acs.album_id
+      JOIN album_canonical_songs acs ON ua.album_id = acs.album_id
       GROUP BY ua.album_id, ua.album_title, ua.release_date, ua.image_url
       ORDER BY total_streams DESC;
     `;
