@@ -389,7 +389,7 @@ function renderAlbums() {
     const dateFormatted = album.release_date || '';
     const coverUrl = album.image_url || ALBUM_COVERS[album.album_id] || '';
     const imgHtml = coverUrl 
-      ? `<div class="album-cover-wrapper"><img src="${coverUrl}" alt="${album.album_title}" class="album-cover-img" crossorigin="anonymous" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'100\\' height=\\'100\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%231db954\\' stroke-width=\\'1.5\\' style=\\'background:%23121212\\'><circle cx=\\'12\\' cy=\\'12\\' r=\\'10\\'/><circle cx=\\'12\\' cy=\\'12\\' r=\\'3\\'/><path d=\\'M12 9v6\\'/></svg>'"></div>`
+      ? `<div class="album-cover-wrapper"><img src="${coverUrl}" alt="${album.album_title}" class="album-cover-img" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'100\\' height=\\'100\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%231db954\\' stroke-width=\\'1.5\\' style=\\'background:%23121212\\'><circle cx=\\'12\\' cy=\\'12\\' r=\\'10\\'/><circle cx=\\'12\\' cy=\\'12\\' r=\\'3\\'/><path d=\\'M12 9v6\\'/></svg>'"></div>`
       : `<div class="album-cover-wrapper fallback-cover"><div class="vinyl-record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="music-icon"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 9v6"></path></svg></div></div>`;
     const coverUrlEscaped = coverUrl ? coverUrl.replace(/'/g, "\\'") : '';
     
@@ -431,14 +431,14 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   const modalCover = document.getElementById('modal-album-cover');
   const modalCard = document.querySelector('.modal-card');
   
-  // Apply album theme
-  const theme = ALBUM_THEMES[albumId] || DEFAULT_THEME;
-  modalCard.style.setProperty('--album-accent', theme.accent);
-  modalCard.style.setProperty('--album-accent-rgb', hexToRgbTriplet(theme.accent));
-  modalCard.style.setProperty('--album-glow', theme.glow);
-  modalCard.style.background = `linear-gradient(165deg, ${theme.gradStart} 0%, ${theme.gradEnd} 100%)`;
-  modalCard.style.borderColor = theme.accent + '30';
-  modalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${theme.glow}`;
+  // Apply selected artist theme instead of album theme
+  const artistTheme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
+  modalCard.style.setProperty('--album-accent', artistTheme.accent);
+  modalCard.style.setProperty('--album-accent-rgb', hexToRgbTriplet(artistTheme.accent));
+  modalCard.style.setProperty('--album-glow', artistTheme.accentGlow);
+  modalCard.style.background = artistTheme.bgGradient;
+  modalCard.style.borderColor = artistTheme.accent + '30';
+  modalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${artistTheme.accentGlow}`;
 
   // Show modal layout
   albumModal.classList.remove('hidden');
@@ -447,7 +447,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   
   if (title) {
     modalTitle.textContent = title;
-    modalTitle.style.color = theme.accent;
+    modalTitle.style.color = artistTheme.accent;
     modalSubtitle.textContent = releaseDate ? `Released on ${formatDate(releaseDate)}` : '';
   }
 
@@ -457,12 +457,12 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
     modalCover.crossOrigin = 'anonymous';
     modalCover.src = modalCoverUrl;
     modalCover.classList.remove('hidden');
-    modalCover.style.boxShadow = `0 8px 32px ${theme.glow}`;
+    modalCover.style.boxShadow = `0 8px 32px ${artistTheme.accentGlow}`;
   } else {
     modalCover.removeAttribute('crossorigin');
     modalCover.src = 'data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%231db954\' stroke-width=\'1.5\' style=\'background:%23121212\'><circle cx=\'12\' cy=\'12\' r=\'10\'/><circle cx=\'12\' cy=\'12\' r=\'3\'/><path d=\'M12 9v6\'/></svg>';
     modalCover.classList.remove('hidden');
-    modalCover.style.boxShadow = `0 8px 32px ${theme.glow}`;
+    modalCover.style.boxShadow = `0 8px 32px ${artistTheme.accentGlow}`;
   }
   
   try {
@@ -521,7 +521,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       if (!title) {
         const sampleSong = allSongs.find(s => s.album_id === albumId);
         modalTitle.textContent = sampleSong ? sampleSong.album_title : 'Album Tracks';
-        modalTitle.style.color = theme.accent;
+        modalTitle.style.color = artistTheme.accent;
         modalSubtitle.textContent = sampleSong && sampleSong.release_date ? `Released on ${formatDate(sampleSong.release_date)}` : '';
       }
       
@@ -534,7 +534,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       });
       
       modalStreams.textContent = formatNumber(totalStreams);
-      modalStreams.style.color = theme.accent;
+      modalStreams.style.color = artistTheme.accent;
       modalGain.textContent = (totalGain > 0 ? '+' : '') + formatNumber(totalGain);
       modalTracks.textContent = songs.length;
       
@@ -557,7 +557,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
           const pctChange = ((dailyGain - prevGain) / Math.abs(prevGain)) * 100;
           const pctStr = Math.abs(pctChange).toFixed(1);
           if (pctChange > 0.5) {
-            trendHtml = `<span class="trend-cell trend-up" style="color: ${theme.accent};">▲ ${pctStr}%</span>`;
+            trendHtml = `<span class="trend-cell trend-up" style="color: ${artistTheme.accent};">▲ ${pctStr}%</span>`;
           } else if (pctChange < -0.5) {
             trendHtml = `<span class="trend-cell trend-down">▼ ${pctStr}%</span>`;
           } else {
@@ -604,7 +604,7 @@ function renderAlbumChart() {
     const dates = filteredHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
     const dataPoints = filteredHistory.map(row => Number(row.cumulative));
     
-    const theme = ALBUM_THEMES[activeAlbumId] || DEFAULT_THEME;
+    const artistTheme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
 
     const options = {
       series: [{
@@ -618,7 +618,7 @@ function renderAlbumChart() {
         foreColor: '#94a3b8',
         toolbar: { show: false }
       },
-      colors: [theme.accent],
+      colors: [artistTheme.accent],
       fill: {
         type: 'gradient',
         gradient: {
