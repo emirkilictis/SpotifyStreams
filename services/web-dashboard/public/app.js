@@ -80,8 +80,11 @@ function formatDate(dateStr) {
 // Fetch Songs and Stats
 async function fetchData() {
   try {
+    const headers = {};
+    if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+
     // Fetch stats
-    const statsRes = await fetch(`/api/stats?artist=${currentArtist}`);
+    const statsRes = await fetch(`/api/stats?artist=${currentArtist}`, { headers });
     if (statsRes.status === 401) {
       window.location.href = '/login';
       return;
@@ -100,7 +103,7 @@ async function fetchData() {
     lastUpdateEl.textContent = formatDate(statsData.last_update);
 
     // Fetch songs
-    const songsRes = await fetch(`/api/songs?artist=${currentArtist}`);
+    const songsRes = await fetch(`/api/songs?artist=${currentArtist}`, { headers });
     const songsData = await songsRes.json();
     
     // Sort initially by cumulative streams desc and assign a global rank
@@ -121,7 +124,11 @@ async function fetchData() {
 async function fetchAlbumsData() {
   try {
     albumsContainer.innerHTML = '<div class="table-loading">Loading albums...</div>';
-    const res = await fetch(`/api/albums?artist=${currentArtist}`);
+    
+    const headers = {};
+    if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+    
+    const res = await fetch(`/api/albums?artist=${currentArtist}`, { headers });
     allAlbums = await res.json();
     
     if (viewToggleBar) {
@@ -416,7 +423,9 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   }
   
   try {
-    const res = await fetch(`/api/albums/${albumId}/songs`);
+    const headers = {};
+    if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+    const res = await fetch(`/api/albums/${albumId}/songs`, { headers });
     const songs = await res.json();
     
     if (songs.length > 0) {
@@ -831,10 +840,11 @@ function unlockJcChasezUI() {
 }
 
 let jcUnlocked = false;
+let jcPasscode = '';
 
 // Picker card click handlers
 document.querySelectorAll('.picker-card').forEach(card => {
-  card.addEventListener('click', () => {
+  card.addEventListener('click', async () => {
     const artistId = card.dataset.artist;
     const artistName = card.dataset.name;
     
@@ -843,12 +853,26 @@ document.querySelectorAll('.picker-card').forEach(card => {
         enterDashboard(artistId, 'JC Chasez');
       } else {
         const code = prompt("Gizli sanatçıyı açmak için erişim kodunu girin:");
-        if (code === 'peakedinhighschool') {
-          jcUnlocked = true;
-          unlockJcChasezUI();
-          enterDashboard(artistId, 'JC Chasez');
-        } else if (code !== null) {
-          alert("Geçersiz kod!");
+        if (code) {
+          try {
+            const res = await fetch('/api/verify-jc', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ passcode: code })
+            });
+            const data = await res.json();
+            if (data.success) {
+              jcPasscode = code;
+              jcUnlocked = true;
+              unlockJcChasezUI();
+              enterDashboard(artistId, 'JC Chasez');
+            } else {
+              alert("Geçersiz kod!");
+            }
+          } catch (err) {
+            console.error('Error verifying JC code:', err);
+            alert('Sunucuyla iletişim kurulamadı.');
+          }
         }
       }
     } else {

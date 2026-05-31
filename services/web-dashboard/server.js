@@ -73,7 +73,29 @@ app.get('/style.css', (req, res) => {
 });
 
 // Protected API Routes
-app.get('/api/songs', requireAuth, async (req, res) => {
+const validateArtistAccess = (req, res, next) => {
+  const artistParam = req.query.artist;
+  if (artistParam) {
+    const artistId = artistParam.replace('spotify:artist:', '');
+    if (artistId === '3p3U04w2DaiBzuYMZnYr00') {
+      const passcode = req.headers['x-jc-passcode'];
+      if (passcode !== 'peakedinhighschool') {
+        return res.status(403).json({ error: 'Forbidden: Access to this artist is locked.' });
+      }
+    }
+  }
+  next();
+};
+
+app.post('/api/verify-jc', requireAuth, (req, res) => {
+  const { passcode } = req.body;
+  if (passcode === 'peakedinhighschool') {
+    return res.json({ success: true });
+  }
+  return res.status(401).json({ success: false, message: 'Invalid passcode!' });
+});
+
+app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
@@ -148,7 +170,7 @@ app.get('/api/songs', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/stats', requireAuth, async (req, res) => {
+app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
@@ -209,7 +231,7 @@ app.get('/api/stats', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/albums', requireAuth, async (req, res) => {
+app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
@@ -351,6 +373,23 @@ app.get('/api/albums', requireAuth, async (req, res) => {
 
 app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
   try {
+    // Check if album belongs to JC Chasez (spotify:artist:3p3U04w2DaiBzuYMZnYr00)
+    const albumCheck = await pool.query(
+      `SELECT DISTINCT s.primary_artist 
+       FROM songs s 
+       WHERE s.album_id = $1`,
+      [req.params.id]
+    );
+    if (albumCheck.rows.length > 0) {
+      const primaryArtist = albumCheck.rows[0].primary_artist;
+      if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
+        const passcode = req.headers['x-jc-passcode'];
+        if (passcode !== 'peakedinhighschool') {
+          return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
+        }
+      }
+    }
+
     const query = `
       WITH album_songs AS (
         SELECT DISTINCT ON (COALESCE(s.canonical_id, s.id))
