@@ -15,6 +15,17 @@ const fs = require('fs');
 const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const CHROME_PATH = process.env.CHROME_PATH || (fs.existsSync(MAC_CHROME) ? MAC_CHROME : undefined);
 
+function parseSpotifyDate(date) {
+  if (!date) return null;
+  if (date.isoString) return date.isoString.slice(0, 10);
+  if (date.year) {
+    const m = String(date.month || 1).padStart(2, '0');
+    const d = String(date.day || 1).padStart(2, '0');
+    return `${date.year}-${m}-${d}`;
+  }
+  return null;
+}
+
 /**
  * Dismisses cookie consent popup if present on the page.
  */
@@ -90,7 +101,7 @@ async function fetchArtistAlbums(page, artistId) {
       albums.push({
         id:           a.id,
         title:        a.name,
-        release_date: a.date?.isoString?.slice(0, 10) ?? null,
+        release_date: parseSpotifyDate(a.date),
         image_url:    a.coverArt?.sources?.[0]?.url ?? null,
       });
     }
@@ -198,7 +209,7 @@ async function fetchArtistAppearsOn(page, artistId) {
       allAlbums.push({
         id:             a.id,
         title:          a.name,
-        release_date:   a.date?.isoString?.slice(0, 10) ?? null,
+        release_date:   parseSpotifyDate(a.date),
         primary_artist: primaryArtist,
         image_url:      a.coverArt?.sources?.[0]?.url ?? null,
       });
@@ -251,7 +262,7 @@ async function fetchArtistAppearsOn(page, artistId) {
         allAlbums.push({
           id:             a.id,
           title:          a.name,
-          release_date:   a.date?.isoString?.slice(0, 10) ?? null,
+          release_date:   parseSpotifyDate(a.date),
           primary_artist: primaryArtist,
           image_url:      a.coverArt?.sources?.[0]?.url ?? null,
         });
