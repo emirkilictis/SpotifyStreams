@@ -240,10 +240,12 @@ async function scrapeArtist(page, client, artistId, stats) {
     }
   }
 
-  // For Ariana Grande, manually ensure the new single is scraped
+  // For Ariana Grande, manually ensure the standard albums/singles are scraped
   if (artistId === '66CXWjxzNUsdJxJ2JdwvnR') {
     const extraAlbums = [
-      { id: '1x159B5VzbDWAGBik5cr1z', title: 'hate that i made you love me', release_date: '2026-05-29', is_featured: false, image_url: 'https://i.scdn.co/image/ab67616d0000b273b622d42c30697e1e1414343c' }
+      { id: '1x159B5VzbDWAGBik5cr1z', title: 'hate that i made you love me', release_date: '2026-05-29', is_featured: false, image_url: 'https://i.scdn.co/image/ab67616d0000b273b622d42c30697e1e1414343c' },
+      { id: '2fYhqwDWXjbpjaIJPEfKFw', title: 'thank u, next', release_date: '2019-02-08', is_featured: false, image_url: 'https://i.scdn.co/image/ab67616d0000b273e8201b2a95c47942749372e5' },
+      { id: '3tx8gQqWbGwqIGZHqDNrGe', title: 'Sweetener', release_date: '2018-08-17', is_featured: false, image_url: 'https://i.scdn.co/image/ab67616d0000b2738b55e12270924976c6c4c5f0' }
     ];
 
     for (const extra of extraAlbums) {
