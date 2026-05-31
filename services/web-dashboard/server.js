@@ -355,6 +355,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
             OR title ILIKE 'thank u, next%'
             OR title ILIKE 'Positions%'
             OR title ILIKE 'eternal sunshine%'
+            OR title ILIKE 'hate that i made you love me%'
           ))
       )
       SELECT

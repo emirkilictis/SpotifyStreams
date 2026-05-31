@@ -700,12 +700,84 @@ sortHeaders.forEach(th => {
   });
 });
 
+// Artist Theme Configurations (accent, accentHover, accentGlow, borderGlow, bgGradient)
+const ARTIST_THEMES = {
+  '31TPClRtHm23RisEBtV3X7': { // Justin Timberlake
+    accent: '#1ed760',
+    accentHover: '#1db954',
+    accentGlow: 'rgba(30, 215, 96, 0.4)',
+    borderGlow: 'rgba(30, 215, 96, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #111a2e 0%, #080c14 100%)'
+  },
+  '5L1lO4eRHmJ7a0Q6csE5cT': { // LISA - Yellow
+    accent: '#ffd700',
+    accentHover: '#e5c100',
+    accentGlow: 'rgba(255, 215, 0, 0.4)',
+    borderGlow: 'rgba(255, 215, 0, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #2e2610 0%, #080c14 100%)'
+  },
+  '1HY2Jd0NmPuamShAr6KMms': { // Lady Gaga - Pink
+    accent: '#ff52a2',
+    accentHover: '#e03b85',
+    accentGlow: 'rgba(255, 82, 162, 0.4)',
+    borderGlow: 'rgba(255, 82, 162, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #301422 0%, #080c14 100%)'
+  },
+  '6qqNVTkY8uBg9cP3Jd7DAH': { // Billie Eilish - Lime Green
+    accent: '#bad80a',
+    accentHover: '#a2be09',
+    accentGlow: 'rgba(186, 216, 10, 0.4)',
+    borderGlow: 'rgba(186, 216, 10, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #1c240e 0%, #080c14 100%)'
+  },
+  '66CXWjxzNUsdJxJ2JdwvnR': { // Ariana Grande - Lavender
+    accent: '#b39ddb',
+    accentHover: '#9575cd',
+    accentGlow: 'rgba(179, 157, 219, 0.4)',
+    borderGlow: 'rgba(179, 157, 219, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #1c142b 0%, #080c14 100%)'
+  },
+  '6Ff53KvcvAj5U7Z1vojB5o': { // *NSYNC - Frosted Blue
+    accent: '#3498db',
+    accentHover: '#2980b9',
+    accentGlow: 'rgba(52, 152, 219, 0.4)',
+    borderGlow: 'rgba(52, 152, 219, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #112036 0%, #080c14 100%)'
+  },
+  '3p3U04w2DaiBzuYMZnYr00': { // JC Chasez - Crimson Red
+    accent: '#e74c3c',
+    accentHover: '#c0392b',
+    accentGlow: 'rgba(231, 76, 60, 0.4)',
+    borderGlow: 'rgba(231, 76, 60, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #291212 0%, #080c14 100%)'
+  },
+  '3LHYvj5ZejV1NLqncEObSJ': { // Vaelis - Indigo/Purple
+    accent: '#8b5cf6',
+    accentHover: '#7c3aed',
+    accentGlow: 'rgba(139, 92, 246, 0.4)',
+    borderGlow: 'rgba(139, 92, 246, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #1c1236 0%, #080c14 100%)'
+  }
+};
+
+function applyArtistTheme(artistId) {
+  const theme = ARTIST_THEMES[artistId] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
+  document.documentElement.style.setProperty('--accent-green', theme.accent);
+  document.documentElement.style.setProperty('--accent-green-hover', theme.accentHover);
+  document.documentElement.style.setProperty('--accent-green-glow', theme.accentGlow);
+  document.documentElement.style.setProperty('--card-border-glow', theme.borderGlow);
+  document.documentElement.style.setProperty('--bg-gradient', theme.bgGradient);
+}
+
 // Artist Selector Handler
 const artistSelector = document.getElementById('artist-selector');
 const dashboardTitle = document.getElementById('dashboard-title');
 if (artistSelector) {
   artistSelector.addEventListener('change', async (e) => {
     currentArtist = e.target.value;
+    
+    // Apply dynamic artist theme colors
+    applyArtistTheme(currentArtist);
     
     // Update Document and Dashboard Header Title dynamically
     const selectedName = artistSelector.options[artistSelector.selectedIndex].text;
@@ -748,6 +820,9 @@ const backToPickerBtn = document.getElementById('back-to-picker-btn');
 // Enter dashboard for a specific artist
 async function enterDashboard(artistId, artistName) {
   currentArtist = artistId;
+  
+  // Apply dynamic artist theme colors
+  applyArtistTheme(artistId);
   
   // Update dropdown to match
   if (artistSelector) {
@@ -796,6 +871,7 @@ async function enterDashboard(artistId, artistName) {
 function showPicker() {
   dashboardWrapper.classList.add('hidden');
   pickerSection.classList.remove('hidden');
+  applyArtistTheme('31TPClRtHm23RisEBtV3X7'); // Reset to default Spotify green on the picker
   window.scrollTo(0, 0);
 }
 

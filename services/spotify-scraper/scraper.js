@@ -154,7 +154,7 @@ async function scrapeArtist(page, client, artistId, stats) {
     console.log(`[scraper] Billie Eilish filtered to official albums: ${discoveredAlbums.length} albums.`);
   }
 
-  // Ariana Grande filters: official studio albums only
+  // Ariana Grande filters: official studio albums & singles
   if (artistId === '66CXWjxzNUsdJxJ2JdwvnR') {
     discoveredAlbums = discoveredAlbums.filter(a => {
       const title = a.title.toLowerCase();
@@ -164,9 +164,10 @@ async function scrapeArtist(page, client, artistId, stats) {
              title.includes('sweetener') ||
              title.includes('thank u, next') ||
              title.includes('positions') ||
-             title.includes('eternal sunshine');
+             title.includes('eternal sunshine') ||
+             title.includes('hate that i made you love me');
     });
-    console.log(`[scraper] Ariana Grande filtered to studio albums: ${discoveredAlbums.length} albums.`);
+    console.log(`[scraper] Ariana Grande filtered to studio albums & singles: ${discoveredAlbums.length} albums.`);
   }
 
   // 1. Save all discovered albums to DB
@@ -229,6 +230,20 @@ async function scrapeArtist(page, client, artistId, stats) {
   if (artistId === '6qqNVTkY8uBg9cP3Jd7DAH') {
     const extraAlbums = [
       { id: '5YCdlD3eREt72lTZxNL7id', title: 'dont smile at me', release_date: '2017-08-11', is_featured: false, image_url: 'https://i.scdn.co/image/ab67616d0000b2739c05fec02bd9b81ee1246b2f' }
+    ];
+
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
+    }
+  }
+
+  // For Ariana Grande, manually ensure the new single is scraped
+  if (artistId === '66CXWjxzNUsdJxJ2JdwvnR') {
+    const extraAlbums = [
+      { id: '1x159B5VzbDWAGBik5cr1z', title: 'hate that i made you love me', release_date: '2026-05-29', is_featured: false, image_url: 'https://i.scdn.co/image/ab67616d0000b273b622d42c30697e1e1414343c' }
     ];
 
     for (const extra of extraAlbums) {
