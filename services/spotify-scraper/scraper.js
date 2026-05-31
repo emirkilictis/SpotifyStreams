@@ -320,7 +320,8 @@ async function run() {
         { id: '6qqNVTkY8uBg9cP3Jd7DAH', name: 'Billie Eilish' },
         { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande' },
         { id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC' },
-        { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez' }
+        { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez' },
+        { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' }
       ];
 
       if (artistFilterArg) {
