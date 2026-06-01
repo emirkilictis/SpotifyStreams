@@ -1120,10 +1120,8 @@ async function openDailyCard() {
     const totalBadgeCls = totalChange > 0 ? 'up' : (totalChange < 0 ? 'down' : 'flat');
     const totalBadgeArrow = totalChange > 0 ? '▲' : (totalChange < 0 ? '▼' : '●');
 
-    // Sort tracks by daily desc for the card
-    const sorted = [...songs].sort((a, b) => Number(b.daily_gain) - Number(a.daily_gain));
-
-    const rows = sorted.map(s => {
+    // Keep the original album tracklist order (as returned by the API) — do not re-sort.
+    const rows = songs.map(s => {
       const daily = Number(s.daily_gain || 0);
       const prev = (s.prev_daily_gain === null || s.prev_daily_gain === undefined) ? null : Number(s.prev_daily_gain);
       const change = prev === null ? null : daily - prev;
