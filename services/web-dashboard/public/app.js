@@ -1094,6 +1094,10 @@ async function openDailyCard() {
 
   dailyCardModal.classList.remove('hidden');
   dailyCardEl.style.setProperty('--dc-accent', theme.accent);
+  dailyCardEl.style.setProperty('--dc-accent-rgb', hexToRgbTriplet(theme.accent));
+  dailyCardEl.style.background = theme.bgGradient;
+  dailyCardEl.style.borderColor = theme.accent + '40';
+  dailyCardEl.style.boxShadow = `0 25px 60px rgba(0,0,0,0.6), 0 0 70px ${theme.accentGlow}`;
   dailyCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">Loading…</div>`;
 
   try {
@@ -1121,15 +1125,17 @@ async function openDailyCard() {
     const totalBadgeArrow = totalChange > 0 ? '▲' : (totalChange < 0 ? '▼' : '●');
 
     // Keep the original album tracklist order (as returned by the API) — do not re-sort.
-    const rows = songs.map(s => {
+    const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const rows = songs.map((s, i) => {
       const daily = Number(s.daily_gain || 0);
       const prev = (s.prev_daily_gain === null || s.prev_daily_gain === undefined) ? null : Number(s.prev_daily_gain);
       const change = prev === null ? null : daily - prev;
       const c = dcChangeCell(change, prev);
-      const star = s.is_featured ? '✦ ' : '';
+      const star = s.is_featured ? '<span class="dc-star">✦</span>' : '';
       return `
         <tr>
-          <td class="dc-track" title="${(s.title || '').replace(/"/g, '&quot;')}">${star}${s.title || ''}</td>
+          <td class="dc-rank">${i + 1}</td>
+          <td class="dc-track" title="${esc(s.title)}">${star}${esc(s.title)}</td>
           <td>${formatNumber(daily)}</td>
           <td class="${c.cls}">${c.txt}</td>
           <td class="${c.cls}">${c.pct}</td>
@@ -1137,42 +1143,49 @@ async function openDailyCard() {
         </tr>`;
     }).join('');
 
+    const totalCls = totalChange > 0 ? 'dc-pos' : (totalChange < 0 ? 'dc-neg' : 'dc-muted');
     dailyCardEl.innerHTML = `
       <div class="dc-header">
         ${coverUrl ? `<img class="dc-cover" src="${coverUrl}" crossorigin="anonymous" alt="">` : ''}
         <div class="dc-head-text">
-          <div class="dc-album">${title || 'Album'}</div>
-          <div class="dc-artist">${(currentArtistName || '').toUpperCase()}</div>
+          <div class="dc-album">${esc(title) || 'Album'}</div>
+          <div class="dc-artist">${esc((currentArtistName || '').toUpperCase())}</div>
           <div class="dc-date">${formatCardDate(recordedDate)}</div>
         </div>
       </div>
+      <div class="dc-divider"></div>
       <div class="dc-big">
-        <div class="dc-daily-num">${formatNumber(totalDaily)}</div>
+        <div class="dc-big-left">
+          <div class="dc-big-label">DAILY STREAMS</div>
+          <div class="dc-daily-num">${formatNumber(totalDaily)}</div>
+        </div>
         <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</div>
       </div>
-      <div class="dc-total">total streams: ${formatNumber(totalCum)}</div>
+      <div class="dc-total">Total streams · <b>${formatNumber(totalCum)}</b></div>
       <table class="dc-table">
         <thead>
           <tr>
-            <th class="dc-left">track</th>
-            <th>daily</th>
-            <th>change</th>
+            <th class="dc-rank">#</th>
+            <th class="dc-left">Track</th>
+            <th>Daily</th>
+            <th>Change</th>
             <th>%</th>
-            <th>total</th>
+            <th>Total</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
         <tfoot>
           <tr>
+            <td class="dc-rank"></td>
             <td class="dc-left">TOTAL</td>
             <td>${formatNumber(totalDaily)}</td>
-            <td class="${totalChange > 0 ? 'dc-pos' : (totalChange < 0 ? 'dc-neg' : 'dc-muted')}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}</td>
-            <td class="${totalChange > 0 ? 'dc-pos' : (totalChange < 0 ? 'dc-neg' : 'dc-muted')}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</td>
+            <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}</td>
+            <td class="${totalCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</td>
             <td class="dc-muted">${formatNumber(totalCum)}</td>
           </tr>
         </tfoot>
       </table>
-      <div class="dc-footer"><b>${currentArtistName || ''}</b> Spotify Streams — Fan Dashboard</div>
+      <div class="dc-footer"><span class="dc-dot"></span><b>${esc(currentArtistName || '')}</b> Spotify Streams — Fan Dashboard</div>
     `;
   } catch (e) {
     dailyCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">Failed to load.</div>`;
@@ -1710,7 +1723,8 @@ const dashboardTitle = document.getElementById('dashboard-title');
 if (artistSelector) {
   artistSelector.addEventListener('change', async (e) => {
     currentArtist = e.target.value;
-    
+    currentArtistName = e.target.options[e.target.selectedIndex]?.text || currentArtistName;
+
     // Apply dynamic artist theme colors
     applyArtistTheme(currentArtist);
     
