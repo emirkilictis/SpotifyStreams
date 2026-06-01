@@ -650,6 +650,97 @@ tbody tr.featured-row:hover {
 }
 
 /* ==========================================================================
+   Achieved Milestones (separate collapsible section)
+   ========================================================================== */
+.achieved-milestones-section {
+  margin-top: 24px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.achieved-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+}
+
+.achieved-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.achieved-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: var(--accent-green);
+  color: #08130c;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.achieved-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 1000px;
+  opacity: 1;
+  transition: max-height 0.35s ease, opacity 0.25s ease;
+  padding: 0 24px 16px;
+}
+
+.achieved-list.collapsed {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.achieved-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.achieved-milestone {
+  flex: 0 0 auto;
+  min-width: 96px;
+  font-weight: 700;
+  color: var(--accent-green);
+  font-size: 0.95rem;
+}
+
+.achieved-song {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.achieved-date {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+/* ==========================================================================
    Footer
    ========================================================================== */
 .dashboard-footer {

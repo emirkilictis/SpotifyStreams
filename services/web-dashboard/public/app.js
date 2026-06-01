@@ -36,6 +36,14 @@ const sortHeaders = document.querySelectorAll('th.sortable');
 const totalStreamsEl = document.getElementById('total-streams');
 const monthlyListenersEl = document.getElementById('monthly-listeners');
 const monthlyListenersChangeEl = document.getElementById('monthly-listeners-change');
+const followersEl = document.getElementById('followers');
+const followersChangeEl = document.getElementById('followers-change');
+
+// Achieved milestones section
+const achievedSection = document.getElementById('achieved-milestones-section');
+const achievedToggleBtn = document.getElementById('achieved-toggle-btn');
+const achievedCountEl = document.getElementById('achieved-count');
+const achievedListEl = document.getElementById('achieved-list');
 const leadStreamsEl = document.getElementById('lead-streams');
 const featStreamsEl = document.getElementById('feat-streams');
 const soloStreamsEl = document.getElementById('solo-streams');
@@ -80,25 +88,25 @@ function formatNumber(num) {
   return Number(num).toLocaleString('en-US');
 }
 
-// Day-over-day change for the Monthly Listeners card.
+// Day-over-day change for an artist-stat card (monthly listeners / followers).
 // null => no previous snapshot yet (hide it).
-function setMonthlyListenersChange(change) {
-  if (!monthlyListenersChangeEl) return;
+function setStatDelta(el, change) {
+  if (!el) return;
   if (change === null || change === undefined) {
-    monthlyListenersChangeEl.textContent = '';
-    monthlyListenersChangeEl.className = 'stat-delta';
+    el.textContent = '';
+    el.className = 'stat-delta';
     return;
   }
   const n = Number(change);
   if (n > 0) {
-    monthlyListenersChangeEl.textContent = `▲ ${formatNumber(n)}`;
-    monthlyListenersChangeEl.className = 'stat-delta gain-positive';
+    el.textContent = `▲ ${formatNumber(n)}`;
+    el.className = 'stat-delta gain-positive';
   } else if (n < 0) {
-    monthlyListenersChangeEl.textContent = `▼ ${formatNumber(Math.abs(n))}`;
-    monthlyListenersChangeEl.className = 'stat-delta gain-negative';
+    el.textContent = `▼ ${formatNumber(Math.abs(n))}`;
+    el.className = 'stat-delta gain-negative';
   } else {
-    monthlyListenersChangeEl.textContent = '— 0';
-    monthlyListenersChangeEl.className = 'stat-delta gain-neutral';
+    el.textContent = '— 0';
+    el.className = 'stat-delta gain-neutral';
   }
 }
 
@@ -177,15 +185,25 @@ async function fetchData() {
         const artistStats = await artistStatsRes.json();
         const ml = artistStats.latest?.monthly_listeners;
         monthlyListenersEl.textContent = (ml !== null && ml !== undefined) ? formatNumber(ml) : '-';
-        setMonthlyListenersChange(artistStats.latest?.monthly_listeners_change);
+        setStatDelta(monthlyListenersChangeEl, artistStats.latest?.monthly_listeners_change);
+        const fol = artistStats.latest?.followers;
+        if (followersEl) followersEl.textContent = (fol !== null && fol !== undefined) ? formatNumber(fol) : '-';
+        setStatDelta(followersChangeEl, artistStats.latest?.followers_change);
       } else {
         monthlyListenersEl.textContent = '-';
-        setMonthlyListenersChange(null);
+        setStatDelta(monthlyListenersChangeEl, null);
+        if (followersEl) followersEl.textContent = '-';
+        setStatDelta(followersChangeEl, null);
       }
     } catch (e) {
       monthlyListenersEl.textContent = '-';
-      setMonthlyListenersChange(null);
+      setStatDelta(monthlyListenersChangeEl, null);
+      if (followersEl) followersEl.textContent = '-';
+      setStatDelta(followersChangeEl, null);
     }
+
+    // Fetch achieved milestones (separate collapsible section)
+    fetchAchievedMilestones(headers);
 
     // Fetch songs
     const songsRes = await fetch(`/api/songs?artist=${currentArtist}`, { headers });
@@ -1210,6 +1228,46 @@ function renderMilestones() {
       </div>
     `;
   }).join('');
+}
+
+// ===== Achieved Milestones (separate collapsible log) =====
+async function fetchAchievedMilestones(headers) {
+  if (!achievedSection) return;
+  try {
+    const res = await fetch(`/api/milestones-reached?artist=${currentArtist}`, { headers });
+    if (!res.ok) { achievedSection.classList.add('hidden'); return; }
+    const rows = await res.json();
+    renderAchievedMilestones(rows);
+  } catch (e) {
+    achievedSection.classList.add('hidden');
+  }
+}
+
+function renderAchievedMilestones(rows) {
+  if (!achievedSection || !achievedListEl) return;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    achievedSection.classList.add('hidden');
+    achievedListEl.innerHTML = '';
+    return;
+  }
+  achievedSection.classList.remove('hidden');
+  if (achievedCountEl) achievedCountEl.textContent = rows.length;
+  achievedListEl.innerHTML = rows.map(r => `
+    <div class="achieved-row">
+      <span class="achieved-milestone">${formatMilestoneName(Number(r.milestone))}</span>
+      <span class="achieved-song" title="${r.title}">${r.title}</span>
+      <span class="achieved-date">${formatDate(r.reached_date)}</span>
+    </div>
+  `).join('');
+}
+
+if (achievedToggleBtn && achievedListEl) {
+  achievedToggleBtn.addEventListener('click', () => {
+    const collapsed = achievedListEl.classList.toggle('collapsed');
+    achievedToggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    const chevron = achievedToggleBtn.querySelector('.chevron-icon');
+    if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+  });
 }
 
 window.openSongById = async function(songId) {

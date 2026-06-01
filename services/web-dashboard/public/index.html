@@ -166,6 +166,13 @@
       </div>
       <div class="stat-card glass">
         <div class="stat-info">
+          <h3>Followers</h3>
+          <p id="followers">-</p>
+          <span id="followers-change" class="stat-delta"></span>
+        </div>
+      </div>
+      <div class="stat-card glass">
+        <div class="stat-info">
           <h3>Lead Streams</h3>
           <p id="lead-streams">-</p>
         </div>
@@ -262,6 +269,17 @@
         <div class="table-loading">Loading albums...</div>
       </div>
     </div>
+
+    <!-- Achieved Milestones Section (separate, collapsible, hidden until data exists) -->
+    <section id="achieved-milestones-section" class="achieved-milestones-section glass hidden">
+      <button id="achieved-toggle-btn" class="achieved-toggle" type="button" aria-expanded="false">
+        <span class="achieved-title">🏆 Achieved Milestones <span id="achieved-count" class="achieved-count">0</span></span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </button>
+      <div id="achieved-list" class="achieved-list collapsed">
+        <!-- Reached milestone rows loaded dynamically -->
+      </div>
+    </section>
   </main>
 
   <footer class="dashboard-footer">

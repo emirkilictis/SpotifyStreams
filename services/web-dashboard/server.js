@@ -264,17 +264,79 @@ app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res)
     const latest = latestRes.rows[0] || null;
     const prev = latestRes.rows[1] || null;
     let monthlyListenersChange = null;
-    if (latest && prev && latest.monthly_listeners != null && prev.monthly_listeners != null) {
-      monthlyListenersChange = Number(latest.monthly_listeners) - Number(prev.monthly_listeners);
+    let followersChange = null;
+    if (latest && prev) {
+      if (latest.monthly_listeners != null && prev.monthly_listeners != null) {
+        monthlyListenersChange = Number(latest.monthly_listeners) - Number(prev.monthly_listeners);
+      }
+      if (latest.followers != null && prev.followers != null) {
+        followersChange = Number(latest.followers) - Number(prev.followers);
+      }
     }
 
     res.json({
-      latest: latest ? { ...latest, monthly_listeners_change: monthlyListenersChange } : null,
+      latest: latest ? { ...latest, monthly_listeners_change: monthlyListenersChange, followers_change: followersChange } : null,
       history: historyRes.rows
     });
   } catch (err) {
     console.error('Fetch artist stats error:', err);
     res.status(500).json({ error: 'Failed to load artist stats.' });
+  }
+});
+
+app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req, res) => {
+  const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
+  const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
+  try {
+    // A milestone M is "reached on date D" when a song's cumulative crossed M between
+    // the previous snapshot (prev_cum < M) and D (cumulative >= M). Because the view's
+    // cumulative is monotonic (running max), each (song, M) has exactly one crossing row.
+    // Only crossings we actually witnessed during tracking are returned (prev_cum NOT NULL).
+    const query = `
+      WITH thresholds(m) AS (
+        VALUES (1000), (5000), (10000), (25000), (50000), (100000), (250000), (500000),
+               (1000000), (2500000), (5000000), (10000000), (25000000), (50000000),
+               (100000000), (200000000), (300000000), (400000000), (500000000),
+               (600000000), (700000000), (800000000), (900000000), (1000000000),
+               (1200000000), (1500000000), (1800000000), (2000000000), (2500000000),
+               (3000000000), (3500000000), (4000000000), (4500000000), (5000000000)
+      ),
+      hist AS (
+        SELECT
+          dsc.canonical_id,
+          dsc.recorded_date,
+          dsc.cumulative,
+          LAG(dsc.cumulative) OVER (PARTITION BY dsc.canonical_id ORDER BY dsc.recorded_date) AS prev_cum
+        FROM daily_streams_canonical dsc
+        JOIN songs s ON s.id = dsc.canonical_id
+        JOIN albums a ON s.album_id = a.id
+        WHERE (
+          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ'))
+          OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT')
+          OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o')
+          OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
+          OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
+          OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (a.title ILIKE '%fame monster%' OR a.title ILIKE '%mayhem%' OR a.id = '5C7E6m8S9vJ36z0Z39O64L'))
+          OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (a.title ILIKE 'HIT ME HARD AND SOFT%' OR a.title ILIKE 'Happier Than Ever%' OR a.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%' OR a.title ILIKE 'dont smile at me%' OR a.title ILIKE 'don''t smile at me%' OR a.title ILIKE 'Guitar Songs%'))
+          OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (a.title ILIKE 'Yours Truly%' OR a.title ILIKE 'My Everything%' OR a.title ILIKE 'Dangerous Woman%' OR a.title ILIKE 'Sweetener%' OR a.title ILIKE 'thank u, next%' OR a.title ILIKE 'Positions%' OR a.title ILIKE 'eternal sunshine%'))
+        )
+      )
+      SELECT
+        h.canonical_id AS song_id,
+        c.title,
+        t.m::bigint AS milestone,
+        MIN(h.recorded_date) AS reached_date
+      FROM hist h
+      JOIN thresholds t ON h.prev_cum IS NOT NULL AND h.prev_cum < t.m AND h.cumulative >= t.m
+      JOIN songs c ON c.id = h.canonical_id
+      GROUP BY h.canonical_id, c.title, t.m
+      ORDER BY reached_date DESC, milestone DESC;
+    `;
+    const result = await pool.query(query, [artistUri]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Fetch milestones reached error:', err);
+    res.status(500).json({ error: 'Failed to load reached milestones.' });
   }
 });
 
