@@ -741,6 +741,145 @@ tbody tr.featured-row:hover {
 }
 
 /* ==========================================================================
+   Daily Share Card
+   ========================================================================== */
+.daily-card-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 640px;
+  width: 100%;
+  margin: auto;
+}
+
+.daily-card-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.daily-card {
+  --dc-accent: var(--accent-green);
+  width: 600px;
+  max-width: 92vw;
+  box-sizing: border-box;
+  background: linear-gradient(165deg, #0f1626 0%, #080c14 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 26px 28px;
+  font-family: 'Outfit', sans-serif;
+  color: var(--text-primary);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+}
+
+.dc-header {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.dc-cover {
+  width: 84px;
+  height: 84px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex: 0 0 auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.dc-head-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dc-album { font-size: 1.35rem; font-weight: 800; line-height: 1.1; }
+.dc-artist { font-size: 0.95rem; font-weight: 700; color: var(--dc-accent); letter-spacing: 0.5px; }
+.dc-date { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+
+.dc-big {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.dc-daily-num {
+  font-size: 2.4rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.dc-badge {
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.dc-badge.up { background: rgba(30, 215, 96, 0.16); color: var(--accent-green); }
+.dc-badge.down { background: rgba(239, 68, 68, 0.16); color: var(--accent-red); }
+.dc-badge.flat { background: rgba(148, 163, 184, 0.16); color: var(--text-secondary); }
+
+.dc-total {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dc-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+}
+
+.dc-table th {
+  text-align: right;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 0 0 8px;
+}
+
+.dc-table th.dc-left, .dc-table td.dc-left { text-align: left; }
+
+.dc-table td {
+  text-align: right;
+  font-size: 0.82rem;
+  padding: 5px 0;
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dc-track {
+  text-align: left;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.dc-pos { color: var(--accent-green); }
+.dc-neg { color: var(--accent-red); }
+.dc-muted { color: var(--text-muted); }
+
+.dc-table tfoot td {
+  border-top: 2px solid rgba(255, 255, 255, 0.14);
+  padding-top: 9px;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.dc-footer {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+.dc-footer b { color: var(--dc-accent); }
+
+/* ==========================================================================
    Footer
    ========================================================================== */
 .dashboard-footer {

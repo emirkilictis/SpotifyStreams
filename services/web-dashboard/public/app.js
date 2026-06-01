@@ -8,6 +8,8 @@ let currentSortField = 'streams'; // 'rank' | 'title' | 'album' | 'duration' | '
 let currentSortDirection = 'desc';
 let activeView = 'songs'; // 'songs' | 'albums'
 let currentArtist = null; // set when artist is picked
+let currentArtistName = ''; // display name of picked artist
+let currentAlbumMeta = null; // { albumId, title, releaseDate, coverUrl } of open album modal
 let activeSongChart = null;
 let activeAlbumChart = null;
 let activeSongHistory = [];
@@ -500,6 +502,9 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   modalCard.style.background = artistTheme.bgGradient;
   modalCard.style.borderColor = artistTheme.accent + '30';
   modalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${artistTheme.accentGlow}`;
+
+  // Remember which album is open (used by the Daily Card generator)
+  currentAlbumMeta = { albumId, title, releaseDate, coverUrl };
 
   // Show modal layout
   albumModal.classList.remove('hidden');
@@ -1052,6 +1057,163 @@ async function downloadModalAsImage() {
 
 modalDownloadBtn.addEventListener('click', downloadModalAsImage);
 
+// ===== Daily Share Card (Spotify-Numbers style, our theme) =====
+const dailyCardModal = document.getElementById('daily-card-modal');
+const dailyCardEl = document.getElementById('daily-card');
+const openDailyCardBtn = document.getElementById('open-daily-card-btn');
+const dailyCardCloseBtn = document.getElementById('daily-card-close-btn');
+const dailyCardDownloadBtn = document.getElementById('daily-card-download-btn');
+
+function formatCardDate(dateStr) {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  if (isNaN(d.getTime())) return '';
+  const base = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+  return `${base} • ${weekday}`; // "June 1, 2026 • MONDAY"
+}
+
+function dcChangeCell(change, base) {
+  // change: today_daily - yesterday_daily ; base: yesterday_daily (for %)
+  if (base === null || base === undefined || base === 0 || change === null) {
+    return { txt: '—', pct: '—', cls: 'dc-muted' };
+  }
+  const pct = (change / Math.abs(base)) * 100;
+  const cls = change > 0 ? 'dc-pos' : (change < 0 ? 'dc-neg' : 'dc-muted');
+  const arrow = change > 0 ? '+' : '';
+  return {
+    txt: `${arrow}${formatNumber(change)}`,
+    pct: `${pct > 0 ? '▲' : (pct < 0 ? '▼' : '●')} ${Math.abs(pct).toFixed(2)}%`,
+    cls
+  };
+}
+
+async function openDailyCard() {
+  if (!currentAlbumMeta || !dailyCardEl) return;
+  const { albumId, title, coverUrl } = currentAlbumMeta;
+  const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
+
+  dailyCardModal.classList.remove('hidden');
+  dailyCardEl.style.setProperty('--dc-accent', theme.accent);
+  dailyCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">Loading…</div>`;
+
+  try {
+    const headers = {};
+    if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+    const res = await fetch(`/api/albums/${albumId}/songs`, { headers });
+    const songs = await res.json();
+    if (!Array.isArray(songs) || songs.length === 0) {
+      dailyCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">No track data.</div>`;
+      return;
+    }
+
+    // Totals
+    let totalDaily = 0, totalPrev = 0, totalCum = 0;
+    let recordedDate = null;
+    songs.forEach(s => {
+      totalDaily += Number(s.daily_gain || 0);
+      totalPrev += Number(s.prev_daily_gain || 0);
+      totalCum += Number(s.cumulative || 0);
+      if (s.recorded_date && (!recordedDate || s.recorded_date > recordedDate)) recordedDate = s.recorded_date;
+    });
+    const totalChange = totalDaily - totalPrev;
+    const totalPctNum = totalPrev ? (totalChange / Math.abs(totalPrev)) * 100 : 0;
+    const totalBadgeCls = totalChange > 0 ? 'up' : (totalChange < 0 ? 'down' : 'flat');
+    const totalBadgeArrow = totalChange > 0 ? '▲' : (totalChange < 0 ? '▼' : '●');
+
+    // Sort tracks by daily desc for the card
+    const sorted = [...songs].sort((a, b) => Number(b.daily_gain) - Number(a.daily_gain));
+
+    const rows = sorted.map(s => {
+      const daily = Number(s.daily_gain || 0);
+      const prev = (s.prev_daily_gain === null || s.prev_daily_gain === undefined) ? null : Number(s.prev_daily_gain);
+      const change = prev === null ? null : daily - prev;
+      const c = dcChangeCell(change, prev);
+      const star = s.is_featured ? '✦ ' : '';
+      return `
+        <tr>
+          <td class="dc-track" title="${(s.title || '').replace(/"/g, '&quot;')}">${star}${s.title || ''}</td>
+          <td>${formatNumber(daily)}</td>
+          <td class="${c.cls}">${c.txt}</td>
+          <td class="${c.cls}">${c.pct}</td>
+          <td class="dc-muted">${formatNumber(s.cumulative)}</td>
+        </tr>`;
+    }).join('');
+
+    dailyCardEl.innerHTML = `
+      <div class="dc-header">
+        ${coverUrl ? `<img class="dc-cover" src="${coverUrl}" crossorigin="anonymous" alt="">` : ''}
+        <div class="dc-head-text">
+          <div class="dc-album">${title || 'Album'}</div>
+          <div class="dc-artist">${(currentArtistName || '').toUpperCase()}</div>
+          <div class="dc-date">${formatCardDate(recordedDate)}</div>
+        </div>
+      </div>
+      <div class="dc-big">
+        <div class="dc-daily-num">${formatNumber(totalDaily)}</div>
+        <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</div>
+      </div>
+      <div class="dc-total">total streams: ${formatNumber(totalCum)}</div>
+      <table class="dc-table">
+        <thead>
+          <tr>
+            <th class="dc-left">track</th>
+            <th>daily</th>
+            <th>change</th>
+            <th>%</th>
+            <th>total</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <td class="dc-left">TOTAL</td>
+            <td>${formatNumber(totalDaily)}</td>
+            <td class="${totalChange > 0 ? 'dc-pos' : (totalChange < 0 ? 'dc-neg' : 'dc-muted')}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}</td>
+            <td class="${totalChange > 0 ? 'dc-pos' : (totalChange < 0 ? 'dc-neg' : 'dc-muted')}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</td>
+            <td class="dc-muted">${formatNumber(totalCum)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="dc-footer"><b>${currentArtistName || ''}</b> Spotify Streams — Fan Dashboard</div>
+    `;
+  } catch (e) {
+    dailyCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">Failed to load.</div>`;
+  }
+}
+
+async function downloadDailyCard() {
+  if (!dailyCardEl) return;
+  const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
+  const cover = dailyCardEl.querySelector('.dc-cover');
+  if (cover && cover.src) {
+    try { await cover.decode(); } catch (e) { cover.style.visibility = 'hidden'; }
+    if (cover.style.visibility !== 'hidden' && !cover.naturalWidth) cover.style.visibility = 'hidden';
+  }
+  try {
+    const canvas = await html2canvas(dailyCardEl, {
+      backgroundColor: '#080c14',
+      scale: isMobile ? 1.5 : 2,
+      useCORS: true,
+      imageTimeout: 15000,
+      logging: false
+    });
+    const link = document.createElement('a');
+    const name = (currentAlbumMeta?.title || 'album').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+    link.download = `daily_${name}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  } catch (e) {
+    console.error('Daily card export failed:', e);
+  } finally {
+    if (cover) cover.style.visibility = 'visible';
+  }
+}
+
+if (openDailyCardBtn) openDailyCardBtn.addEventListener('click', openDailyCard);
+if (dailyCardCloseBtn) dailyCardCloseBtn.addEventListener('click', () => dailyCardModal.classList.add('hidden'));
+if (dailyCardDownloadBtn) dailyCardDownloadBtn.addEventListener('click', downloadDailyCard);
+if (dailyCardModal) dailyCardModal.addEventListener('click', (e) => { if (e.target === dailyCardModal) dailyCardModal.classList.add('hidden'); });
+
 // View Toggle Handler
 viewToggleBtns.forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1596,6 +1758,7 @@ const backToPickerBtn = document.getElementById('back-to-picker-btn');
 // Enter dashboard for a specific artist
 async function enterDashboard(artistId, artistName) {
   currentArtist = artistId;
+  currentArtistName = artistName || '';
   
   // Apply dynamic artist theme colors
   applyArtistTheme(artistId);
