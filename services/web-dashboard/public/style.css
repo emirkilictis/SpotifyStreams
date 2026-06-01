@@ -357,7 +357,7 @@ a {
    ========================================================================== */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 20px;
 }
 
@@ -633,8 +633,20 @@ tbody tr.featured-row:hover {
   color: var(--accent-green);
 }
 
+.gain-negative {
+  color: #ff6b6b;
+}
+
 .gain-neutral {
   color: var(--text-muted);
+}
+
+.stat-delta {
+  display: inline-block;
+  margin-top: 4px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
 /* ==========================================================================
@@ -1629,6 +1641,8 @@ tbody tr.featured-row:hover {
   }
   .dashboard-header .brand {
     width: 100%;
+    flex-wrap: wrap;
+    gap: 8px 12px;
   }
   .dashboard-header .brand h1 {
     white-space: normal;
@@ -1821,6 +1835,8 @@ tbody tr.featured-row:hover {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .milestone-card-header .eta-badge {
@@ -1977,6 +1993,15 @@ tbody tr.featured-row:hover {
     padding: 16px;
   }
 
+  .albums-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .album-card {
+    padding: 16px;
+  }
+
   .chart-section {
     padding: 10px;
   }
@@ -2025,4 +2050,33 @@ tbody tr.featured-row:hover {
   color: var(--album-accent, var(--accent-green)) !important;
   box-shadow: 0 0 20px rgba(var(--album-accent-rgb, 30, 215, 96), 0.2);
 }
+
+/* Very narrow mobile device optimizations */
+@media (max-width: 480px) {
+  .modal-stats {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+    text-align: center;
+  }
+  
+  .modal-stat-box {
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding-bottom: 8px;
+  }
+  
+  .modal-stat-box:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .song-milestone-box .milestone-box-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-align: center;
+  }
+}
+
 

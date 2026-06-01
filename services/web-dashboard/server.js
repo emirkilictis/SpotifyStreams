@@ -240,6 +240,44 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
   }
 });
 
+app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res) => {
+  const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
+  const artistId = artistParam.replace('spotify:artist:', '');
+  try {
+    // Last two daily snapshots → latest values + day-over-day change.
+    const latestRes = await pool.query(
+      `SELECT artist_name, monthly_listeners, followers, world_rank, recorded_date
+       FROM artist_stats
+       WHERE artist_id = $1
+       ORDER BY recorded_date DESC
+       LIMIT 2`,
+      [artistId]
+    );
+    const historyRes = await pool.query(
+      `SELECT recorded_date, monthly_listeners, followers
+       FROM artist_stats
+       WHERE artist_id = $1 AND monthly_listeners IS NOT NULL
+       ORDER BY recorded_date ASC`,
+      [artistId]
+    );
+
+    const latest = latestRes.rows[0] || null;
+    const prev = latestRes.rows[1] || null;
+    let monthlyListenersChange = null;
+    if (latest && prev && latest.monthly_listeners != null && prev.monthly_listeners != null) {
+      monthlyListenersChange = Number(latest.monthly_listeners) - Number(prev.monthly_listeners);
+    }
+
+    res.json({
+      latest: latest ? { ...latest, monthly_listeners_change: monthlyListenersChange } : null,
+      history: historyRes.rows
+    });
+  } catch (err) {
+    console.error('Fetch artist stats error:', err);
+    res.status(500).json({ error: 'Failed to load artist stats.' });
+  }
+});
+
 app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;

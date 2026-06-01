@@ -93,6 +93,16 @@ async function fetchArtistAlbums(page, artistId) {
 
   if (!result) throw new Error(`Artist ${artistId} verisi yakalanamadı.`);
 
+  // Side-channel: artist-level stats (monthly listeners, followers, world rank).
+  // Read by discoverAllAlbumsPuppeteer; avoids changing this function's return type.
+  page.lastArtistStats = {
+    artist_id:         artistId,
+    name:              result.profile?.name ?? null,
+    monthly_listeners: result.stats?.monthlyListeners ?? null,
+    followers:         result.stats?.followers ?? null,
+    world_rank:        result.stats?.worldRank ?? null,
+  };
+
   const albums = [];
   const push = (releases) => {
     for (const item of (releases?.items ?? [])) {

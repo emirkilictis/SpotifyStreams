@@ -71,8 +71,26 @@ async function upsertStreamStat(client, songId, streamCount) {
   );
 }
 
+/**
+ * Artist stat upsert — bir sanatçı için günlük snapshot (monthly listeners, followers, world rank).
+ * stream_stats'tan farklı: monthly listeners hem artar hem azalır, bu yüzden GREATEST kullanmaz, üzerine yazar.
+ */
+async function upsertArtistStat(client, s) {
+  await client.query(
+    `INSERT INTO artist_stats (artist_id, artist_name, monthly_listeners, followers, world_rank, recorded_date, recorded_at)
+     VALUES ($1, $2, $3, $4, $5, (NOW() AT TIME ZONE 'Europe/Istanbul')::date, NOW())
+     ON CONFLICT (artist_id, recorded_date) DO UPDATE
+       SET artist_name       = COALESCE(EXCLUDED.artist_name, artist_stats.artist_name),
+           monthly_listeners = EXCLUDED.monthly_listeners,
+           followers         = EXCLUDED.followers,
+           world_rank        = EXCLUDED.world_rank,
+           recorded_at       = NOW()`,
+    [s.artist_id, s.name ?? null, s.monthly_listeners ?? null, s.followers ?? null, s.world_rank ?? null]
+  );
+}
+
 async function closePool() {
   if (pool) await pool.end();
 }
 
-module.exports = { getPool, upsertAlbum, upsertSong, upsertStreamStat, closePool };
+module.exports = { getPool, upsertAlbum, upsertSong, upsertStreamStat, upsertArtistStat, closePool };

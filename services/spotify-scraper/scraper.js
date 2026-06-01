@@ -10,7 +10,7 @@ require('dotenv').config({ path: '../../.env' });
 
 const { launchBrowser, fetchAlbumTracks } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
-const { getPool, upsertAlbum, upsertSong, upsertStreamStat, closePool } = require('./db');
+const { getPool, upsertAlbum, upsertSong, upsertStreamStat, upsertArtistStat, closePool } = require('./db');
 const { dedupCanonical } = require('./dedup');
 
 const ARTIST_ID  = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
@@ -130,8 +130,14 @@ async function processAlbum(page, client, album, artistUri, stats) {
 async function scrapeArtist(page, client, artistId, stats) {
   const artistUri = `spotify:artist:${artistId}`;
   console.log(`\n[scraper] Discovering albums for artist: ${artistId}...`);
-  let { albums: discoveredAlbums, own_count, feat_count } = await discoverAllAlbumsPuppeteer(page, artistId);
-  
+  let { albums: discoveredAlbums, own_count, feat_count, stats: artistStats } = await discoverAllAlbumsPuppeteer(page, artistId);
+
+  // Persist artist-level stats (monthly listeners, followers, world rank) as a daily snapshot.
+  if (artistStats && artistStats.monthly_listeners != null) {
+    await upsertArtistStat(client, artistStats);
+    console.log(`[scraper] ${artistStats.name ?? artistId}: ${artistStats.monthly_listeners.toLocaleString('en-US')} monthly listeners.`);
+  }
+
   // Lady Gaga filters: Mayhem and The Fame Monster (EP or Deluxe/Standard) only
   if (artistId === '1HY2Jd0NmPuamShAr6KMms') {
     discoveredAlbums = discoveredAlbums.filter(a => {

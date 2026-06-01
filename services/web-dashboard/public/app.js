@@ -34,6 +34,8 @@ const sortHeaders = document.querySelectorAll('th.sortable');
 
 // Stats Elements
 const totalStreamsEl = document.getElementById('total-streams');
+const monthlyListenersEl = document.getElementById('monthly-listeners');
+const monthlyListenersChangeEl = document.getElementById('monthly-listeners-change');
 const leadStreamsEl = document.getElementById('lead-streams');
 const featStreamsEl = document.getElementById('feat-streams');
 const soloStreamsEl = document.getElementById('solo-streams');
@@ -76,6 +78,28 @@ const milestonesGrid = document.getElementById('milestones-grid');
 function formatNumber(num) {
   if (num === null || num === undefined) return '0';
   return Number(num).toLocaleString('en-US');
+}
+
+// Day-over-day change for the Monthly Listeners card.
+// null => no previous snapshot yet (hide it).
+function setMonthlyListenersChange(change) {
+  if (!monthlyListenersChangeEl) return;
+  if (change === null || change === undefined) {
+    monthlyListenersChangeEl.textContent = '';
+    monthlyListenersChangeEl.className = 'stat-delta';
+    return;
+  }
+  const n = Number(change);
+  if (n > 0) {
+    monthlyListenersChangeEl.textContent = `▲ ${formatNumber(n)}`;
+    monthlyListenersChangeEl.className = 'stat-delta gain-positive';
+  } else if (n < 0) {
+    monthlyListenersChangeEl.textContent = `▼ ${formatNumber(Math.abs(n))}`;
+    monthlyListenersChangeEl.className = 'stat-delta gain-negative';
+  } else {
+    monthlyListenersChangeEl.textContent = '— 0';
+    monthlyListenersChangeEl.className = 'stat-delta gain-neutral';
+  }
 }
 
 function formatDuration(ms) {
@@ -145,6 +169,23 @@ async function fetchData() {
     
     totalSongsEl.textContent = statsData.total_songs;
     lastUpdateEl.textContent = formatDate(statsData.last_update);
+
+    // Fetch artist-level stats (monthly listeners)
+    try {
+      const artistStatsRes = await fetch(`/api/artist-stats?artist=${currentArtist}`, { headers });
+      if (artistStatsRes.ok) {
+        const artistStats = await artistStatsRes.json();
+        const ml = artistStats.latest?.monthly_listeners;
+        monthlyListenersEl.textContent = (ml !== null && ml !== undefined) ? formatNumber(ml) : '-';
+        setMonthlyListenersChange(artistStats.latest?.monthly_listeners_change);
+      } else {
+        monthlyListenersEl.textContent = '-';
+        setMonthlyListenersChange(null);
+      }
+    } catch (e) {
+      monthlyListenersEl.textContent = '-';
+      setMonthlyListenersChange(null);
+    }
 
     // Fetch songs
     const songsRes = await fetch(`/api/songs?artist=${currentArtist}`, { headers });

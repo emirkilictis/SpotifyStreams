@@ -90,6 +90,8 @@ async function discoverAllAlbumsPuppeteer(page, artistId) {
 
   // 1) Own (album + single + compilation)
   const own = await fetchArtistAlbums(page, artistId);
+  // Artist-level stats captured as a side-channel during the overview fetch above.
+  const stats = page.lastArtistStats || null;
   // 2) Featured (appears_on)
   const feat = await fetchArtistAppearsOn(page, artistId);
 
@@ -120,7 +122,7 @@ async function discoverAllAlbumsPuppeteer(page, artistId) {
 
   const own_count  = own.length;
   const feat_count = [...map.values()].filter(x => x.is_featured).length;
-  return { albums: [...map.values()], own_count, feat_count };
+  return { albums: [...map.values()], own_count, feat_count, stats };
 }
 
 module.exports = { getAppToken, listArtistAlbums, discoverAllAlbumsPuppeteer };
