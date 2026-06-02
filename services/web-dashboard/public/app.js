@@ -59,6 +59,7 @@ const statsGrid = document.querySelector('.stats-grid');
 // View Toggle Elements
 const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
 const viewToggleBar = document.querySelector('.view-toggle-bar');
+const songsToggleBtn = document.querySelector('.view-toggle-btn[data-view="songs"]');
 const songsViewSection = document.getElementById('songs-view-section');
 const albumsViewSection = document.getElementById('albums-view-section');
 const albumsContainer = document.getElementById('albums-container');
@@ -245,11 +246,11 @@ async function fetchAlbumsData() {
     allAlbums = await res.json();
     
     if (viewToggleBar) {
-      if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
-        viewToggleBar.style.display = 'none';
-      } else {
-        viewToggleBar.style.display = allAlbums.length > 0 ? 'flex' : 'none';
-      }
+      // Album-only artists have no songs list, but they still get a Milestones
+      // tab — so show the bar (Albums + Milestones) and just hide "Songs List".
+      const albumOnly = ALBUM_ONLY_ARTISTS.has(currentArtist);
+      if (songsToggleBtn) songsToggleBtn.style.display = albumOnly ? 'none' : '';
+      viewToggleBar.style.display = allAlbums.length > 0 ? 'flex' : 'none';
     }
     
     renderAlbums();
