@@ -141,6 +141,7 @@
         </div>
       </div>
       <div class="user-actions">
+        <span class="last-update-chip" title="Last updated"><span class="lu-dot"></span><span id="last-update">—</span></span>
         <button id="back-to-picker-btn" class="btn-secondary" title="Switch Artist">← Artists</button>
         <a href="/logout" class="btn-secondary">Log Out</a>
       </div>
@@ -149,71 +150,51 @@
 
 
   <main class="dashboard-container">
-    <!-- Stats Section (6 Cards) -->
+    <!-- Stats Section (3 cards) -->
     <section class="stats-grid">
-      <div class="stat-card glass">
+      <!-- Total Streams + expandable Lead/Solo/Featured breakdown -->
+      <div class="stat-card glass stat-card-total">
         <div class="stat-info">
           <h3>Total Streams</h3>
           <p id="total-streams">-</p>
+          <span class="stat-subtle"><span id="total-songs">-</span> songs</span>
+        </div>
+        <button id="breakdown-toggle" class="breakdown-toggle" type="button" aria-expanded="false">
+          <span>Breakdown</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div id="streams-breakdown" class="streams-breakdown collapsed">
+          <div class="breakdown-row"><span class="breakdown-label">Lead</span><span id="lead-streams">-</span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Solo</span><span id="solo-streams">-</span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Featured</span><span id="feat-streams">-</span></div>
         </div>
       </div>
-      <div class="stat-card glass">
+
+      <!-- Monthly Listeners + Followers merged -->
+      <div class="stat-card glass stat-card-dual">
         <div class="stat-info">
-          <h3>Monthly Listeners</h3>
-          <p id="monthly-listeners">-</p>
-          <span id="monthly-listeners-change" class="stat-delta"></span>
+          <h3>Listeners &amp; Followers</h3>
+          <div class="dual-stat">
+            <div class="dual-stat-item">
+              <span class="dual-label">Monthly Listeners</span>
+              <p id="monthly-listeners">-</p>
+              <span id="monthly-listeners-change" class="stat-delta"></span>
+            </div>
+            <div class="dual-stat-item">
+              <span class="dual-label">Followers</span>
+              <p id="followers">-</p>
+              <span id="followers-change" class="stat-delta"></span>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="stat-card glass">
-        <div class="stat-info">
-          <h3>Followers</h3>
-          <p id="followers">-</p>
-          <span id="followers-change" class="stat-delta"></span>
-        </div>
-      </div>
-      <div class="stat-card glass">
-        <div class="stat-info">
-          <h3>Lead Streams</h3>
-          <p id="lead-streams">-</p>
-        </div>
-      </div>
-      <div class="stat-card glass">
-        <div class="stat-info">
-          <h3>Solo Streams</h3>
-          <p id="solo-streams">-</p>
-        </div>
-      </div>
-      <div class="stat-card glass">
-        <div class="stat-info">
-          <h3>Featured Streams</h3>
-          <p id="feat-streams">-</p>
-        </div>
-      </div>
+
+      <!-- Daily Streams -->
       <div class="stat-card glass">
         <div class="stat-info">
           <h3>Daily Streams</h3>
           <p id="daily-streams" class="gain-positive">-</p>
         </div>
-      </div>
-      <div class="stat-card glass">
-        <div class="stat-info">
-          <h3>Song Count</h3>
-          <p id="total-songs">-</p>
-        </div>
-      </div>
-      <div class="stat-card glass">
-        <div class="stat-info">
-          <h3>Last Updated</h3>
-          <p id="last-update">-</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Upcoming Milestones Section -->
-    <section id="milestones-section" class="milestones-section glass hidden">
-      <h2 class="section-title">Upcoming Milestones</h2>
-      <div class="milestones-grid" id="milestones-grid">
-        <!-- Dynamically generated song milestone progress cards -->
       </div>
     </section>
 
@@ -221,6 +202,7 @@
     <section class="view-toggle-bar glass">
       <button class="view-toggle-btn active" data-view="songs">Songs List</button>
       <button class="view-toggle-btn" data-view="albums">Albums List</button>
+      <button class="view-toggle-btn" data-view="milestones">Milestones</button>
     </section>
 
     <!-- Songs View Section -->
@@ -249,7 +231,7 @@
                 <th class="sortable" data-sort="title">Song <span class="sort-icon"></span></th>
                 <th class="sortable" data-sort="duration">Duration <span class="sort-icon"></span></th>
                 <th class="sortable active" data-sort="streams">Total Streams <span class="sort-icon">▼</span></th>
-                <th class="sortable" data-sort="gain">Daily Gain <span class="sort-icon"></span></th>
+                <th class="sortable" data-sort="gain">Daily Streams <span class="sort-icon"></span></th>
               </tr>
             </thead>
             <tbody id="songs-tbody">
@@ -260,6 +242,9 @@
           </table>
         </div>
       </section>
+      <div class="songs-showall-bar">
+        <button id="songs-showall-btn" class="btn-secondary" type="button" hidden></button>
+      </div>
     </div>
 
     <!-- Albums View Section (Hidden initially) -->
@@ -270,16 +255,27 @@
       </div>
     </div>
 
-    <!-- Achieved Milestones Section (separate, collapsible, hidden until data exists) -->
-    <section id="achieved-milestones-section" class="achieved-milestones-section glass hidden">
-      <button id="achieved-toggle-btn" class="achieved-toggle" type="button" aria-expanded="false">
-        <span class="achieved-title">🏆 Achieved Milestones <span id="achieved-count" class="achieved-count">0</span></span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
-      </button>
-      <div id="achieved-list" class="achieved-list collapsed">
-        <!-- Reached milestone rows loaded dynamically -->
-      </div>
-    </section>
+    <!-- Milestones View Section (Hidden initially): Achieved on top, Upcoming below -->
+    <div id="milestones-section" class="milestones-view hidden">
+      <!-- Achieved Milestones (collapsible, hidden until data exists) -->
+      <section id="achieved-milestones-section" class="achieved-milestones-section glass hidden">
+        <button id="achieved-toggle-btn" class="achieved-toggle" type="button" aria-expanded="false">
+          <span class="achieved-title">🏆 Achieved Milestones <span id="achieved-count" class="achieved-count">0</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div id="achieved-list" class="achieved-list collapsed">
+          <!-- Reached milestone rows loaded dynamically -->
+        </div>
+      </section>
+
+      <!-- Upcoming Milestones -->
+      <section class="milestones-section glass">
+        <h2 class="section-title">Upcoming Milestones</h2>
+        <div class="milestones-grid" id="milestones-grid">
+          <!-- Dynamically generated song milestone progress cards -->
+        </div>
+      </section>
+    </div>
   </main>
 
   <footer class="dashboard-footer">
@@ -327,7 +323,7 @@
                 <th>Title</th>
                 <th>Duration</th>
                 <th>Total Streams</th>
-                <th>Daily Gain</th>
+                <th>Daily Streams</th>
                 <th>Trend</th>
               </tr>
             </thead>
@@ -408,7 +404,7 @@
           <div class="chart-toggle-bar">
             <div class="toggle-group">
               <button class="chart-toggle-btn active" data-chart-type="cumulative">Total Streams</button>
-              <button class="chart-toggle-btn" data-chart-type="daily">Daily Gains</button>
+              <button class="chart-toggle-btn" data-chart-type="daily">Daily Streams</button>
             </div>
             <div class="toggle-group">
               <button class="range-toggle-btn" data-range="7">7D</button>

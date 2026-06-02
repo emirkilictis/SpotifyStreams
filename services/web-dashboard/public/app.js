@@ -6,7 +6,9 @@ let searchFilter = '';
 let typeFilter = 'all'; // 'all' | 'lead' | 'featured'
 let currentSortField = 'streams'; // 'rank' | 'title' | 'album' | 'duration' | 'streams' | 'gain'
 let currentSortDirection = 'desc';
-let activeView = 'songs'; // 'songs' | 'albums'
+let activeView = 'songs'; // 'songs' | 'albums' | 'milestones'
+let songsExpanded = false; // when false, the songs table shows only the top N rows
+const SONGS_COLLAPSED_LIMIT = 15;
 let currentArtist = null; // set when artist is picked
 let currentArtistName = ''; // display name of picked artist
 let currentAlbumMeta = null; // { albumId, title, releaseDate, coverUrl } of open album modal
@@ -60,6 +62,11 @@ const viewToggleBar = document.querySelector('.view-toggle-bar');
 const songsViewSection = document.getElementById('songs-view-section');
 const albumsViewSection = document.getElementById('albums-view-section');
 const albumsContainer = document.getElementById('albums-container');
+const songsShowAllBtn = document.getElementById('songs-showall-btn');
+
+// Total Streams breakdown (Lead / Solo / Featured) toggle
+const breakdownToggle = document.getElementById('breakdown-toggle');
+const streamsBreakdown = document.getElementById('streams-breakdown');
 
 // Modal Elements
 const albumModal = document.getElementById('album-modal');
@@ -368,10 +375,15 @@ function renderSongs() {
   // 3) Generate HTML
   if (filteredSongs.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5" class="table-empty">No songs found matching search criteria.</td></tr>`;
+    if (songsShowAllBtn) songsShowAllBtn.hidden = true;
     return;
   }
 
-  tbody.innerHTML = filteredSongs.map((song, idx) => {
+  // Show only the top N rows unless the user expanded the full list. Search and
+  // sort still run over the entire dataset above; this only trims the display.
+  const visibleSongs = songsExpanded ? filteredSongs : filteredSongs.slice(0, SONGS_COLLAPSED_LIMIT);
+
+  tbody.innerHTML = visibleSongs.map((song, idx) => {
     const isFeatured = song.is_featured;
     const isSolo = song.is_solo;
     const dailyGain = Number(song.daily_gain);
@@ -415,6 +427,17 @@ function renderSongs() {
       </tr>
     `;
   }).join('');
+
+  // 4) Show-all toggle: only when the filtered list exceeds the collapsed limit.
+  if (songsShowAllBtn) {
+    const hidden = filteredSongs.length <= SONGS_COLLAPSED_LIMIT;
+    songsShowAllBtn.hidden = hidden;
+    if (!hidden) {
+      songsShowAllBtn.textContent = songsExpanded
+        ? 'Show less'
+        : `Show all ${filteredSongs.length} songs`;
+    }
+  }
 }
 
 // Album Cover Art URLs
@@ -1039,7 +1062,7 @@ async function downloadModalAsImage() {
     }
   } catch (err) {
     console.error('Failed to save image:', err);
-    alert('Görsel oluşturulamadı. Lütfen tekrar deneyin.');
+    alert('Could not generate the image. Please try again.');
   } finally {
     // Restore the cover image visibility if we hid it for capture
     if (coverHiddenForCapture && coverImg) coverImg.style.visibility = '';
@@ -1157,7 +1180,7 @@ async function openDailyCard() {
       <div class="dc-big">
         <div class="dc-big-left">
           <div class="dc-big-label">DAILY STREAMS</div>
-          <div class="dc-daily-num">${formatNumber(totalDaily)}</div>
+          <div class="dc-daily-num">+${formatNumber(totalDaily)}</div>
         </div>
         <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</div>
       </div>
@@ -1201,20 +1224,52 @@ async function downloadDailyCard() {
     if (cover.style.visibility !== 'hidden' && !cover.naturalWidth) cover.style.visibility = 'hidden';
   }
   try {
+    // Always render the PNG at the full desktop card width so the exported
+    // image looks identical regardless of the (possibly narrow) mobile preview.
     const canvas = await html2canvas(dailyCardEl, {
       backgroundColor: '#080c14',
       scale: isMobile ? 1.5 : 2,
       useCORS: true,
       imageTimeout: 15000,
-      logging: false
+      logging: false,
+      width: 600,
+      windowWidth: 700,
+      onclone: (clonedDoc) => {
+        const card = clonedDoc.getElementById('daily-card');
+        if (card) {
+          card.style.setProperty('width', '600px', 'important');
+          card.style.setProperty('max-width', '600px', 'important');
+          card.style.setProperty('padding', '26px 28px', 'important');
+        }
+        // Force every table column visible at desktop size (the mobile preview
+        // may hide the % column to fit the screen).
+        clonedDoc.querySelectorAll('#daily-card .dc-table th, #daily-card .dc-table td')
+          .forEach(c => c.style.setProperty('display', 'table-cell', 'important'));
+      }
     });
-    const link = document.createElement('a');
     const name = (currentAlbumMeta?.title || 'album').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
-    link.download = `daily_${name}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
+    const fileName = `daily_${name}.png`;
+
+    let url = null;
+    if (canvas.toBlob) {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (blob) url = URL.createObjectURL(blob);
+    }
+    if (!url) url = canvas.toDataURL('image/png');
+
+    if (isMobile) {
+      // iOS Safari ignores programmatic downloads — show the long-press overlay.
+      showMobileImageOverlay(url, currentAlbumMeta?.title || 'album');
+    } else {
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = url;
+      link.click();
+      if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
   } catch (e) {
     console.error('Daily card export failed:', e);
+    alert('Could not generate the image. Please try again.');
   } finally {
     if (cover) cover.style.visibility = 'visible';
   }
@@ -1225,27 +1280,46 @@ if (dailyCardCloseBtn) dailyCardCloseBtn.addEventListener('click', () => dailyCa
 if (dailyCardDownloadBtn) dailyCardDownloadBtn.addEventListener('click', downloadDailyCard);
 if (dailyCardModal) dailyCardModal.addEventListener('click', (e) => { if (e.target === dailyCardModal) dailyCardModal.classList.add('hidden'); });
 
+// Centralized view switcher: shows exactly one of songs / albums / milestones
+// and syncs the toggle buttons' active state.
+function setActiveView(view) {
+  activeView = view;
+  viewToggleBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  songsViewSection.classList.toggle('hidden', view !== 'songs');
+  albumsViewSection.classList.toggle('hidden', view !== 'albums');
+  if (milestonesSection) milestonesSection.classList.toggle('hidden', view !== 'milestones');
+}
+
 // View Toggle Handler
 viewToggleBtns.forEach(btn => {
   btn.addEventListener('click', () => {
-    viewToggleBtns.forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    activeView = btn.dataset.view;
-    
-    if (activeView === 'songs') {
-      songsViewSection.classList.remove('hidden');
-      albumsViewSection.classList.add('hidden');
-    } else {
-      songsViewSection.classList.add('hidden');
-      albumsViewSection.classList.remove('hidden');
-      fetchAlbumsData();
-    }
+    setActiveView(btn.dataset.view);
+    if (btn.dataset.view === 'albums') fetchAlbumsData();
   });
 });
+
+// Show-all / show-less toggle for the songs table
+if (songsShowAllBtn) {
+  songsShowAllBtn.addEventListener('click', () => {
+    songsExpanded = !songsExpanded;
+    renderSongs();
+  });
+}
+
+// Total Streams breakdown (Lead / Solo / Featured) toggle
+if (breakdownToggle && streamsBreakdown) {
+  breakdownToggle.addEventListener('click', () => {
+    const collapsed = streamsBreakdown.classList.toggle('collapsed');
+    breakdownToggle.setAttribute('aria-expanded', String(!collapsed));
+    const chevron = breakdownToggle.querySelector('.chevron-icon');
+    if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+  });
+}
 
 // Search handler
 searchInput.addEventListener('input', (e) => {
   searchFilter = e.target.value;
+  songsExpanded = false; // new search starts collapsed so top matches are visible
   renderSongs();
 });
 
@@ -1328,8 +1402,10 @@ function formatMilestoneName(val) {
 }
 
 function renderMilestones() {
+  // Visibility is controlled by the view switcher (Milestones tab); here we
+  // only populate the grid, falling back to an empty state when there's nothing.
   if (!allSongs || allSongs.length === 0) {
-    milestonesSection.classList.add('hidden');
+    milestonesGrid.innerHTML = '<p class="milestones-empty">No milestone data yet.</p>';
     return;
   }
 
@@ -1354,15 +1430,14 @@ function renderMilestones() {
   // Sort by percentage completed desc
   songMilestones.sort((a, b) => b.percent - a.percent);
 
-  // Take top 4 closest
-  const topMilestones = songMilestones.slice(0, 4);
+  // Dedicated tab now, so show a fuller list of the closest milestones.
+  const topMilestones = songMilestones.slice(0, 12);
 
   if (topMilestones.length === 0) {
-    milestonesSection.classList.add('hidden');
+    milestonesGrid.innerHTML = '<p class="milestones-empty">No upcoming milestones.</p>';
     return;
   }
 
-  milestonesSection.classList.remove('hidden');
   milestonesGrid.innerHTML = topMilestones.map(item => {
     const isFeatured = item.is_featured;
     const isSolo = item.is_solo;
@@ -1545,7 +1620,7 @@ function renderSongChart() {
     seriesName = 'Total Streams';
   } else {
     dataPoints = filteredHistory.map(row => Number(row.daily_gain));
-    seriesName = 'Daily Gain';
+    seriesName = 'Daily Streams';
   }
 
   const options = {
@@ -1738,27 +1813,13 @@ if (artistSelector) {
     // For album-only artists (Gaga, Billie, Ariana), force active view to 'albums'
     if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
       if (statsGrid) statsGrid.classList.add('hidden');
-      activeView = 'albums';
-      viewToggleBtns.forEach(b => {
-        if (b.dataset.view === 'albums') b.classList.add('active');
-        else b.classList.remove('active');
-      });
-      songsViewSection.classList.add('hidden');
-      albumsViewSection.classList.remove('hidden');
-      await fetchData();
-      await fetchAlbumsData();
+      setActiveView('albums');
     } else {
       if (statsGrid) statsGrid.classList.remove('hidden');
-      activeView = 'songs';
-      viewToggleBtns.forEach(b => {
-        if (b.dataset.view === 'songs') b.classList.add('active');
-        else b.classList.remove('active');
-      });
-      songsViewSection.classList.remove('hidden');
-      albumsViewSection.classList.add('hidden');
-      await fetchData();
-      await fetchAlbumsData();
+      setActiveView('songs');
     }
+    await fetchData();
+    await fetchAlbumsData();
   });
 }
 
@@ -1793,27 +1854,13 @@ async function enterDashboard(artistId, artistName) {
   // Set correct view based on artist type
   if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
     if (statsGrid) statsGrid.classList.add('hidden');
-    activeView = 'albums';
-    viewToggleBtns.forEach(b => {
-      if (b.dataset.view === 'albums') b.classList.add('active');
-      else b.classList.remove('active');
-    });
-    songsViewSection.classList.add('hidden');
-    albumsViewSection.classList.remove('hidden');
-    await fetchData();
-    await fetchAlbumsData();
+    setActiveView('albums');
   } else {
     if (statsGrid) statsGrid.classList.remove('hidden');
-    activeView = 'songs';
-    viewToggleBtns.forEach(b => {
-      if (b.dataset.view === 'songs') b.classList.add('active');
-      else b.classList.remove('active');
-    });
-    songsViewSection.classList.remove('hidden');
-    albumsViewSection.classList.add('hidden');
-    await fetchData();
-    await fetchAlbumsData();
+    setActiveView('songs');
   }
+  await fetchData();
+  await fetchAlbumsData();
   
   // Scroll to top
   window.scrollTo(0, 0);
@@ -1880,7 +1927,7 @@ document.querySelectorAll('.picker-card').forEach(card => {
       if (jcUnlocked) {
         enterDashboard(artistId, 'JC Chasez');
       } else {
-        const code = prompt("Gizli sanatçıyı açmak için erişim kodunu girin:");
+        const code = prompt("Enter the access code to unlock this artist:");
         if (code) {
           try {
             const res = await fetch('/api/verify-jc', {
@@ -1895,11 +1942,11 @@ document.querySelectorAll('.picker-card').forEach(card => {
               unlockJcChasezUI();
               enterDashboard(artistId, 'JC Chasez');
             } else {
-              alert("Geçersiz kod!");
+              alert("Invalid code!");
             }
           } catch (err) {
             console.error('Error verifying JC code:', err);
-            alert('Sunucuyla iletişim kurulamadı.');
+            alert('Could not reach the server.');
           }
         }
       }
@@ -1937,16 +1984,16 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   overlay.innerHTML = `
     <div style="text-align: center; margin-bottom: 20px; color: #fff; max-width: 90%;">
-      <h3 style="margin: 0 0 8px 0; font-family: 'Outfit', sans-serif; font-size: 1.4rem; font-weight: 700; color: #1db954;">Görsel Hazır!</h3>
+      <h3 style="margin: 0 0 8px 0; font-family: 'Outfit', sans-serif; font-size: 1.4rem; font-weight: 700; color: #1db954;">Image Ready!</h3>
       <p style="margin: 0; font-size: 0.95rem; opacity: 0.9; font-family: 'Inter', sans-serif; line-height: 1.5;">
-        Görseli kaydetmek için resmin üzerine <strong>basılı tutun</strong> ve <strong>"Fotoğraflara Ekle"</strong> veya <strong>"Resmi Kaydet"</strong> seçeneğini seçin.
+        To save it, <strong>press and hold</strong> the image and choose <strong>"Add to Photos"</strong> or <strong>"Save Image"</strong>.
       </p>
     </div>
     <div style="max-width: 100%; max-height: 60vh; overflow-y: auto; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); background: #080c14;">
       <img src="${imageUrl}" alt="${albumTitle}" style="width: 100%; height: auto; display: block; border-radius: 16px;">
     </div>
     <button id="close-mobile-overlay" style="margin-top: 25px; padding: 12px 32px; border: none; background: linear-gradient(135deg, rgba(29, 185, 84, 0.2) 0%, rgba(29, 185, 84, 0.1) 100%); color: #1db954; border-radius: 24px; font-weight: 700; cursor: pointer; font-family: 'Outfit', sans-serif; border: 1px solid rgba(29, 185, 84, 0.4); box-shadow: 0 4px 12px rgba(29, 185, 84, 0.15); transition: all 0.2s; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px;">
-      Kapat
+      Close
     </button>
   `;
 

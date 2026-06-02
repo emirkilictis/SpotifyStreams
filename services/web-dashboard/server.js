@@ -668,5 +668,5 @@ app.get('*', requireAuth, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Sunucu http://localhost:${PORT} portunda çalışıyor.`);
+  console.log(`Server running at http://localhost:${PORT}`);
 });
