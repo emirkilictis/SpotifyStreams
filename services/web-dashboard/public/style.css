@@ -15,6 +15,9 @@
   --accent-green: #1ed760;
   --accent-green-hover: #1db954;
   --accent-green-glow: rgba(30, 215, 96, 0.4);
+
+  /* Fixed green for stream gains — never overridden by artist theme */
+  --gain-green: #1ed760;
   
   --accent-purple: #8b5cf6;
   --accent-purple-glow: rgba(139, 92, 246, 0.3);
@@ -630,7 +633,12 @@ tbody tr.featured-row:hover {
 }
 
 .gain-positive {
-  color: var(--accent-green);
+  color: var(--gain-green);
+}
+
+/* Daily Streams stat card shows a daily gain — keep it green, not white */
+.stat-info p.gain-positive {
+  color: var(--gain-green);
 }
 
 .gain-negative {
