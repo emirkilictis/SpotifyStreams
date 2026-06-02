@@ -15,7 +15,7 @@ const { dedupCanonical } = require('./dedup');
 
 const ARTIST_ID  = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
 const ARTIST_URI = `spotify:artist:${ARTIST_ID}`;
-const DELAY_MS   = 800;
+const DELAY_MS   = 400;
 
 const BLACKLISTED_TRACK_IDS = new Set([
   '3K7xYRXPFDVyen7cZF5Zk2', // Get Back Up Again (Anna Kendrick)
