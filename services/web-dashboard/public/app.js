@@ -1163,7 +1163,7 @@ async function openDailyCard() {
           <td>${formatNumber(daily)}</td>
           <td class="${c.cls}">${c.txt}</td>
           <td class="${c.cls}">${c.pct}</td>
-          <td class="dc-muted">${formatNumber(s.cumulative)}</td>
+          <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
         </tr>`;
     }).join('');
 
@@ -1205,7 +1205,7 @@ async function openDailyCard() {
             <td>${formatNumber(totalDaily)}</td>
             <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}</td>
             <td class="${totalCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</td>
-            <td class="dc-muted">${formatNumber(totalCum)}</td>
+            <td class="dc-totalcol">${formatNumber(totalCum)}</td>
           </tr>
         </tfoot>
       </table>
