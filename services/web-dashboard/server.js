@@ -11,6 +11,11 @@ const PORT = process.env.PORT || 3000;
 const JC_PASSCODES = ['peakedinhighschool', 'flop'];
 const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
 
+// Tracks hidden from EVERY listing (songs list, album tracklist, milestones).
+// Dead duplicates whose live copy is tracked under a different id.
+const HIDDEN_TRACK_IDS = ['6233Z1W8t9Wn1f1gZqHhQ5']; // Suit & Tie - Radio Edit (frozen 2026-05-26; live = 4mQVHEjrnuUd7G5IVhSYTk)
+const HIDDEN_TRACK_IDS_SQL = HIDDEN_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
 // PostgreSQL Connection Pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -172,6 +177,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
             OR a.title ILIKE 'eternal sunshine%'
         ))
       )
+      AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
       ORDER BY cumulative DESC;
     `;
     const result = await pool.query(query, [artistUri]);
@@ -234,7 +240,8 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
             OR a.title ILIKE 'Positions%'
             OR a.title ILIKE 'eternal sunshine%'
         ))
-      );
+      )
+      AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL});
     `;
     const result = await pool.query(query, [artistUri]);
     res.json(result.rows[0]);
@@ -324,6 +331,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (a.title ILIKE 'HIT ME HARD AND SOFT%' OR a.title ILIKE 'Happier Than Ever%' OR a.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%' OR a.title ILIKE 'dont smile at me%' OR a.title ILIKE 'don''t smile at me%' OR a.title ILIKE 'Guitar Songs%'))
           OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (a.title ILIKE 'Yours Truly%' OR a.title ILIKE 'My Everything%' OR a.title ILIKE 'Dangerous Woman%' OR a.title ILIKE 'Sweetener%' OR a.title ILIKE 'thank u, next%' OR a.title ILIKE 'Positions%' OR a.title ILIKE 'eternal sunshine%'))
         )
+        AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
       )
       SELECT
         h.canonical_id AS song_id,
