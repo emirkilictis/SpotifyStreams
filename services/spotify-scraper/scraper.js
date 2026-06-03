@@ -280,6 +280,31 @@ async function scrapeArtist(page, client, artistId, stats) {
   }
 }
 
+// Returns true if this artist already has a full snapshot for today. Used both for
+// idempotency (don't re-scrape an artist already done) and to RESUME a run that was
+// cut short mid-list (e.g. GHA timeout) on the next hourly invocation.
+// "Full" = today's row count is at least the most recent previous day's count, so an
+// artist that was interrupted mid-scrape (fewer rows today) is correctly re-scraped.
+async function artistHasTodaysData(client, artistUri) {
+  const res = await client.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE ss.recorded_date = CURRENT_DATE) AS today_cnt,
+       COUNT(*) FILTER (WHERE ss.recorded_date = (
+         SELECT MAX(ss2.recorded_date)
+         FROM stream_stats ss2
+         JOIN songs s2 ON s2.id = ss2.song_id
+         WHERE s2.primary_artist = $1 AND ss2.recorded_date < CURRENT_DATE
+       )) AS prev_cnt
+     FROM stream_stats ss
+     JOIN songs s ON s.id = ss.song_id
+     WHERE s.primary_artist = $1`,
+    [artistUri]
+  );
+  const today = parseInt(res.rows[0]?.today_cnt ?? 0, 10);
+  const prev  = parseInt(res.rows[0]?.prev_cnt ?? 0, 10);
+  return today > 0 && today >= prev;
+}
+
 async function run() {
   const need = ['SP_DC', 'DATABASE_URL'];
   for (const k of need) if (!process.env[k]) { console.error(`[scraper] HATA: ${k} eksik.`); process.exit(1); }
@@ -292,14 +317,20 @@ async function run() {
     const client = await pool.connect();
 
     try {
-      // Canary Update Check (only run check for Mirrors for JT first, to skip if no updates)
+      // Canary Update Check — detect Spotify's daily playcount rollover using JT's
+      // "Mirrors". This is a GLOBAL gate (Spotify refreshes all artists together), but
+      // it no longer exits the process: a run cut short mid-list (e.g. GHA timeout)
+      // leaves later artists without today's data while the canary already shows the new
+      // number, which used to make every subsequent run skip everything. Instead we set a
+      // flag and let the per-artist resume logic below decide who still needs scraping.
       const isForce = process.argv.includes('--force') || process.env.FORCE_SCRAPE === 'true';
+      let spotifyUpdatedToday = true; // assume yes when forced or when the check can't run
       if (isForce) {
         console.log('[scraper] Force flag detected. Bypassing canary update check...');
       } else {
         const CHECK_SONG_ID = '4rHZZAmHpZrA3iH5zx8frV'; // Mirrors
         const CHECK_ALBUM_ID = '0O82niJ0NpcptYRxogeEZu'; // The 20/20 Experience (Deluxe Version)
-        
+
         console.log('[scraper] Checking if Spotify has updated playcounts today...');
         const dbRes = await client.query(
           'SELECT MAX(stream_count) as max_streams FROM stream_stats WHERE song_id = $1',
@@ -307,26 +338,23 @@ async function run() {
         );
         const dbMax = dbRes.rows[0]?.max_streams ? parseInt(dbRes.rows[0].max_streams, 10) : 0;
         console.log(`[scraper] DB max streams for Mirrors: ${dbMax}`);
-        
+
         if (dbMax > 0) {
           console.log(`[scraper] Fetching playcounts for check album: ${CHECK_ALBUM_ID}`);
           const checkTracks = await fetchAlbumTracks(page, CHECK_ALBUM_ID);
           const mirrorsTrack = checkTracks.find(t => t.id === CHECK_SONG_ID);
-          
+
           if (!mirrorsTrack) {
             console.warn('[scraper] Check song not found on the fetched album page. Proceeding with full scrape.');
           } else {
             const spotifyPlayCount = mirrorsTrack.playCount;
             console.log(`[scraper] Spotify current playcount for Mirrors: ${spotifyPlayCount}`);
-            
-            if (spotifyPlayCount <= dbMax) {
-              console.log(`[scraper] No update detected yet. (Spotify: ${spotifyPlayCount} <= DB: ${dbMax}). Exiting gracefully.`);
-              client.release();
-              await closePool();
-              await browser.close();
-              process.exit(0);
+            spotifyUpdatedToday = spotifyPlayCount > dbMax;
+            if (spotifyUpdatedToday) {
+              console.log(`[scraper] New data detected! (Spotify: ${spotifyPlayCount} > DB: ${dbMax}).`);
+            } else {
+              console.log(`[scraper] Canary shows no fresh global update (Spotify: ${spotifyPlayCount} <= DB: ${dbMax}). Will only scrape artists still missing today's snapshot.`);
             }
-            console.log(`[scraper] New data detected! (Spotify: ${spotifyPlayCount} > DB: ${dbMax}). Proceeding with full scrape.`);
           }
         } else {
           console.log('[scraper] No streams found in DB for check song. Bypassing check.');
@@ -334,7 +362,7 @@ async function run() {
       }
 
       const stats  = { tracksProcessed: 0, streamsUpdated: 0 };
-      
+
       const artistFilterArg = process.argv.find(arg => arg.startsWith('--artists='));
       let artistsToRun = [
         { id: '31TPClRtHm23RisEBtV3X7', name: 'Justin Timberlake' },
@@ -353,7 +381,42 @@ async function run() {
         console.log(`[scraper] Filtering run to artists: ${artistsToRun.map(a => a.name).join(', ')}`);
       }
 
-      for (const artist of artistsToRun) {
+      // Per-artist resume: skip artists already captured today; only the ones still
+      // missing today's data get scraped. This lets the next hourly run finish a run
+      // that was cut short (e.g. by the GHA timeout) without re-doing completed artists.
+      let pendingArtists = artistsToRun;
+      if (!isForce) {
+        pendingArtists = [];
+        for (const artist of artistsToRun) {
+          if (await artistHasTodaysData(client, `spotify:artist:${artist.id}`)) {
+            console.log(`[scraper] ${artist.name}: already captured today, skipping.`);
+          } else {
+            pendingArtists.push(artist);
+          }
+        }
+
+        if (pendingArtists.length === 0) {
+          console.log('[scraper] All artists already have today\'s data. Nothing to do. Exiting gracefully.');
+          client.release();
+          await closePool();
+          await browser.close();
+          process.exit(0);
+        }
+
+        // If Spotify hasn't rolled over today AND no artist has been captured yet, there
+        // is nothing new to grab — bail rather than record stale (yesterday's) numbers.
+        // (If some artists ARE already done, the pending ones are leftovers from a partial
+        // run since the canary's last positive detection, so we scrape them.)
+        if (!spotifyUpdatedToday && pendingArtists.length === artistsToRun.length) {
+          console.log('[scraper] No fresh update and no artist captured yet today. Exiting gracefully.');
+          client.release();
+          await closePool();
+          await browser.close();
+          process.exit(0);
+        }
+      }
+
+      for (const artist of pendingArtists) {
         await scrapeArtist(page, client, artist.id, stats);
       }
 
