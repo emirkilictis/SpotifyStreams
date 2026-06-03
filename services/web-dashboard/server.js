@@ -551,28 +551,45 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
           ORDER BY pv.recorded_date DESC
           LIMIT 1
         ) prev ON true
-        WHERE 
+        WHERE (
           (
-            $1 = '0tcExuDWMQdBbwSpqN8Ku2' 
+            $1 = '0tcExuDWMQdBbwSpqN8Ku2'
             AND s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo')
           )
           OR (
-            $1 = '5EYKrEDnKhhcNxGedaRQeK' 
+            $1 = '5EYKrEDnKhhcNxGedaRQeK'
             AND s.album_id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp')
+          )
+          OR (
+            -- The 20/20 Experience (Deluxe): also include the standalone "Mirrors - Radio Edit"
+            -- and the live "Suit & Tie - Radio Edit" single (deluxe copy was delisted/frozen)
+            $1 = '0O82niJ0NpcptYRxogeEZu'
+            AND s.album_id IN ('0O82niJ0NpcptYRxogeEZu', '28GWVLkctSuSWQ1EUIxZ8m', '5jlQrOtSuTXojcvBCpivyo')
           )
           OR (
             $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
             AND $1 <> '5EYKrEDnKhhcNxGedaRQeK'
+            AND $1 <> '0O82niJ0NpcptYRxogeEZu'
             AND s.album_id = $1
           )
+        )
+        -- Hidden alternate versions (display only — songs stay in the catalog / DB)
+        AND COALESCE(s.canonical_id, s.id) NOT IN (
+          '1FaU6P6WJF8irbZ1MXo9ky',  -- Pose - Main Version (FSLS Deluxe)
+          '2rXovB7Zco7nc3nTHXKJoh',  -- My Love (feat. T.I.) - Instrumental
+          '5CORNAMvxPl6uCikCsq1Ei',  -- What Goes Around...Comes Around - Instrumental
+          '6233Z1W8t9Wn1f1gZqHhQ5'   -- Suit & Tie - Radio Edit (frozen 2026-05-26 copy; replaced by live 4mQVHEjrnuUd7G5IVhSYTk)
+        )
         ORDER BY COALESCE(s.canonical_id, s.id), s.track_number ASC
       )
-      SELECT * FROM album_songs 
-      ORDER BY 
-        CASE 
-          WHEN (title ILIKE '%radio edit%' OR title ILIKE '%remix%' OR title ILIKE '%mix%' OR title ILIKE '%edit%' OR title ILIKE '%instrumental%') THEN 1 
-          ELSE 0 
+      SELECT * FROM album_songs
+      ORDER BY
+        CASE
+          WHEN (title ILIKE '%radio edit%' OR title ILIKE '%remix%' OR title ILIKE '%mix%' OR title ILIKE '%edit%' OR title ILIKE '%instrumental%') THEN 1
+          ELSE 0
         END ASC,
+        -- Keep the appended "Mirrors - Radio Edit" single pinned to the very bottom
+        CASE WHEN id = '6ToFxXRBtl5TJFEyIoYK3f' THEN 1 ELSE 0 END ASC,
         track_number ASC;
     `;
     const result = await pool.query(query, [req.params.id]);

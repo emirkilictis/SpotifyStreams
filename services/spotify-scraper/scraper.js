@@ -221,7 +221,9 @@ async function scrapeArtist(page, client, artistId, stats) {
     const extraAlbums = [
       { id: '32dGD25hfIVdhugEXoVu2s', title: 'Not a Bad Thing (Single)', release_date: '2014-02-24', is_featured: false },
       { id: '51lCQxAHpJHuqvvK0z12zp', title: 'FutureSex/LoveSounds (Deluxe Edition)', release_date: '2006-09-11', is_featured: false },
-      { id: '4sceISkCvRuDbd74AtKeEH', title: 'Timeless', release_date: '2005-12-31', is_featured: true }
+      { id: '4sceISkCvRuDbd74AtKeEH', title: 'Timeless', release_date: '2005-12-31', is_featured: true },
+      // Live "Suit & Tie - Radio Edit" single — the 20/20 Deluxe copy was delisted (froze 2026-05-26)
+      { id: '5jlQrOtSuTXojcvBCpivyo', title: 'Suit & Tie (feat. JAY-Z) [Radio Edit]', release_date: '2013-01-15', is_featured: false }
     ];
 
     for (const extra of extraAlbums) {
