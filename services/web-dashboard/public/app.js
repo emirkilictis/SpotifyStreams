@@ -960,6 +960,18 @@ async function downloadModalAsImage() {
           // Drop the themed neon glow (0 0 80px accentGlow) — html2canvas renders it
           // as a smeared neon halo (especially on mobile). Keep only a clean drop shadow.
           clonedCard.style.setProperty('box-shadow', '0 25px 60px rgba(0, 0, 0, 0.6)', 'important');
+          // The live card uses a radial gradient (bright at top-center) which, on a tall
+          // captured card, reads as an abrupt "blue top / black bottom" split. Convert it to
+          // a vertical gradient that tints only the header area then settles into a uniform
+          // base, so the track table has a consistent background regardless of track count.
+          const bg = clonedCard.style.background || '';
+          // Colors may be serialized as rgb(...) (with internal commas) or hex.
+          const m = bg.match(/radial-gradient\(circle at 50% 0%,\s*(rgb\([^)]*\)|#[0-9a-f]+)\s+0%,\s*(rgb\([^)]*\)|#[0-9a-f]+)\s+100%\)/i);
+          clonedCard.style.setProperty(
+            'background',
+            m ? `linear-gradient(180deg, ${m[1].trim()} 0%, ${m[2].trim()} 100%)` : '#080c14',
+            'important'
+          );
         }
 
         // Force desktop-level sizes inside the cloned modal header for capture
