@@ -452,9 +452,9 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
             OR title ILIKE 'Playing With Fire%'
           ))
           OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND id IN (
-            SELECT DISTINCT s.album_id 
-            FROM songs s 
-            WHERE s.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ'
+            '5CUnnqJBuAiR8F7AIEZFz2',  -- LOVE (Deluxe)
+            '5fygScHoj5CWBAuhT5OdJK',  -- Out of Time
+            '1J31HAtMOWrvSodhFZaDpU'   -- LOVE
           ))
           OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
             title ILIKE '%fame monster%'
