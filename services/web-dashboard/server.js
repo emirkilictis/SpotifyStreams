@@ -7,6 +7,10 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Accepted access codes for the locked artist (JC Chasez). Both unlock the same content.
+const JC_PASSCODES = ['peakedinhighschool', 'flop'];
+const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
+
 // PostgreSQL Connection Pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -79,7 +83,7 @@ const validateArtistAccess = (req, res, next) => {
     const artistId = artistParam.replace('spotify:artist:', '');
     if (artistId === '3p3U04w2DaiBzuYMZnYr00') {
       const passcode = req.headers['x-jc-passcode'];
-      if (passcode !== 'peakedinhighschool') {
+      if (!isJcAllowed(passcode)) {
         return res.status(403).json({ error: 'Forbidden: Access to this artist is locked.' });
       }
     }
@@ -89,7 +93,7 @@ const validateArtistAccess = (req, res, next) => {
 
 app.post('/api/verify-jc', requireAuth, (req, res) => {
   const { passcode } = req.body;
-  if (passcode === 'peakedinhighschool') {
+  if (isJcAllowed(passcode)) {
     return res.json({ success: true });
   }
   return res.status(401).json({ success: false, message: 'Invalid passcode!' });
@@ -510,7 +514,7 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
       const primaryArtist = albumCheck.rows[0].primary_artist;
       if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
         const passcode = req.headers['x-jc-passcode'];
-        if (passcode !== 'peakedinhighschool') {
+        if (!isJcAllowed(passcode)) {
           return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
         }
       }
@@ -589,7 +593,7 @@ app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
       const primaryArtist = songCheck.rows[0].primary_artist;
       if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
         const passcode = req.headers['x-jc-passcode'];
-        if (passcode !== 'peakedinhighschool') {
+        if (!isJcAllowed(passcode)) {
           return res.status(403).json({ error: 'Forbidden: Access to this song is locked.' });
         }
       }
@@ -621,7 +625,7 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
       const primaryArtist = albumCheck.rows[0].primary_artist;
       if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
         const passcode = req.headers['x-jc-passcode'];
-        if (passcode !== 'peakedinhighschool') {
+        if (!isJcAllowed(passcode)) {
           return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
         }
       }

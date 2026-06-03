@@ -944,7 +944,7 @@ tbody tr.featured-row:hover {
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: var(--accent-green);
+  color: var(--gain-green);
 }
 
 .dc-badge {
@@ -955,7 +955,7 @@ tbody tr.featured-row:hover {
   white-space: nowrap;
 }
 
-.dc-badge.up { background: rgba(30, 215, 96, 0.16); color: var(--accent-green); }
+.dc-badge.up { background: rgba(30, 215, 96, 0.16); color: var(--gain-green); }
 .dc-badge.down { background: rgba(239, 68, 68, 0.16); color: var(--accent-red); }
 .dc-badge.flat { background: rgba(148, 163, 184, 0.16); color: var(--text-secondary); }
 
@@ -1015,7 +1015,7 @@ tbody tr.featured-row:hover {
 
 .dc-star { color: var(--dc-accent); margin-right: 4px; font-size: 0.72rem; vertical-align: middle; }
 
-.dc-pos { color: var(--accent-green); }
+.dc-pos { color: var(--gain-green); }
 .dc-neg { color: var(--accent-red); }
 .dc-muted { color: var(--text-muted); }
 /* Per-song Total column: brighter and bolder so it stands out, not faint */
@@ -1700,7 +1700,8 @@ tbody tr.featured-row:hover {
 }
 
 .trend-cell.trend-up {
-  /* color set inline via theme.accent */
+  /* Stream gains are always green, independent of the artist theme. */
+  color: var(--gain-green);
 }
 
 .trend-cell.trend-down {

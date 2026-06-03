@@ -495,7 +495,7 @@ function renderAlbums() {
             </div>
             <div class="album-stat">
               <span class="label">Daily</span>
-              <span class="value gain-positive">${dailyGain > 0 ? '+' : ''}${formatNumber(dailyGain)}</span>
+              <span class="value ${dailyGain > 0 ? 'gain-positive' : (dailyGain < 0 ? 'gain-negative' : 'gain-neutral')}">${dailyGain > 0 ? '+' : ''}${formatNumber(dailyGain)}</span>
             </div>
             <div class="album-stat" style="grid-column: span 2;">
               <span class="tracks">${album.track_count} tracked songs</span>
@@ -662,7 +662,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
           const pctChange = ((dailyGain - prevGain) / Math.abs(prevGain)) * 100;
           const pctStr = Math.abs(pctChange).toFixed(1);
           if (pctChange > 0.5) {
-            trendHtml = `<span class="trend-cell trend-up" style="color: ${artistTheme.accent};">▲ ${pctStr}%</span>`;
+            trendHtml = `<span class="trend-cell trend-up">▲ ${pctStr}%</span>`;
           } else if (pctChange < -0.5) {
             trendHtml = `<span class="trend-cell trend-down">▼ ${pctStr}%</span>`;
           } else {
@@ -957,6 +957,9 @@ async function downloadModalAsImage() {
           clonedCard.style.setProperty('width', '800px', 'important');
           clonedCard.style.setProperty('max-width', '800px', 'important');
           clonedCard.style.setProperty('padding', '36px', 'important');
+          // Drop the themed neon glow (0 0 80px accentGlow) — html2canvas renders it
+          // as a smeared neon halo (especially on mobile). Keep only a clean drop shadow.
+          clonedCard.style.setProperty('box-shadow', '0 25px 60px rgba(0, 0, 0, 0.6)', 'important');
         }
 
         // Force desktop-level sizes inside the cloned modal header for capture
@@ -965,6 +968,8 @@ async function downloadModalAsImage() {
           clonedCover.style.setProperty('width', '130px', 'important');
           clonedCover.style.setProperty('height', '130px', 'important');
           clonedCover.style.setProperty('border-radius', '10px', 'important');
+          // Remove the cover's themed glow so it doesn't bleed a neon halo into the image.
+          clonedCover.style.setProperty('box-shadow', 'none', 'important');
         }
 
         const clonedHeaderFlex = clonedDoc.querySelector('.modal-header-flex');
