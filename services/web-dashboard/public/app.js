@@ -98,6 +98,15 @@ function formatNumber(num) {
   return Number(num).toLocaleString('en-US');
 }
 
+// Compact stream count (e.g. 1.40B, 218.5M, 61K) for tight share-card labels.
+function formatCompact(num) {
+  const n = Number(num || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+  return String(n);
+}
+
 // Day-over-day change for an artist-stat card (monthly listeners / followers).
 // null => no previous snapshot yet (hide it).
 function setStatDelta(el, change) {
@@ -1167,24 +1176,26 @@ async function openDailyCard() {
 
     // Keep the original album tracklist order (as returned by the API) — do not re-sort.
     const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const rows = songs.map((s, i) => {
+    const items = songs.map((s, i) => {
       const daily = Number(s.daily_gain || 0);
       const prev = (s.prev_daily_gain === null || s.prev_daily_gain === undefined) ? null : Number(s.prev_daily_gain);
       const change = prev === null ? null : daily - prev;
       const c = dcChangeCell(change, prev);
       const star = s.is_featured ? '<span class="dc-star">✦</span>' : '';
       return `
-        <tr>
-          <td class="dc-rank">${i + 1}</td>
-          <td class="dc-track" title="${esc(s.title)}">${star}${esc(s.title)}</td>
-          <td>${formatNumber(daily)}</td>
-          <td class="${c.cls}">${c.txt}</td>
-          <td class="${c.cls}">${c.pct}</td>
-          <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
-        </tr>`;
+        <div class="dc-item">
+          <div class="dc-rank">${i + 1}</div>
+          <div class="dc-item-main">
+            <div class="dc-track" title="${esc(s.title)}">${star}${esc(s.title)}</div>
+            <div class="dc-track-sub"><b>${formatCompact(s.cumulative)}</b> <span class="dc-sub-label">total</span></div>
+          </div>
+          <div class="dc-item-right">
+            <div class="dc-item-daily">+${formatNumber(daily)}</div>
+            <div class="dc-item-delta ${c.cls}">${c.pct}</div>
+          </div>
+        </div>`;
     }).join('');
 
-    const totalCls = totalChange > 0 ? 'dc-pos' : (totalChange < 0 ? 'dc-neg' : 'dc-muted');
     dailyCardEl.innerHTML = `
       <div class="dc-header">
         ${coverUrl ? `<img class="dc-cover" src="${coverUrl}" crossorigin="anonymous" alt="">` : ''}
@@ -1194,38 +1205,18 @@ async function openDailyCard() {
           <div class="dc-date">${formatCardDate(recordedDate)}</div>
         </div>
       </div>
-      <div class="dc-divider"></div>
-      <div class="dc-big">
-        <div class="dc-big-left">
+      <div class="dc-statband">
+        <div class="dc-statband-left">
           <div class="dc-big-label">DAILY STREAMS</div>
           <div class="dc-daily-num">+${formatNumber(totalDaily)}</div>
         </div>
-        <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</div>
+        <div class="dc-statband-right">
+          <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</div>
+          <div class="dc-total">Total streams · <b>${formatNumber(totalCum)}</b></div>
+        </div>
       </div>
-      <div class="dc-total">Total streams · <b>${formatNumber(totalCum)}</b></div>
-      <table class="dc-table">
-        <thead>
-          <tr>
-            <th class="dc-rank">#</th>
-            <th class="dc-left">Track</th>
-            <th>Daily</th>
-            <th>Change</th>
-            <th>%</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-        <tfoot>
-          <tr>
-            <td class="dc-rank"></td>
-            <td class="dc-left">TOTAL</td>
-            <td>${formatNumber(totalDaily)}</td>
-            <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}</td>
-            <td class="${totalCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</td>
-            <td class="dc-totalcol">${formatNumber(totalCum)}</td>
-          </tr>
-        </tfoot>
-      </table>
+      <div class="dc-divider"></div>
+      <div class="dc-grid">${items}</div>
       <div class="dc-footer"><span class="dc-dot"></span><b>${esc(currentArtistName || '')}</b> Spotify Streams — Fan Dashboard</div>
     `;
   } catch (e) {
@@ -1250,19 +1241,15 @@ async function downloadDailyCard() {
       useCORS: true,
       imageTimeout: 15000,
       logging: false,
-      width: 600,
-      windowWidth: 700,
+      width: 680,
+      windowWidth: 760,
       onclone: (clonedDoc) => {
         const card = clonedDoc.getElementById('daily-card');
         if (card) {
-          card.style.setProperty('width', '600px', 'important');
-          card.style.setProperty('max-width', '600px', 'important');
-          card.style.setProperty('padding', '26px 28px', 'important');
+          card.style.setProperty('width', '680px', 'important');
+          card.style.setProperty('max-width', '680px', 'important');
+          card.style.setProperty('padding', '36px 38px 28px', 'important');
         }
-        // Force every table column visible at desktop size (the mobile preview
-        // may hide the % column to fit the screen).
-        clonedDoc.querySelectorAll('#daily-card .dc-table th, #daily-card .dc-table td')
-          .forEach(c => c.style.setProperty('display', 'table-cell', 'important'));
       }
     });
     const name = (currentAlbumMeta?.title || 'album').replace(/[^a-z0-9]+/gi, '_').toLowerCase();

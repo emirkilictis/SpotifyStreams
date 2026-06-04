@@ -885,74 +885,94 @@ tbody tr.featured-row:hover {
 
 .daily-card {
   --dc-accent: var(--accent-green);
-  width: 600px;
+  width: 680px;
   max-width: 92vw;
   box-sizing: border-box;
-  background: linear-gradient(165deg, #0f1626 0%, #080c14 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
-  padding: 26px 28px;
+  background: radial-gradient(circle at 50% 0%, #111a2e 0%, #080c14 100%);
+  border: 1px solid rgba(var(--dc-accent-rgb, 30, 215, 96), 0.25);
+  border-radius: 24px;
+  padding: 36px 38px 28px;
   font-family: 'Outfit', sans-serif;
   color: var(--text-primary);
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+  position: relative;
+  overflow: hidden;
+}
+/* Soft accent glow, top-left */
+.daily-card::before {
+  content: '';
+  position: absolute;
+  top: -160px;
+  left: -120px;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--dc-accent-rgb, 30, 215, 96), 0.20) 0%, transparent 70%);
+  pointer-events: none;
 }
 
+/* Header: cover + meta */
 .dc-header {
   display: flex;
-  gap: 16px;
+  gap: 18px;
   align-items: center;
+  position: relative;
 }
 
 .dc-cover {
-  width: 88px;
-  height: 88px;
-  border-radius: 12px;
+  width: 92px;
+  height: 92px;
+  border-radius: 16px;
   object-fit: cover;
   flex: 0 0 auto;
-  border: 2px solid rgba(var(--dc-accent-rgb, 30, 215, 96), 0.55);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(var(--dc-accent-rgb, 30, 215, 96), 0.45);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
 }
 
-.dc-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.dc-album { font-size: 1.4rem; font-weight: 800; line-height: 1.12; }
-.dc-artist { font-size: 0.95rem; font-weight: 700; color: var(--dc-accent); letter-spacing: 1px; }
-.dc-date { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; }
+.dc-head-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dc-album { font-size: 1.7rem; font-weight: 800; line-height: 1.06; letter-spacing: -0.01em; }
+.dc-artist { font-size: 0.88rem; font-weight: 700; color: var(--dc-accent); letter-spacing: 2.5px; text-transform: uppercase; }
+.dc-date { font-size: 0.74rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; }
 
-.dc-divider {
-  height: 1px;
-  background: linear-gradient(90deg, rgba(var(--dc-accent-rgb, 30, 215, 96), 0.5), rgba(255, 255, 255, 0.04));
-  margin: 18px 0 16px;
-}
-
-.dc-big {
+/* Stat band: big daily number + badge + total */
+.dc-statband {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 14px;
+  gap: 18px;
+  margin-top: 22px;
+  padding: 18px 22px;
+  border-radius: 18px;
+  background: linear-gradient(120deg, rgba(var(--dc-accent-rgb, 30, 215, 96), 0.10), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(var(--dc-accent-rgb, 30, 215, 96), 0.18);
 }
+.dc-statband-left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dc-statband-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: 0 0 auto; }
 
 .dc-big-label {
   font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
+  letter-spacing: 2.5px;
   color: var(--text-muted);
-  margin-bottom: 2px;
 }
 
 .dc-daily-num {
-  font-size: 2.5rem;
-  font-weight: 800;
-  line-height: 1;
+  font-size: 2.9rem;
+  font-weight: 900;
+  line-height: 0.95;
   font-variant-numeric: tabular-nums;
   color: var(--gain-green);
+  letter-spacing: -0.02em;
+  text-shadow: 0 4px 24px rgba(var(--dc-accent-rgb, 30, 215, 96), 0.35);
 }
 
 .dc-badge {
   font-size: 1rem;
   font-weight: 800;
-  padding: 6px 12px;
-  border-radius: 10px;
+  padding: 6px 14px;
+  border-radius: 999px;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .dc-badge.up { background: rgba(30, 215, 96, 0.16); color: var(--gain-green); }
@@ -960,81 +980,67 @@ tbody tr.featured-row:hover {
 .dc-badge.flat { background: rgba(148, 163, 184, 0.16); color: var(--text-secondary); }
 
 .dc-total {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--text-secondary);
-  margin-top: 8px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .dc-total b { color: var(--text-primary); font-weight: 700; }
 
-.dc-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 18px;
+.dc-divider {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(var(--dc-accent-rgb, 30, 215, 96), 0.55), rgba(255, 255, 255, 0.05) 60%, transparent);
+  margin: 22px 0 16px;
 }
 
-.dc-table th {
-  text-align: right;
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  font-weight: 600;
-  padding: 0 0 8px;
+/* Stacked track list */
+.dc-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+.dc-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.045);
 }
-
-.dc-table th.dc-left, .dc-table td.dc-left { text-align: left; }
-.dc-table th.dc-rank, .dc-table td.dc-rank {
-  text-align: center;
+.dc-rank {
+  flex: 0 0 auto;
   width: 26px;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 800;
   color: var(--text-muted);
-  font-size: 0.75rem;
-}
-
-.dc-table td {
-  text-align: right;
-  font-size: 0.82rem;
-  padding: 6px 4px;
   font-variant-numeric: tabular-nums;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
-
-.dc-table tbody tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.022);
-}
-
-.dc-table td.dc-track {
-  text-align: left;
-  max-width: 230px;
+.dc-item-main { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+.dc-track {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-primary);
-  padding-left: 4px;
 }
-
-.dc-star { color: var(--dc-accent); margin-right: 4px; font-size: 0.72rem; vertical-align: middle; }
+.dc-track-sub { font-size: 0.78rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.dc-track-sub b { color: var(--text-primary); font-weight: 700; }
+.dc-track-sub .dc-sub-label { color: var(--text-muted); font-weight: 400; }
+.dc-star { color: var(--dc-accent); margin-right: 5px; font-size: 0.8rem; }
+.dc-item-right { flex: 0 0 auto; text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.dc-item-daily { font-size: 1.02rem; font-weight: 800; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.dc-item-delta { font-size: 0.72rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .dc-pos { color: var(--gain-green); }
 .dc-neg { color: var(--accent-red); }
 .dc-muted { color: var(--text-muted); }
-/* Per-song Total column: brighter and bolder so it stands out, not faint */
-.dc-totalcol { color: var(--text-primary); font-weight: 700; }
-
-.dc-table tfoot td {
-  border-top: 2px solid rgba(255, 255, 255, 0.14);
-  padding-top: 9px;
-  font-weight: 800;
-  font-size: 0.9rem;
-}
 
 .dc-footer {
-  margin-top: 18px;
+  margin-top: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  font-size: 0.72rem;
+  gap: 8px;
+  font-size: 0.74rem;
   color: var(--text-muted);
   letter-spacing: 0.5px;
 }
@@ -1045,10 +1051,11 @@ tbody tr.featured-row:hover {
   border-radius: 50%;
   background: var(--dc-accent);
   display: inline-block;
+  box-shadow: 0 0 10px var(--dc-accent);
 }
 
 /* Mobile: keep the daily share-card preview inside the viewport. The exported
-   PNG is always rendered at the full 600px desktop width (see downloadDailyCard),
+   PNG is always rendered at the full 680px desktop width (see downloadDailyCard),
    so shrinking the preview here does not affect the saved image. */
 @media (max-width: 600px) {
   #daily-card-modal {
@@ -1061,23 +1068,27 @@ tbody tr.featured-row:hover {
   .daily-card {
     width: 100%;
     max-width: 100%;
-    padding: 18px 14px;
-    border-radius: 14px;
+    padding: 20px 16px;
+    border-radius: 16px;
   }
-  .dc-header { gap: 12px; }
-  .dc-cover { width: 64px; height: 64px; border-radius: 10px; }
-  .dc-album { font-size: 1.12rem; }
-  .dc-artist { font-size: 0.82rem; }
-  .dc-date { font-size: 0.68rem; }
-  .dc-divider { margin: 12px 0 12px; }
+  .dc-header { gap: 14px; }
+  .dc-cover { width: 68px; height: 68px; border-radius: 12px; }
+  .dc-album { font-size: 1.22rem; }
+  .dc-artist { font-size: 0.78rem; letter-spacing: 2px; }
+  .dc-date { font-size: 0.66rem; }
+  /* Stack the stat band on small screens so the big number can't push the
+     card wider than the viewport (the exported PNG stays at desktop width). */
+  .dc-statband { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px 16px; margin-top: 16px; }
+  .dc-statband-right { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
   .dc-daily-num { font-size: 2rem; }
-  .dc-badge { font-size: 0.85rem; padding: 5px 9px; }
-  .dc-table { margin-top: 12px; }
-  .dc-table th, .dc-table td { font-size: 0.72rem; padding: 5px 2px; }
-  .dc-table td.dc-track { max-width: 118px; }
-  /* Drop the % column on small screens; Change already conveys direction. */
-  .dc-table th:nth-child(5), .dc-table td:nth-child(5) { display: none; }
-  .dc-footer { font-size: 0.66rem; margin-top: 12px; }
+  .dc-badge { font-size: 0.85rem; padding: 5px 11px; }
+  .dc-total { font-size: 0.72rem; }
+  .dc-divider { margin: 16px 0 12px; }
+  .dc-item { padding: 10px 12px; gap: 10px; }
+  .dc-track { font-size: 0.86rem; }
+  .dc-track-sub { font-size: 0.66rem; }
+  .dc-item-daily { font-size: 0.92rem; }
+  .dc-footer { font-size: 0.66rem; margin-top: 16px; }
 }
 
 /* ==========================================================================
