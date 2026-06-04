@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const cookieParser = require('cookie-parser');
 const { Pool } = require('pg');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
@@ -687,6 +688,28 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
     console.error('Fetch album history error:', err);
     res.status(500).json({ error: 'Failed to load album history.' });
   }
+});
+
+// Serve index.html with cache-busting query strings on app.js/style.css so that a new
+// deploy is always picked up — even by aggressive mobile caches (iOS Safari bfcache).
+// The version token is derived from the asset mtimes, so it changes only on real updates.
+function assetVersion() {
+  try {
+    const a = fs.statSync(path.join(__dirname, 'public/app.js')).mtimeMs;
+    const c = fs.statSync(path.join(__dirname, 'public/style.css')).mtimeMs;
+    return Math.floor(Math.max(a, c)).toString(36);
+  } catch {
+    return Date.now().toString(36);
+  }
+}
+app.get(['/', '/index.html'], requireAuth, (req, res) => {
+  const v = assetVersion();
+  let html = fs.readFileSync(path.join(__dirname, 'public/index.html'), 'utf8');
+  html = html
+    .replace('href="/style.css"', `href="/style.css?v=${v}"`)
+    .replace('src="/app.js"', `src="/app.js?v=${v}"`);
+  res.set('Cache-Control', 'no-cache');
+  res.type('html').send(html);
 });
 
 // Protected Static Files
