@@ -1432,7 +1432,10 @@ function getNextMilestone(streams) {
     for (let m of vaelisMilestones) {
       if (streams < m) return m;
     }
-    return Math.ceil(streams / 1000000) * 1000000;
+    // Beyond the ladder: next whole million, always strictly greater.
+    let next = Math.ceil(streams / 1000000) * 1000000;
+    if (next <= streams) next += 1000000;
+    return next;
   }
 
   const milestones = [
@@ -1445,7 +1448,10 @@ function getNextMilestone(streams) {
   for (let m of milestones) {
     if (streams < m) return m;
   }
-  return Math.ceil(streams / 1000000000) * 1000000000;
+  // Beyond the table: next whole billion, always strictly greater than current.
+  let next = Math.ceil(streams / 1000000000) * 1000000000;
+  if (next <= streams) next += 1000000000;
+  return next;
 }
 
 function formatMilestoneName(val) {

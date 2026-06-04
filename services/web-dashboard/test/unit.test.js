@@ -69,9 +69,10 @@ test('getNextMilestone - default artist', () => {
   assert.equal(getNextMilestone(517966718), 600000000);
   // Milestone table ends at 5B; beyond it, rounds up to the next whole billion.
   assert.equal(getNextMilestone(5500000000), 6000000000);
-  // KNOWN QUIRK: at an exact billion boundary >=5B it returns the *current*
-  // value (6e9) rather than the next (7e9). Harmless edge case, documented.
-  assert.equal(getNextMilestone(6000000000), 6000000000);
+  // At an exact billion boundary >=5B the "next" milestone must be STRICTLY
+  // greater than the current count (regression: previously returned 6e9).
+  assert.equal(getNextMilestone(6000000000), 7000000000);
+  assert.ok(getNextMilestone(7000000000) > 7000000000);
 });
 
 test('getNextMilestone - Vaelis custom ladder', () => {
@@ -79,6 +80,8 @@ test('getNextMilestone - Vaelis custom ladder', () => {
   assert.equal(getNextMilestone(500), 1000);
   assert.equal(getNextMilestone(1500), 2000);
   assert.equal(getNextMilestone(12000), 15000);
+  // Beyond the ladder, strictly greater (exact-million boundary regression).
+  assert.equal(getNextMilestone(2000000), 3000000);
 });
 
 // ---------------------------------------------------------------------------

@@ -519,13 +519,15 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
        WHERE s.album_id = $1`,
       [req.params.id]
     );
-    if (albumCheck.rows.length > 0) {
-      const primaryArtist = albumCheck.rows[0].primary_artist;
-      if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
-        const passcode = req.headers['x-jc-passcode'];
-        if (!isJcAllowed(passcode)) {
-          return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
-        }
+    // Lock if ANY track on the album belongs to JC Chasez (a mixed-artist
+    // album must not slip the lock just because its first row is someone else).
+    const isJcAlbum = albumCheck.rows.some(
+      r => r.primary_artist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00'
+    );
+    if (isJcAlbum) {
+      const passcode = req.headers['x-jc-passcode'];
+      if (!isJcAllowed(passcode)) {
+        return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
       }
     }
 
@@ -648,13 +650,15 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
        WHERE s.album_id = $1`,
       [req.params.id]
     );
-    if (albumCheck.rows.length > 0) {
-      const primaryArtist = albumCheck.rows[0].primary_artist;
-      if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
-        const passcode = req.headers['x-jc-passcode'];
-        if (!isJcAllowed(passcode)) {
-          return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
-        }
+    // Lock if ANY track on the album belongs to JC Chasez (a mixed-artist
+    // album must not slip the lock just because its first row is someone else).
+    const isJcAlbum = albumCheck.rows.some(
+      r => r.primary_artist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00'
+    );
+    if (isJcAlbum) {
+      const passcode = req.headers['x-jc-passcode'];
+      if (!isJcAllowed(passcode)) {
+        return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
       }
     }
 
