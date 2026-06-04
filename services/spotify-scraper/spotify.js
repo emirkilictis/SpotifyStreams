@@ -69,6 +69,53 @@ async function launchBrowser(spDc) {
 /**
  * Artist sayfasını açıp queryArtistOverview yanıtını yakalar.
  */
+async function fetchArtistDiscographyGroup(page, artistId, operationName, fieldName) {
+  let offset = 0;
+  const limit = 50;
+  const releases = [];
+  while (true) {
+    const data = await page.evaluate(async (token, artistId, offset, limit, operationName) => {
+      const res = await fetch('https://api-partner.spotify.com/pathfinder/v2/query', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          variables: { uri: `spotify:artist:${artistId}`, offset, limit, order: "DATE_DESC" },
+          operationName,
+          extensions: {
+            persistedQuery: {
+              version: 1,
+              sha256Hash: "5e07d323febb57b4a56a42abbf781490e58764aa45feb6e3dc0591564fc56599"
+            }
+          }
+        })
+      });
+      return res.json();
+    }, page.capturedToken, artistId, offset, limit, operationName);
+
+    const group = data?.data?.artistUnion?.discography?.[fieldName];
+    if (!group?.items) break;
+
+    for (const item of group.items) {
+      const a = item.releases?.items?.[0];
+      if (!a) continue;
+      releases.push({
+        id:           a.id,
+        title:        a.name,
+        release_date: parseSpotifyDate(a.date),
+        image_url:    a.coverArt?.sources?.[0]?.url ?? null,
+      });
+    }
+
+    if (group.items.length === 0 || releases.length >= group.totalCount) break;
+    offset += limit;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return releases;
+}
+
 async function fetchArtistAlbums(page, artistId) {
   let result = null;
   const handler = async (res) => {
@@ -103,30 +150,121 @@ async function fetchArtistAlbums(page, artistId) {
     world_rank:        result.stats?.worldRank ?? null,
   };
 
-  const albums = [];
-  const push = (releases) => {
-    for (const item of (releases?.items ?? [])) {
-      const a = item.releases?.items?.[0];
-      if (!a) continue;
-      albums.push({
-        id:           a.id,
-        title:        a.name,
-        release_date: parseSpotifyDate(a.date),
-        image_url:    a.coverArt?.sources?.[0]?.url ?? null,
-      });
-    }
-  };
-  const disc = result.discography;
-  push(disc?.albums);
-  push(disc?.singles);
-  push(disc?.compilations);
-  return albums;
+  // Ensure token is captured
+  for (let i = 0; i < 10; i++) {
+    if (page.capturedToken) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  if (!page.capturedToken) {
+    console.warn('[fetchArtistAlbums] Token not captured. Falling back to non-paginated overview.');
+    const albums = [];
+    const push = (releases) => {
+      for (const item of (releases?.items ?? [])) {
+        const a = item.releases?.items?.[0];
+        if (!a) continue;
+        albums.push({
+          id:           a.id,
+          title:        a.name,
+          release_date: parseSpotifyDate(a.date),
+          image_url:    a.coverArt?.sources?.[0]?.url ?? null,
+        });
+      }
+    };
+    const disc = result.discography;
+    push(disc?.albums);
+    push(disc?.singles);
+    push(disc?.compilations);
+    return albums;
+  }
+
+  console.log(`[fetchArtistAlbums] Querying paginated discography groups using GraphQL...`);
+  try {
+    const albums = await fetchArtistDiscographyGroup(page, artistId, 'queryArtistDiscographyAlbums', 'albums');
+    const singles = await fetchArtistDiscographyGroup(page, artistId, 'queryArtistDiscographySingles', 'singles');
+    const compilations = await fetchArtistDiscographyGroup(page, artistId, 'queryArtistDiscographyCompilations', 'compilations');
+    
+    return [...albums, ...singles, ...compilations];
+  } catch (err) {
+    console.warn('[fetchArtistAlbums] Paginated GraphQL fetch failed, falling back to overview:', err.message);
+    const albums = [];
+    const push = (releases) => {
+      for (const item of (releases?.items ?? [])) {
+        const a = item.releases?.items?.[0];
+        if (!a) continue;
+        albums.push({
+          id:           a.id,
+          title:        a.name,
+          release_date: parseSpotifyDate(a.date),
+          image_url:    a.coverArt?.sources?.[0]?.url ?? null,
+        });
+      }
+    };
+    const disc = result.discography;
+    push(disc?.albums);
+    push(disc?.singles);
+    push(disc?.compilations);
+    return albums;
+  }
 }
+
 
 /**
  * Album sayfasını açıp getAlbum yanıtını yakalar (track + playcount).
  */
 async function fetchAlbumTracks(page, albumId) {
+  // Ensure token is captured
+  for (let i = 0; i < 10; i++) {
+    if (page.capturedToken) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  if (page.capturedToken) {
+    try {
+      const data = await page.evaluate(async (token, albumId) => {
+        const res = await fetch('https://api-partner.spotify.com/pathfinder/v2/query', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            variables: {
+              uri: `spotify:album:${albumId}`,
+              offset: 0,
+              limit: 300
+            },
+            operationName: "queryAlbumTracks",
+            extensions: {
+              persistedQuery: {
+                version: 1,
+                sha256Hash: "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"
+              }
+            }
+          })
+        });
+        return res.json();
+      }, page.capturedToken, albumId);
+
+      const items = data?.data?.albumUnion?.tracksV2?.items ?? [];
+      return items.map(item => {
+        const t = item.track;
+        if (!t) return null;
+        const artistUris = (t.artists?.items ?? []).map(x => x.uri);
+        return {
+          id:           t.uri?.split(':')[2],
+          title:        t.name,
+          duration_ms:  t.duration?.totalMilliseconds ?? null,
+          track_number: t.trackNumber ?? null,
+          playCount:    parseInt(t.playcount ?? '0', 10),
+          artistUris,
+        };
+      }).filter(Boolean);
+    } catch (err) {
+      console.warn(`[fetchAlbumTracks] Paginated GraphQL query failed for album ${albumId}, falling back to page navigation:`, err.message);
+    }
+  }
+
   let result = null;
   const handler = async (res) => {
     try {
