@@ -1128,6 +1128,33 @@ function dcChangeCell(change, base) {
   };
 }
 
+function cleanTrackTitle(title) {
+  if (!title) return '';
+  let clean = title
+    // Strip parenthetical / bracketed artist credits ONLY:
+    // (feat. X), (featuring X), (ft. X), (with X), [feat. X] ...
+    // The credit keyword must be followed by whitespace so real words like
+    // "With" inside a title (e.g. "Die With a Smile") are never touched.
+    .replace(/\s*[\(\[](?:feat|featuring|ft|with)\.?\s[^)\]]*[\)\]]/gi, '')
+    // Strip trailing " - <version>" descriptors
+    .replace(/\s*-\s*(?:Radio\s+Edit|Radio\s+Version|Radio\s+Mix|Single\s+Version|Edit|Remastered(?:\s+\d{4})?|\d{4}\s+Remaster|Instrumental|Main\s+Version)\b.*$/gi, '')
+    // Strip trailing parenthetical version descriptors
+    .replace(/\s*[\(\[](?:Radio\s+Edit|Remastered|Instrumental|Live|Main\s+Version|Deluxe(?:\s+Version)?)[\)\]]/gi, '')
+    // Medley / prelude / interlude cleanups (JT tracklist)
+    .replace(/Medley:\s*/gi, '')
+    .replace(/\s*\((?:Prelude|Interlude)\)/gi, '');
+
+  return clean.replace(/\s{2,}/g, ' ').trim();
+}
+
+function cleanAlbumTitle(title) {
+  if (!title) return '';
+  let clean = title
+    .replace(/\s*\((?:Deluxe Edition|Deluxe|Expanded Edition|Expanded|Special Edition|Special)\)/gi, '')
+    .replace(/\s*-\s*(?:Deluxe Edition|Deluxe|Expanded Edition|Expanded|Special Edition|Special)/gi, '');
+  return clean.trim();
+}
+
 async function openDailyCard() {
   if (!currentAlbumMeta || !dailyCardEl) return;
   const { albumId, title, coverUrl } = currentAlbumMeta;
@@ -1149,6 +1176,17 @@ async function openDailyCard() {
     if (!Array.isArray(songs) || songs.length === 0) {
       dailyCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">No track data.</div>`;
       return;
+    }
+
+    // Apply compact / super-compact layout classes based on song count
+    if (songs.length > 15) {
+      dailyCardEl.classList.add('dc-super-compact');
+      dailyCardEl.classList.remove('dc-compact');
+    } else if (songs.length > 10) {
+      dailyCardEl.classList.add('dc-compact');
+      dailyCardEl.classList.remove('dc-super-compact');
+    } else {
+      dailyCardEl.classList.remove('dc-compact', 'dc-super-compact');
     }
 
     // Totals
@@ -1176,7 +1214,7 @@ async function openDailyCard() {
       return `
         <tr>
           <td class="dc-rank">${i + 1}</td>
-          <td class="dc-track" title="${esc(s.title)}">${star}${esc(s.title)}</td>
+          <td class="dc-track" title="${esc(s.title)}">${star}${esc(cleanTrackTitle(s.title))}</td>
           <td>${formatNumber(daily)}</td>
           <td class="${c.cls}">${c.txt}</td>
           <td class="${c.cls}">${c.pct}</td>
@@ -1189,17 +1227,15 @@ async function openDailyCard() {
       <div class="dc-header">
         ${coverUrl ? `<img class="dc-cover" src="${coverUrl}" crossorigin="anonymous" alt="">` : ''}
         <div class="dc-head-text">
-          <div class="dc-album">${esc(title) || 'Album'}</div>
+          <div class="dc-album">${esc(cleanAlbumTitle(title)) || 'Album'}</div>
           <div class="dc-artist">${esc((currentArtistName || '').toUpperCase())}</div>
           <div class="dc-date">${formatCardDate(recordedDate)}</div>
         </div>
       </div>
       <div class="dc-divider"></div>
-      <div class="dc-big">
-        <div class="dc-big-left">
-          <div class="dc-big-label">DAILY STREAMS</div>
-          <div class="dc-daily-num">+${formatNumber(totalDaily)}</div>
-        </div>
+      <div class="dc-big-label">DAILY STREAMS</div>
+      <div class="dc-big-row">
+        <div class="dc-daily-num">+${formatNumber(totalDaily)}</div>
         <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</div>
       </div>
       <div class="dc-total">Total streams · <b>${formatNumber(totalCum)}</b></div>
@@ -1257,7 +1293,13 @@ async function downloadDailyCard() {
         if (card) {
           card.style.setProperty('width', '600px', 'important');
           card.style.setProperty('max-width', '600px', 'important');
-          card.style.setProperty('padding', '26px 28px', 'important');
+          if (card.classList.contains('dc-super-compact')) {
+            card.style.setProperty('padding', '16px 18px', 'important');
+          } else if (card.classList.contains('dc-compact')) {
+            card.style.setProperty('padding', '20px 22px', 'important');
+          } else {
+            card.style.setProperty('padding', '26px 28px', 'important');
+          }
         }
         // Force every table column visible at desktop size (the mobile preview
         // may hide the % column to fit the screen).

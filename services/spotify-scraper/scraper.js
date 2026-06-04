@@ -422,10 +422,14 @@ async function run() {
         await scrapeArtist(page, client, artist.id, stats);
       }
 
-      await dedupCanonical(client);
-
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
     } finally {
+      try {
+        console.log('[scraper] Running database deduplication step...');
+        await dedupCanonical(client);
+      } catch (dedupErr) {
+        console.error('[scraper] Deduplication step failed:', dedupErr.message);
+      }
       client.release();
     }
     await closePool();

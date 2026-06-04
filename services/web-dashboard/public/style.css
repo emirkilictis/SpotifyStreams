@@ -914,7 +914,7 @@ tbody tr.featured-row:hover {
 }
 
 .dc-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.dc-album { font-size: 1.4rem; font-weight: 800; line-height: 1.12; }
+.dc-album { font-size: 1.4rem; font-weight: 800; line-height: 1.12; text-transform: uppercase; }
 .dc-artist { font-size: 0.95rem; font-weight: 700; color: var(--dc-accent); letter-spacing: 1px; }
 .dc-date { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; }
 
@@ -929,6 +929,14 @@ tbody tr.featured-row:hover {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+}
+
+.dc-big-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
 }
 
 .dc-big-label {
@@ -951,7 +959,7 @@ tbody tr.featured-row:hover {
   font-size: 1rem;
   font-weight: 800;
   padding: 6px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   white-space: nowrap;
 }
 
@@ -1020,6 +1028,7 @@ tbody tr.featured-row:hover {
   white-space: nowrap;
   color: var(--text-primary);
   padding-left: 4px;
+  font-weight: 500;
 }
 
 .dc-star { color: var(--dc-accent); margin-right: 4px; font-size: 0.72rem; vertical-align: middle; }
@@ -1054,6 +1063,117 @@ tbody tr.featured-row:hover {
   border-radius: 50%;
   background: var(--dc-accent);
   display: inline-block;
+}
+
+/* Compact layout for 11-15 tracks */
+.daily-card.dc-compact {
+  padding: 20px 22px;
+}
+.daily-card.dc-compact .dc-header {
+  gap: 12px;
+}
+.daily-card.dc-compact .dc-cover {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+}
+.daily-card.dc-compact .dc-album {
+  font-size: 1.25rem;
+}
+.daily-card.dc-compact .dc-artist {
+  font-size: 0.85rem;
+}
+.daily-card.dc-compact .dc-date {
+  font-size: 0.72rem;
+}
+.daily-card.dc-compact .dc-divider {
+  margin: 12px 0 10px;
+}
+.daily-card.dc-compact .dc-daily-num {
+  font-size: 2.1rem;
+}
+.daily-card.dc-compact .dc-badge {
+  font-size: 0.9rem;
+  padding: 5px 10px;
+}
+.daily-card.dc-compact .dc-total {
+  font-size: 0.8rem;
+  margin-top: 6px;
+}
+.daily-card.dc-compact .dc-table {
+  margin-top: 12px;
+}
+.daily-card.dc-compact .dc-table td {
+  padding: 4px 4px;
+  font-size: 0.78rem;
+}
+.daily-card.dc-compact .dc-table th {
+  padding: 0 0 6px;
+  font-size: 0.64rem;
+}
+.daily-card.dc-compact .dc-table tfoot td {
+  padding-top: 6px;
+  font-size: 0.85rem;
+}
+.daily-card.dc-compact .dc-footer {
+  margin-top: 12px;
+  font-size: 0.66rem;
+}
+
+/* Super compact layout for 16+ tracks (like FutureSex/LoveSounds Deluxe) */
+.daily-card.dc-super-compact {
+  padding: 16px 18px;
+}
+.daily-card.dc-super-compact .dc-header {
+  gap: 10px;
+}
+.daily-card.dc-super-compact .dc-cover {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+}
+.daily-card.dc-super-compact .dc-album {
+  font-size: 1.1rem;
+}
+.daily-card.dc-super-compact .dc-artist {
+  font-size: 0.8rem;
+}
+.daily-card.dc-super-compact .dc-date {
+  font-size: 0.68rem;
+}
+.daily-card.dc-super-compact .dc-divider {
+  margin: 10px 0 8px;
+}
+.daily-card.dc-super-compact .dc-daily-num {
+  font-size: 1.8rem;
+}
+.daily-card.dc-super-compact .dc-badge {
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.daily-card.dc-super-compact .dc-total {
+  font-size: 0.75rem;
+  margin-top: 4px;
+}
+.daily-card.dc-super-compact .dc-table {
+  margin-top: 8px;
+}
+.daily-card.dc-super-compact .dc-table td {
+  padding: 3px 4px;
+  font-size: 0.74rem;
+}
+.daily-card.dc-super-compact .dc-table th {
+  padding: 0 0 4px;
+  font-size: 0.62rem;
+}
+.daily-card.dc-super-compact .dc-table tfoot td {
+  padding-top: 4px;
+  font-size: 0.8rem;
+}
+.daily-card.dc-super-compact .dc-footer {
+  margin-top: 10px;
+  font-size: 0.62rem;
 }
 
 /* Mobile: keep the daily share-card preview inside the viewport. The exported
