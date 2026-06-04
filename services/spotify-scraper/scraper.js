@@ -48,12 +48,23 @@ const BLACKLISTED_TRACK_IDS = new Set([
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+const ARTIST_SEARCH_NAMES = {
+  '31TPClRtHm23RisEBtV3X7': ['justin timberlake'],
+  '5L1lO4eRHmJ7a0Q6csE5cT': ['lisa'],
+  '1HY2Jd0NmPuamShAr6KMms': ['lady gaga'],
+  '6qqNVTkY8uBg9cP3Jd7DAH': ['billie eilish'],
+  '66CXWjxzNUsdJxJ2JdwvnR': ['ariana grande'],
+  '6Ff53KvcvAj5U7Z1vojB5o': ['nsync', '*nsync'],
+  '3p3U04w2DaiBzuYMZnYr00': ['jc chasez', 'chasez'],
+  '3LHYvj5ZejV1NLqncEObSJ': ['vaelis']
+};
+
 function isCoverOrTribute(title) {
   if (!title) return false;
   const lower = title.toLowerCase();
   
-  // Exclude actual Justin Timberlake song "Under Cover"
-  if (lower.includes('under cover')) return false;
+  // Exclude actual Justin Timberlake song "Under Cover" or official "DM-FK" remix
+  if (lower.includes('under cover') || lower.includes('dm-fk')) return false;
 
   // General tribute, karaoke, lullaby, choir, arrangement or cover patterns
   if (lower.includes('tribute') || 
@@ -78,8 +89,14 @@ async function processAlbum(page, client, album, artistUri, stats) {
       console.log(`           [skip blacklist] "${track.title}" (${track.id})`);
       continue;
     }
-    // Unconditionally skip any tracks where target artist is not one of the artists
-    if (!track.artistUris?.includes(artistUri)) continue;
+    const artistId = artistUri.split(':')[2];
+    const searchNames = ARTIST_SEARCH_NAMES[artistId] || [];
+    const titleLower = track.title.toLowerCase();
+    const matchesSearchName = searchNames.some(name => titleLower.includes(name));
+
+    // Unconditionally skip any tracks where target artist is not one of the artists,
+    // UNLESS the track title contains the target artist's name (which handles missing metadata for remixes)
+    if (!track.artistUris?.includes(artistUri) && !matchesSearchName) continue;
     if (isCoverOrTribute(track.title)) {
       console.log(`           [skip cover] "${track.title}"`);
       continue;
