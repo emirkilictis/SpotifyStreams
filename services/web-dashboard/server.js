@@ -17,6 +17,32 @@ const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
 const HIDDEN_TRACK_IDS = ['6233Z1W8t9Wn1f1gZqHhQ5']; // Suit & Tie - Radio Edit (frozen 2026-05-26; live = 4mQVHEjrnuUd7G5IVhSYTk)
 const HIDDEN_TRACK_IDS_SQL = HIDDEN_TRACK_IDS.map(id => `'${id}'`).join(', ');
 
+// FutureSex/LoveSounds album-id family (all editions + the comp that holds the
+// official LoveStoned radio edit). The full-discography scrape pulled in dozens
+// of third-party DJ remixes/mixes/dubs/instrumentals released under these ids.
+const FSLS_ALBUM_IDS = [
+  '0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp',
+  '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6',
+  '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI',
+  '0NvpeY8oCm6oIlhH5Jw4fo', '4zJu74Lx1jB6PcpjKZ7rf8',
+];
+const FSLS_ALBUM_IDS_SQL = FSLS_ALBUM_IDS.map(id => `'${id}'`).join(', ');
+
+// SQL boolean matching NON-official alternate versions by title: DJ remixes,
+// club/radio mixes, dubs, instrumentals, and "<Song> - <Name> Radio Edit".
+// Official radio edits ("<Song> - Radio Edit", nothing between dash and the
+// words) are intentionally NOT matched so they stay visible.
+const NON_OFFICIAL_VERSION_SQL = `(
+  s.title ILIKE '%remix%'
+  OR s.title ILIKE '%instrumental%'
+  OR s.title ILIKE '% mix%'
+  OR s.title ILIKE '%dub'
+  OR s.title ~* ' - .+ radio (edit|mix|remix)'
+)`;
+// Hide those alternate versions, but only within the FSLS family.
+const FSLS_REMIX_EXCLUSION_SQL =
+  `NOT (s.album_id IN (${FSLS_ALBUM_IDS_SQL}) AND ${NON_OFFICIAL_VERSION_SQL})`;
+
 // PostgreSQL Connection Pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -179,6 +205,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         ))
       )
       AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
+      AND ${FSLS_REMIX_EXCLUSION_SQL}
       ORDER BY cumulative DESC;
     `;
     const result = await pool.query(query, [artistUri]);
@@ -389,6 +416,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ'))
           OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
         )
+        AND ${FSLS_REMIX_EXCLUSION_SQL}
       ),
       unique_albums AS (
         SELECT DISTINCT ON (
@@ -592,6 +620,9 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
           '5CORNAMvxPl6uCikCsq1Ei',  -- What Goes Around...Comes Around - Instrumental
           '6233Z1W8t9Wn1f1gZqHhQ5'   -- Suit & Tie - Radio Edit (frozen 2026-05-26 copy; replaced by live 4mQVHEjrnuUd7G5IVhSYTk)
         )
+        -- Drop third-party DJ remixes/mixes/dubs/instrumentals & unofficial
+        -- "Radio Edit"s pulled into the FSLS family by the discography scrape.
+        AND ${FSLS_REMIX_EXCLUSION_SQL}
         ORDER BY COALESCE(s.canonical_id, s.id), s.track_number ASC
       )
       SELECT * FROM album_songs
