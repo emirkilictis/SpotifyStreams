@@ -475,31 +475,27 @@ function renderAlbums() {
     const albumTitleEscaped = album.album_title.replace(/'/g, "\\'");
     const dateFormatted = album.release_date || '';
     const coverUrl = album.image_url || ALBUM_COVERS[album.album_id] || '';
-    const imgHtml = coverUrl 
-      ? `<div class="album-cover-wrapper"><img src="${coverUrl}" alt="${album.album_title}" class="album-cover-img" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'100\\' height=\\'100\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%231db954\\' stroke-width=\\'1.5\\' style=\\'background:%23121212\\'><circle cx=\\'12\\' cy=\\'12\\' r=\\'10\\'/><circle cx=\\'12\\' cy=\\'12\\' r=\\'3\\'/><path d=\\'M12 9v6\\'/></svg>'"></div>`
-      : `<div class="album-cover-wrapper fallback-cover"><div class="vinyl-record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="music-icon"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 9v6"></path></svg></div></div>`;
     const coverUrlEscaped = coverUrl ? coverUrl.replace(/'/g, "\\'") : '';
-    
+    const fallbackSvg = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 24 24' fill='none' stroke='%231db954' stroke-width='1.5' style='background:%23181818'><circle cx='12' cy='12' r='10'/><circle cx='12' cy='12' r='3'/><path d='M12 9v6'/></svg>`;
+    const gainClass = dailyGain > 0 ? 'gain-positive' : (dailyGain < 0 ? 'gain-negative' : 'gain-neutral');
+
     return `
-      <div class="album-card glass" onclick="openAlbumById('${album.album_id}', '${albumTitleEscaped}', '${dateFormatted}', '${coverUrlEscaped}')">
-        ${imgHtml}
-        <div class="album-card-content">
-          <div class="album-card-header">
-            <h3>${album.album_title}</h3>
-            <span class="date">${formatDate(album.release_date)}</span>
+      <div class="album-row glass" onclick="openAlbumById('${album.album_id}', '${albumTitleEscaped}', '${dateFormatted}', '${coverUrlEscaped}')">
+        <div class="album-row-cover">
+          <img src="${coverUrl || fallbackSvg}" alt="${album.album_title}" class="album-row-cover-img" onerror="this.onerror=null;this.src='${fallbackSvg}'">
+        </div>
+        <div class="album-row-info">
+          <h3 class="album-row-title">${album.album_title}</h3>
+          <span class="album-row-sub">${formatDate(album.release_date)} · ${album.track_count} songs</span>
+        </div>
+        <div class="album-row-stats">
+          <div class="album-row-stat">
+            <span class="label">Streams</span>
+            <span class="value">${formatNumber(totalStreams)}</span>
           </div>
-          <div class="album-card-stats">
-            <div class="album-stat">
-              <span class="label">Streams</span>
-              <span class="value">${formatNumber(totalStreams)}</span>
-            </div>
-            <div class="album-stat">
-              <span class="label">Daily</span>
-              <span class="value ${dailyGain > 0 ? 'gain-positive' : (dailyGain < 0 ? 'gain-negative' : 'gain-neutral')}">${dailyGain > 0 ? '+' : ''}${formatNumber(dailyGain)}</span>
-            </div>
-            <div class="album-stat" style="grid-column: span 2;">
-              <span class="tracks">${album.track_count} tracked songs</span>
-            </div>
+          <div class="album-row-stat">
+            <span class="label">Daily</span>
+            <span class="value ${gainClass}">${dailyGain > 0 ? '+' : ''}${formatNumber(dailyGain)}</span>
           </div>
         </div>
       </div>
@@ -643,42 +639,34 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       modalGain.textContent = (totalGain > 0 ? '+' : '') + formatNumber(totalGain);
       modalTracks.textContent = songs.length;
       
-      // Build per-track display fragments once, then render both the
-      // desktop table and the mobile (phone) Spotify-style track list.
-      const rows = songs.map((s, idx) => {
+      // Populate Table with trend column
+      modalTbody.innerHTML = songs.map((s, idx) => {
         const dailyGain = Number(s.daily_gain);
         const prevGain = Number(s.prev_daily_gain);
 
         // Daily gain display
         let gainHtml = '<span class="gain-cell gain-neutral">-</span>';
-        let gainListHtml = '<span class="track-gain gain-neutral">–</span>';
         if (dailyGain > 0) {
           gainHtml = `<span class="gain-cell gain-positive">+${formatNumber(dailyGain)}</span>`;
-          gainListHtml = `<span class="track-gain gain-positive">+${formatNumber(dailyGain)}</span>`;
         } else if (dailyGain < 0) {
           gainHtml = `<span class="gain-cell" style="color: var(--accent-red);">${formatNumber(dailyGain)}</span>`;
-          gainListHtml = `<span class="track-gain" style="color: var(--accent-red);">${formatNumber(dailyGain)}</span>`;
         }
 
         // Percentage change vs previous day
         let trendHtml = '<span class="trend-cell trend-neutral">—</span>';
-        let trendListHtml = '';
         if (prevGain && prevGain !== 0 && dailyGain !== 0) {
           const pctChange = ((dailyGain - prevGain) / Math.abs(prevGain)) * 100;
           const pctStr = Math.abs(pctChange).toFixed(1);
           if (pctChange > 0.5) {
             trendHtml = `<span class="trend-cell trend-up">▲ ${pctStr}%</span>`;
-            trendListHtml = `<span class="track-trend trend-up">▲ ${pctStr}%</span>`;
           } else if (pctChange < -0.5) {
             trendHtml = `<span class="trend-cell trend-down">▼ ${pctStr}%</span>`;
-            trendListHtml = `<span class="track-trend trend-down">▼ ${pctStr}%</span>`;
           } else {
             trendHtml = `<span class="trend-cell trend-flat">● ${pctStr}%</span>`;
-            trendListHtml = `<span class="track-trend trend-flat">● ${pctStr}%</span>`;
           }
         }
 
-        const tableRow = `
+        return `
           <tr>
             <td><strong>${idx + 1}</strong></td>
             <td><span class="song-title song-link" onclick="openSongById('${s.id}')">${s.title}</span></td>
@@ -688,33 +676,9 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
             <td>${trendHtml}</td>
           </tr>
         `;
-
-        const listItem = `
-          <li class="track-item" onclick="openSongById('${s.id}')">
-            <span class="track-index">${idx + 1}</span>
-            <div class="track-main">
-              <span class="track-title">${s.title}</span>
-              <span class="track-meta">
-                <span class="track-streams">${formatNumber(s.cumulative)}</span>
-                <span class="track-sep">·</span>
-                ${gainListHtml} <span class="track-meta-label">today</span>
-                ${trendListHtml ? `<span class="track-sep">·</span> ${trendListHtml}` : ''}
-              </span>
-            </div>
-            <span class="track-duration">${formatDuration(s.duration_ms)}</span>
-          </li>
-        `;
-
-        return { tableRow, listItem };
-      });
-
-      modalTbody.innerHTML = rows.map(r => r.tableRow).join('');
-      const trackList = document.getElementById('modal-track-list');
-      if (trackList) trackList.innerHTML = rows.map(r => r.listItem).join('');
+      }).join('');
     } else {
       modalTbody.innerHTML = `<tr><td colspan="6" class="table-empty">No tracked songs found in this album.</td></tr>`;
-      const trackList = document.getElementById('modal-track-list');
-      if (trackList) trackList.innerHTML = `<li class="track-empty">No tracked songs found in this album.</li>`;
     }
   } catch (err) {
     console.error('Error loading album details:', err);
