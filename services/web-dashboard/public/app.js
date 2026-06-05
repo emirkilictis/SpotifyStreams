@@ -643,34 +643,42 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       modalGain.textContent = (totalGain > 0 ? '+' : '') + formatNumber(totalGain);
       modalTracks.textContent = songs.length;
       
-      // Populate Table with trend column
-      modalTbody.innerHTML = songs.map((s, idx) => {
+      // Build per-track display fragments once, then render both the
+      // desktop table and the mobile (phone) Spotify-style track list.
+      const rows = songs.map((s, idx) => {
         const dailyGain = Number(s.daily_gain);
         const prevGain = Number(s.prev_daily_gain);
-        
+
         // Daily gain display
         let gainHtml = '<span class="gain-cell gain-neutral">-</span>';
+        let gainListHtml = '<span class="track-gain gain-neutral">–</span>';
         if (dailyGain > 0) {
           gainHtml = `<span class="gain-cell gain-positive">+${formatNumber(dailyGain)}</span>`;
+          gainListHtml = `<span class="track-gain gain-positive">+${formatNumber(dailyGain)}</span>`;
         } else if (dailyGain < 0) {
           gainHtml = `<span class="gain-cell" style="color: var(--accent-red);">${formatNumber(dailyGain)}</span>`;
+          gainListHtml = `<span class="track-gain" style="color: var(--accent-red);">${formatNumber(dailyGain)}</span>`;
         }
-        
+
         // Percentage change vs previous day
         let trendHtml = '<span class="trend-cell trend-neutral">—</span>';
+        let trendListHtml = '';
         if (prevGain && prevGain !== 0 && dailyGain !== 0) {
           const pctChange = ((dailyGain - prevGain) / Math.abs(prevGain)) * 100;
           const pctStr = Math.abs(pctChange).toFixed(1);
           if (pctChange > 0.5) {
             trendHtml = `<span class="trend-cell trend-up">▲ ${pctStr}%</span>`;
+            trendListHtml = `<span class="track-trend trend-up">▲ ${pctStr}%</span>`;
           } else if (pctChange < -0.5) {
             trendHtml = `<span class="trend-cell trend-down">▼ ${pctStr}%</span>`;
+            trendListHtml = `<span class="track-trend trend-down">▼ ${pctStr}%</span>`;
           } else {
             trendHtml = `<span class="trend-cell trend-flat">● ${pctStr}%</span>`;
+            trendListHtml = `<span class="track-trend trend-flat">● ${pctStr}%</span>`;
           }
         }
-        
-        return `
+
+        const tableRow = `
           <tr>
             <td><strong>${idx + 1}</strong></td>
             <td><span class="song-title song-link" onclick="openSongById('${s.id}')">${s.title}</span></td>
@@ -680,9 +688,33 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
             <td>${trendHtml}</td>
           </tr>
         `;
-      }).join('');
+
+        const listItem = `
+          <li class="track-item" onclick="openSongById('${s.id}')">
+            <span class="track-index">${idx + 1}</span>
+            <div class="track-main">
+              <span class="track-title">${s.title}</span>
+              <span class="track-meta">
+                <span class="track-streams">${formatNumber(s.cumulative)}</span>
+                <span class="track-sep">·</span>
+                ${gainListHtml} <span class="track-meta-label">today</span>
+                ${trendListHtml ? `<span class="track-sep">·</span> ${trendListHtml}` : ''}
+              </span>
+            </div>
+            <span class="track-duration">${formatDuration(s.duration_ms)}</span>
+          </li>
+        `;
+
+        return { tableRow, listItem };
+      });
+
+      modalTbody.innerHTML = rows.map(r => r.tableRow).join('');
+      const trackList = document.getElementById('modal-track-list');
+      if (trackList) trackList.innerHTML = rows.map(r => r.listItem).join('');
     } else {
       modalTbody.innerHTML = `<tr><td colspan="6" class="table-empty">No tracked songs found in this album.</td></tr>`;
+      const trackList = document.getElementById('modal-track-list');
+      if (trackList) trackList.innerHTML = `<li class="track-empty">No tracked songs found in this album.</li>`;
     }
   } catch (err) {
     console.error('Error loading album details:', err);

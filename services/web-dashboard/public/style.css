@@ -1567,6 +1567,95 @@ tbody tr.featured-row:hover {
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* Mobile Spotify-style track list — hidden on desktop, shown on phones */
+.modal-track-list {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.track-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.track-item:active {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.track-index {
+  flex: 0 0 22px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.track-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.track-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.track-streams {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.track-sep {
+  opacity: 0.45;
+}
+
+.track-meta-label {
+  opacity: 0.7;
+}
+
+.track-gain,
+.track-trend {
+  font-weight: 600;
+}
+
+.track-duration {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.track-empty {
+  list-style: none;
+  text-align: center;
+  padding: 24px 8px;
+  color: var(--text-secondary);
+}
+
 /* Premium Search SVG Positioning */
 .search-svg {
   position: absolute;
@@ -2292,17 +2381,15 @@ tbody tr.featured-row:hover {
     font-size: 0.6rem;
   }
 
-  /* Smaller, denser track table for readability */
+  /* On phones, swap the dense track table for the Spotify-style list */
   #album-modal .modal-body {
     margin-top: 8px;
   }
-  #album-modal .modal-table th {
-    font-size: 0.66rem !important;
-    padding: 7px 5px !important;
+  #album-modal .modal-body .table-wrapper {
+    display: none;
   }
-  #album-modal .modal-table td {
-    font-size: 0.72rem !important;
-    padding: 7px 5px !important;
+  #album-modal .modal-track-list {
+    display: block;
   }
 
   /* Save Card button: icon-only to free up top-right space */
