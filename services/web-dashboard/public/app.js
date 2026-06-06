@@ -1102,7 +1102,18 @@ const dailyCardCloseBtn = document.getElementById('daily-card-close-btn');
 const dailyCardDownloadBtn = document.getElementById('daily-card-download-btn');
 
 function formatCardDate(dateStr) {
-  const d = dateStr ? new Date(dateStr) : new Date();
+  // IMPORTANT: never fall back to "today" — the card must show the date the
+  // stats are actually from, not the day it was downloaded.
+  if (!dateStr) return '';
+  // Parse a plain YYYY-MM-DD as a LOCAL calendar date so the displayed day
+  // never shifts by a timezone offset (new Date("2026-06-04") is UTC midnight).
+  let d;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr));
+  if (m) {
+    d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  } else {
+    d = new Date(dateStr);
+  }
   if (isNaN(d.getTime())) return '';
   const base = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const weekday = d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
@@ -1132,10 +1143,12 @@ function cleanTrackTitle(title) {
     // The credit keyword must be followed by whitespace so real words like
     // "With" inside a title (e.g. "Die With a Smile") are never touched.
     .replace(/\s*[\(\[](?:feat|featuring|ft|with)\.?\s[^)\]]*[\)\]]/gi, '')
-    // Strip trailing " - <version>" descriptors
-    .replace(/\s*-\s*(?:Radio\s+Edit|Radio\s+Version|Radio\s+Mix|Single\s+Version|Edit|Remastered(?:\s+\d{4})?|\d{4}\s+Remaster|Instrumental|Main\s+Version)\b.*$/gi, '')
-    // Strip trailing parenthetical version descriptors
-    .replace(/\s*[\(\[](?:Radio\s+Edit|Remastered|Instrumental|Live|Main\s+Version|Deluxe(?:\s+Version)?)[\)\]]/gi, '')
+    // Strip trailing " - <version>" descriptors.
+    // NOTE: "Instrumental" is intentionally NOT stripped — it distinguishes a
+    // real alternate version and must stay visible (e.g. "Rockstar - Instrumental").
+    .replace(/\s*-\s*(?:Radio\s+Edit|Radio\s+Version|Radio\s+Mix|Single\s+Version|Edit|Remastered(?:\s+\d{4})?|\d{4}\s+Remaster|Main\s+Version)\b.*$/gi, '')
+    // Strip trailing parenthetical version descriptors (Instrumental kept on purpose)
+    .replace(/\s*[\(\[](?:Radio\s+Edit|Remastered|Live|Main\s+Version|Deluxe(?:\s+Version)?)[\)\]]/gi, '')
     // Medley / prelude / interlude cleanups (JT tracklist)
     .replace(/Medley:\s*/gi, '')
     .replace(/\s*\((?:Prelude|Interlude)\)/gi, '');
@@ -1194,14 +1207,38 @@ async function openDailyCard() {
       totalCum += Number(s.cumulative || 0);
       if (s.recorded_date && (!recordedDate || s.recorded_date > recordedDate)) recordedDate = s.recorded_date;
     });
+    // Fallback: if the song rows carry no recorded_date, use the latest date from
+    // the already-loaded album history — never the day the card was downloaded.
+    if (!recordedDate && Array.isArray(activeAlbumHistory) && activeAlbumHistory.length) {
+      const lastHist = activeAlbumHistory[activeAlbumHistory.length - 1];
+      if (lastHist && lastHist.recorded_date) recordedDate = lastHist.recorded_date;
+    }
     const totalChange = totalDaily - totalPrev;
     const totalPctNum = totalPrev ? (totalChange / Math.abs(totalPrev)) * 100 : 0;
     const totalBadgeCls = totalChange > 0 ? 'up' : (totalChange < 0 ? 'down' : 'flat');
     const totalBadgeArrow = totalChange > 0 ? '▲' : (totalChange < 0 ? '▼' : '●');
 
-    // Keep the original album tracklist order (as returned by the API) — do not re-sort.
+    // Order rows so the main version comes first and the Instrumental sits last,
+    // with other variants (Extended, Sped Up, Slowed Down, ...) in between.
+    // Albums of distinct songs are unaffected (they're all "base", so the
+    // original track_number order from the API is preserved by the stable sort).
+    const dcOrderKey = (t) => {
+      const lower = String(t || '').toLowerCase();
+      if (lower.includes('instrumental')) return 2;                 // always last
+      if (/[-(\[]\s*(extended|sped\s*up|slowed(\s*down)?|remix|radio\s*edit|edit|version|acoustic|live)/i.test(lower)) return 1; // variants
+      return 0;                                                     // base / main version
+    };
+    const orderedSongs = songs
+      .map((s, i) => ({ s, i }))
+      .sort((a, b) => {
+        const ka = dcOrderKey(a.s.title), kb = dcOrderKey(b.s.title);
+        if (ka !== kb) return ka - kb;
+        return a.i - b.i; // stable within a group → keep the API's track order
+      })
+      .map((x) => x.s);
+
     const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const rows = songs.map((s, i) => {
+    const rows = orderedSongs.map((s, i) => {
       const daily = Number(s.daily_gain || 0);
       const prev = (s.prev_daily_gain === null || s.prev_daily_gain === undefined) ? null : Number(s.prev_daily_gain);
       const change = prev === null ? null : daily - prev;
