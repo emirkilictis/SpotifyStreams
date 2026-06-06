@@ -54,16 +54,11 @@ const pool = new Pool({
 app.use(express.json());
 app.use(cookieParser('spotify-streams-secret-key'));
 
-// Auth check middleware
-const requireAuth = (req, res, next) => {
-  if (req.signedCookies.fan_session) {
-    return next();
-  }
-  if (req.xhr || req.path.startsWith('/api/')) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  res.redirect('/login');
-};
+// Auth check middleware.
+// The general site passcode has been removed — the dashboard is public.
+// JC Chasez stays locked separately via validateArtistAccess / isJcAllowed
+// (X-JC-Passcode header), which do NOT depend on this middleware.
+const requireAuth = (req, res, next) => next();
 
 // Public Routes
 app.get('/login', (req, res) => {
