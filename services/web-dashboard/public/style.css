@@ -975,6 +975,57 @@ tbody tr.featured-row:hover {
 }
 .dc-total b { color: var(--text-primary); font-weight: 700; }
 
+/* Daily Card — next milestone + ETA */
+.dc-milestone {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(var(--dc-accent-rgb), 0.08);
+  border: 1px solid rgba(var(--dc-accent-rgb), 0.22);
+}
+.dc-ms-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dc-ms-label {
+  font-size: 0.62rem;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.dc-ms-target {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--dc-accent);
+}
+.dc-ms-bar {
+  margin-top: 8px;
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.dc-ms-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--dc-accent);
+}
+.dc-ms-eta {
+  margin-top: 7px;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.dc-ms-pct { opacity: 0.7; }
+
+/* Compact variants keep the card tight when there are many tracks */
+.daily-card.dc-compact .dc-milestone { margin-top: 10px; padding: 8px 10px; }
+.daily-card.dc-super-compact .dc-milestone { margin-top: 8px; padding: 7px 9px; }
+.daily-card.dc-super-compact .dc-ms-target { font-size: 0.9rem; }
+
 .dc-table {
   width: 100%;
   border-collapse: collapse;

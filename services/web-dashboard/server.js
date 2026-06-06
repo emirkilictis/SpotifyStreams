@@ -8,6 +8,21 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Behind Render's proxy — trust X-Forwarded-* so req.protocol is https (used for absolute OG urls).
+app.set('trust proxy', true);
+
+// Per-artist link preview (Open Graph / Twitter Card) metadata.
+// img = absolute Spotify CDN url, or a local path (made absolute at request time).
+const ARTIST_OG = {
+  '31TPClRtHm23RisEBtV3X7': { name: 'Justin Timberlake', img: '/images/jt.jpg' },
+  '5L1lO4eRHmJ7a0Q6csE5cT': { name: 'LISA',           img: 'https://i.scdn.co/image/ab6761610000e5eb5cd3b3af8b72e32be78571ec' },
+  '1HY2Jd0NmPuamShAr6KMms': { name: 'Lady Gaga',       img: 'https://i.scdn.co/image/ab6761610000e5ebaadc18cac8d48124357c38e6' },
+  '6qqNVTkY8uBg9cP3Jd7DAH': { name: 'Billie Eilish',   img: 'https://i.scdn.co/image/ab6761610000e5eb4a21b4760d2ecb7b0dcdc8da' },
+  '66CXWjxzNUsdJxJ2JdwvnR': { name: 'Ariana Grande',   img: 'https://i.scdn.co/image/ab6761610000e5eb766397ec42a573a53eb5fb87' },
+  '6Ff53KvcvAj5U7Z1vojB5o': { name: '*NSYNC',          img: 'https://i.scdn.co/image/ab6761610000e5eb9414ef07d0ca697726912df1' },
+  '3LHYvj5ZejV1NLqncEObSJ': { name: 'Vaelis',          img: 'https://i.scdn.co/image/ab6761610000e5eb05e2f96f53a2810f5dcdd6c1' },
+};
+
 // Accepted access codes for the locked artist (JC Chasez). Both unlock the same content.
 const JC_PASSCODES = ['peakedinhighschool', 'flop'];
 const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
@@ -735,7 +750,34 @@ function assetVersion() {
 app.get(['/', '/index.html'], requireAuth, (req, res) => {
   const v = assetVersion();
   let html = fs.readFileSync(path.join(__dirname, 'public/index.html'), 'utf8');
+
+  // Build link-preview (Open Graph / Twitter) tags — per-artist when ?artist= is set.
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const aId = String(req.query.artist || '').replace('spotify:artist:', '');
+  const og = ARTIST_OG[aId];
+  const title = og ? `${og.name} — Spotify Streams` : 'Spotify Streams — Fan Dashboard';
+  const desc = og
+    ? `${og.name}'s live Spotify stream counts, daily gains, and milestones — updated daily.`
+    : 'Live Spotify stream counts, daily gains, and milestones for your favorite artists — updated daily.';
+  let img = og ? og.img : '/images/jt.jpg';
+  if (img.startsWith('/')) img = baseUrl + img;
+  const pageUrl = baseUrl + req.originalUrl;
+  const ogEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const ogTags = `
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Spotify Streams — Fan Dashboard">
+  <meta property="og:title" content="${ogEsc(title)}">
+  <meta property="og:description" content="${ogEsc(desc)}">
+  <meta property="og:image" content="${ogEsc(img)}">
+  <meta property="og:url" content="${ogEsc(pageUrl)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${ogEsc(title)}">
+  <meta name="twitter:description" content="${ogEsc(desc)}">
+  <meta name="twitter:image" content="${ogEsc(img)}">
+  <meta name="theme-color" content="#1db954">`;
+
   html = html
+    .replace('<!-- OG_META -->', ogTags)
     .replace('href="/style.css"', `href="/style.css?v=${v}"`)
     .replace('src="/app.js"', `src="/app.js?v=${v}"`);
   res.set('Cache-Control', 'no-cache');

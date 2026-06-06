@@ -1101,6 +1101,14 @@ const openDailyCardBtn = document.getElementById('open-daily-card-btn');
 const dailyCardCloseBtn = document.getElementById('daily-card-close-btn');
 const dailyCardDownloadBtn = document.getElementById('daily-card-download-btn');
 
+// Parse a YYYY-MM-DD (or any date string) into a LOCAL Date — avoids the UTC
+// midnight shift that makes the calendar day jump by one in some timezones.
+function parseLocalDate(dateStr) {
+  if (!dateStr) return new Date();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr));
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(dateStr);
+}
+
 function formatCardDate(dateStr) {
   // IMPORTANT: never fall back to "today" — the card must show the date the
   // stats are actually from, not the day it was downloaded.
@@ -1255,6 +1263,16 @@ async function openDailyCard() {
         </tr>`;
     }).join('');
 
+    // Next combined-milestone + ETA (uses the same ladder as the song modal).
+    // For multi-version singles this answers "when do all versions hit 700M?".
+    const msNext = getNextMilestone(totalCum);
+    const msPct = Math.min(100, (totalCum / msNext) * 100);
+    const msDailyAvg = totalDaily > 0 ? totalDaily : 1;
+    const msDays = Math.max(1, Math.ceil((msNext - totalCum) / msDailyAvg));
+    const msDaysStr = msDays === 1 ? '1 day' : (msDays > 365 ? `${(msDays / 365).toFixed(1)} years` : `${msDays} days`);
+    const msTarget = new Date(parseLocalDate(recordedDate).getTime() + msDays * 86400000);
+    const msTargetStr = msTarget.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
     const totalCls = totalChange > 0 ? 'dc-pos' : (totalChange < 0 ? 'dc-neg' : 'dc-muted');
     dailyCardEl.innerHTML = `
       <div class="dc-header">
@@ -1272,6 +1290,14 @@ async function openDailyCard() {
         <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</div>
       </div>
       <div class="dc-total">Total streams · <b>${formatNumber(totalCum)}</b></div>
+      <div class="dc-milestone">
+        <div class="dc-ms-top">
+          <span class="dc-ms-label">NEXT MILESTONE</span>
+          <span class="dc-ms-target">${formatMilestoneName(msNext)}</span>
+        </div>
+        <div class="dc-ms-bar"><div class="dc-ms-fill" style="width:${msPct.toFixed(1)}%"></div></div>
+        <div class="dc-ms-eta">~${msDaysStr} left · ${msTargetStr} <span class="dc-ms-pct">(${msPct.toFixed(1)}%)</span></div>
+      </div>
       <table class="dc-table">
         <thead>
           <tr>
