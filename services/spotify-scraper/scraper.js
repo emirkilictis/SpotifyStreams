@@ -253,7 +253,14 @@ async function scrapeArtist(page, client, artistId, stats) {
       { id: '6YxdIqf8tAzHHCdXJYJ0Tg', title: 'Big', release_date: '2007-01-01', is_featured: true },                       // Get Out
       { id: '4jBrWs7QoGFvXjYjb3UaOL', title: 'Role Model', release_date: '2011-01-01', is_featured: true },                // Role Model
       { id: '7fmbEgU1UvE1yZN6h4FrFh', title: 'Fascinated', release_date: '2011-01-01', is_featured: true },                // Fascinated
-      { id: '0VZHk1bVRMTmdxavCL2j4N', title: "Ain't No Doubt About It", release_date: '2010-01-01', is_featured: true }    // Ain't No Doubt About It
+      { id: '0VZHk1bVRMTmdxavCL2j4N', title: "Ain't No Doubt About It", release_date: '2010-01-01', is_featured: true },   // Ain't No Doubt About It
+      // Collab albums that replace manually-seeded fake-ID rows (those had placeholder
+      // album+track IDs and could never be scraped, so they froze on 2026-05-26). Pinning
+      // the real albums lets the real JT track update; the fake rows are deleted from the DB.
+      { id: '40o8Zo70JUsrMtBaQruBZg', title: "Can't Believe It Remix (feat. Justin Timberlake)", release_date: '2008-11-11', is_featured: true }, // Can't Believe It Remix (T-Pain)
+      { id: '4QhiPwSJKMHBk0EL67zBaT', title: 'TROLLS Holiday In Harmony', release_date: '2021-11-26', is_featured: false },                       // Together Now (x2) + Signed, Sealed, Delivered
+      { id: '4fGULwsdNS4FqG2xZfMmCo', title: 'Last Train to Paris', release_date: '2010-12-14', is_featured: true },                              // Shades (Diddy - Dirty Money)
+      { id: '0RIAq5yp636U2iTB0K2Tb6', title: 'We Broke The Rules', release_date: '2001-07-24', is_featured: true }                                // Gone (*NSYNC)
     ];
 
     for (const extra of extraAlbums) {
