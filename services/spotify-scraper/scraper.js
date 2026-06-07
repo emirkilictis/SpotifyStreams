@@ -240,7 +240,20 @@ async function scrapeArtist(page, client, artistId, stats) {
       { id: '51lCQxAHpJHuqvvK0z12zp', title: 'FutureSex/LoveSounds (Deluxe Edition)', release_date: '2006-09-11', is_featured: false },
       { id: '4sceISkCvRuDbd74AtKeEH', title: 'Timeless', release_date: '2005-12-31', is_featured: true },
       // Live "Suit & Tie - Radio Edit" single — the 20/20 Deluxe copy was delisted (froze 2026-05-26)
-      { id: '5jlQrOtSuTXojcvBCpivyo', title: 'Suit & Tie (feat. JAY-Z) [Radio Edit]', release_date: '2013-01-15', is_featured: false }
+      { id: '5jlQrOtSuTXojcvBCpivyo', title: 'Suit & Tie (feat. JAY-Z) [Radio Edit]', release_date: '2013-01-15', is_featured: false },
+      // Appears-on / collab albums where JT is FEATURED (primary_artist = the other act, not JT),
+      // so the DB-album query (primary_artist = JT) never picks them up and appears-on discovery
+      // stopped surfacing them on 2026-05-26 — freezing these tracks. Pin them so every run
+      // re-scrapes the JT-featuring track. processAlbum keeps only the JT track and upsertSong
+      // preserves its real primary_artist (the track stays featured).
+      { id: '0OTjYdGtP7AbwOwbYsGhyi', title: 'Magna Carta... Holy Grail', release_date: '2013-07-04', is_featured: true }, // Holy Grail (JAY-Z)
+      { id: '6uBfBmim3xlzDgtVJvolW2', title: 'Blow Your Pants Off', release_date: '2012-06-08', is_featured: true },       // History of Rap (Jimmy Fallon)
+      { id: '4gjttixmMAKMzzfrfGmDGr', title: 'Eardrum', release_date: '2007-08-21', is_featured: true },                   // The Nature (Talib Kweli)
+      { id: '2Zl1vsJhhpUFpHciAtQ9CR', title: 'Falling Down', release_date: '2007-09-17', is_featured: true },              // Falling Down (Duran Duran)
+      { id: '6YxdIqf8tAzHHCdXJYJ0Tg', title: 'Big', release_date: '2007-01-01', is_featured: true },                       // Get Out
+      { id: '4jBrWs7QoGFvXjYjb3UaOL', title: 'Role Model', release_date: '2011-01-01', is_featured: true },                // Role Model
+      { id: '7fmbEgU1UvE1yZN6h4FrFh', title: 'Fascinated', release_date: '2011-01-01', is_featured: true },                // Fascinated
+      { id: '0VZHk1bVRMTmdxavCL2j4N', title: "Ain't No Doubt About It", release_date: '2010-01-01', is_featured: true }    // Ain't No Doubt About It
     ];
 
     for (const extra of extraAlbums) {
