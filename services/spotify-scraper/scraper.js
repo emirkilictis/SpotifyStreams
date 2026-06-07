@@ -304,15 +304,21 @@ async function scrapeArtist(page, client, artistId, stats) {
 // cut short mid-list (e.g. GHA timeout) on the next hourly invocation.
 // "Full" = today's row count is at least the most recent previous day's count, so an
 // artist that was interrupted mid-scrape (fewer rows today) is correctly re-scraped.
+// NOTE: "today" MUST be the Istanbul calendar date, matching how upsertStreamStat stamps
+// recorded_date ((NOW() AT TIME ZONE 'Europe/Istanbul')::date). The DB session runs in
+// GMT, so CURRENT_DATE lags Istanbul by a day during 21:00–24:00 UTC (00:00–03:00 local).
+// Using CURRENT_DATE there made the idempotency/resume/canary-bailout logic evaluate the
+// wrong day vs. the rows actually being written, letting a pre-rollover run record a
+// new-day snapshot that just duplicated yesterday — collapsing every daily gain to 0.
 async function artistHasTodaysData(client, artistUri) {
   const res = await client.query(
     `SELECT
-       COUNT(*) FILTER (WHERE ss.recorded_date = CURRENT_DATE) AS today_cnt,
+       COUNT(*) FILTER (WHERE ss.recorded_date = (NOW() AT TIME ZONE 'Europe/Istanbul')::date) AS today_cnt,
        COUNT(*) FILTER (WHERE ss.recorded_date = (
          SELECT MAX(ss2.recorded_date)
          FROM stream_stats ss2
          JOIN songs s2 ON s2.id = ss2.song_id
-         WHERE s2.primary_artist = $1 AND ss2.recorded_date < CURRENT_DATE
+         WHERE s2.primary_artist = $1 AND ss2.recorded_date < (NOW() AT TIME ZONE 'Europe/Istanbul')::date
        )) AS prev_cnt
      FROM stream_stats ss
      JOIN songs s ON s.id = ss.song_id
