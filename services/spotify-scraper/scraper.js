@@ -198,15 +198,43 @@ async function scrapeArtist(page, client, artistId, stats) {
     await upsertAlbum(client, a);
   }
 
-  // 2. Determine albums to scrape: combine newly discovered albums with existing database albums containing canonical songs for this artist
-  const dbAlbumsRes = await client.query(`
-    SELECT a.id, a.title, a.release_date,
-           COALESCE(bool_or(s.is_featured), false) as is_featured
-    FROM albums a
-    JOIN songs s ON s.album_id = a.id
-    WHERE s.primary_artist = $1 AND s.canonical_id IS NULL
-    GROUP BY a.id, a.title, a.release_date
-  `, [artistUri]);
+  // 2. Determine albums to scrape: combine newly discovered albums with existing
+  // database albums containing canonical songs for this artist.
+  //
+  // For JT the dashboard counts EVERY song whose primary_artist is not one of the other
+  // tracked artists (i.e. all his features/collabs, where primary_artist is JAY-Z,
+  // Timbaland, etc.). Those collab albums are only reached via appears-on discovery,
+  // which is flaky and silently stopped surfacing them on 2026-05-26 — freezing dozens
+  // of counted tracks and dropping JT's daily below its true value. Mirror the dashboard
+  // bucket here so any collab album already in the DB is ALWAYS re-scraped daily and can
+  // never freeze again, independent of discovery. Other artists keep the exact match.
+  const JT_OTHER_TRACKED_ARTISTS = [
+    'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT', // LISA
+    'spotify:artist:1HY2Jd0NmPuamShAr6KMms', // Lady Gaga
+    'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH', // Billie Eilish
+    'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR', // Ariana Grande
+    'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o', // *NSYNC
+    'spotify:artist:3p3U04w2DaiBzuYMZnYr00', // JC Chasez
+    'spotify:artist:3LHYvj5ZejV1NLqncEObSJ', // Vaelis
+  ];
+  const dbAlbumsRes = artistId === '31TPClRtHm23RisEBtV3X7'
+    ? await client.query(`
+        SELECT a.id, a.title, a.release_date,
+               COALESCE(bool_or(s.is_featured), false) as is_featured
+        FROM albums a
+        JOIN songs s ON s.album_id = a.id
+        WHERE s.canonical_id IS NULL
+          AND (s.primary_artist IS NULL OR s.primary_artist <> ALL($1))
+        GROUP BY a.id, a.title, a.release_date
+      `, [JT_OTHER_TRACKED_ARTISTS])
+    : await client.query(`
+        SELECT a.id, a.title, a.release_date,
+               COALESCE(bool_or(s.is_featured), false) as is_featured
+        FROM albums a
+        JOIN songs s ON s.album_id = a.id
+        WHERE s.primary_artist = $1 AND s.canonical_id IS NULL
+        GROUP BY a.id, a.title, a.release_date
+      `, [artistUri]);
 
   const albumMap = new Map();
   
