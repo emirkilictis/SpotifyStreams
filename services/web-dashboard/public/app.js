@@ -3,6 +3,8 @@ let allSongs = [];
 let allAlbums = [];
 let filteredSongs = [];
 let searchFilter = '';
+let albumSearchFilter = '';
+let albumSortField = 'streams-desc';
 let typeFilter = 'all'; // 'all' | 'lead' | 'featured'
 let currentSortField = 'streams'; // 'rank' | 'title' | 'album' | 'duration' | 'streams' | 'gain'
 let currentSortDirection = 'desc';
@@ -75,6 +77,8 @@ const songsToggleBtn = document.querySelector('.view-toggle-btn[data-view="songs
 const songsViewSection = document.getElementById('songs-view-section');
 const albumsViewSection = document.getElementById('albums-view-section');
 const albumsContainer = document.getElementById('albums-container');
+const albumSearchInput = document.getElementById('album-search-input');
+const albumSortSelect = document.getElementById('album-sort-select');
 const songsShowAllBtn = document.getElementById('songs-showall-btn');
 
 // Total Streams breakdown (Lead / Solo / Featured) toggle
@@ -531,12 +535,53 @@ const DEFAULT_THEME = { accent: '#1db954', gradStart: '#162016', gradEnd: '#0d0d
 
 // Render Albums Grid
 function renderAlbums() {
-  if (allAlbums.length === 0) {
+  if (!allAlbums || allAlbums.length === 0) {
     albumsContainer.innerHTML = '<div class="table-empty">No albums found in database.</div>';
     return;
   }
 
-  albumsContainer.innerHTML = allAlbums.map(album => {
+  // 1) Filter based on search filter
+  const filteredAlbums = allAlbums.filter(album => {
+    const title = album.album_title || '';
+    return title.toLowerCase().includes(albumSearchFilter.toLowerCase());
+  });
+
+  if (filteredAlbums.length === 0) {
+    albumsContainer.innerHTML = '<div class="table-empty">No matching albums found.</div>';
+    return;
+  }
+
+  // 2) Sort based on albumSortField
+  filteredAlbums.sort((a, b) => {
+    switch (albumSortField) {
+      case 'streams-desc':
+        return Number(b.total_streams || 0) - Number(a.total_streams || 0);
+      case 'streams-asc':
+        return Number(a.total_streams || 0) - Number(b.total_streams || 0);
+      case 'daily-desc':
+        return Number(b.daily_gain || 0) - Number(a.daily_gain || 0);
+      case 'daily-asc':
+        return Number(a.daily_gain || 0) - Number(b.daily_gain || 0);
+      case 'date-desc': {
+        const dateA = a.release_date ? new Date(a.release_date) : new Date(0);
+        const dateB = b.release_date ? new Date(b.release_date) : new Date(0);
+        return dateB - dateA;
+      }
+      case 'date-asc': {
+        const dateA = a.release_date ? new Date(a.release_date) : new Date(0);
+        const dateB = b.release_date ? new Date(b.release_date) : new Date(0);
+        return dateA - dateB;
+      }
+      case 'title-asc':
+        return (a.album_title || '').localeCompare(b.album_title || '', undefined, { sensitivity: 'base' });
+      case 'title-desc':
+        return (b.album_title || '').localeCompare(a.album_title || '', undefined, { sensitivity: 'base' });
+      default:
+        return Number(b.total_streams || 0) - Number(a.total_streams || 0);
+    }
+  });
+
+  albumsContainer.innerHTML = filteredAlbums.map(album => {
     const totalStreams = Number(album.total_streams);
     const dailyGain = Number(album.daily_gain);
     const albumTitleEscaped = album.album_title.replace(/'/g, "\\'");
@@ -1565,6 +1610,21 @@ sortHeaders.forEach(th => {
   });
 });
 
+// Album Search and Sort handlers
+if (albumSearchInput) {
+  albumSearchInput.addEventListener('input', (e) => {
+    albumSearchFilter = e.target.value;
+    renderAlbums();
+  });
+}
+
+if (albumSortSelect) {
+  albumSortSelect.addEventListener('change', (e) => {
+    albumSortField = e.target.value;
+    renderAlbums();
+  });
+}
+
 // Milestones Engine
 function getNextMilestone(streams) {
   if (currentArtist === '3LHYvj5ZejV1NLqncEObSJ') {
@@ -2122,6 +2182,12 @@ if (artistSelector) {
     currentArtist = e.target.value;
     currentArtistName = e.target.options[e.target.selectedIndex]?.text || currentArtistName;
 
+    // Reset album controls
+    albumSearchFilter = '';
+    albumSortField = 'streams-desc';
+    if (albumSearchInput) albumSearchInput.value = '';
+    if (albumSortSelect) albumSortSelect.value = 'streams-desc';
+
     // Apply dynamic artist theme colors
     applyArtistTheme(currentArtist);
     
@@ -2158,6 +2224,12 @@ const backToPickerBtn = document.getElementById('back-to-picker-btn');
 async function enterDashboard(artistId, artistName) {
   currentArtist = artistId;
   currentArtistName = artistName || '';
+
+  // Reset album controls
+  albumSearchFilter = '';
+  albumSortField = 'streams-desc';
+  if (albumSearchInput) albumSearchInput.value = '';
+  if (albumSortSelect) albumSortSelect.value = 'streams-desc';
   
   // Apply dynamic artist theme colors
   applyArtistTheme(artistId);

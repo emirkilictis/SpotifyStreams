@@ -303,6 +303,27 @@
 
     <!-- Albums View Section (Hidden initially) -->
     <div id="albums-view-section" class="hidden">
+      <!-- Albums Control Panel -->
+      <section class="control-panel glass" style="margin-bottom: 20px;">
+        <div class="search-box" style="flex-grow: 1;">
+          <svg class="search-svg" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="album-search-input" placeholder="Search by album title...">
+        </div>
+        <div class="sort-selector-wrapper" style="display: flex; align-items: center; gap: 12px;">
+          <span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">Sort By:</span>
+          <select id="album-sort-select" class="artist-select-dropdown" style="padding: 8px 16px; min-width: 150px; font-size: 0.85rem;">
+            <option value="streams-desc">Streams (High to Low)</option>
+            <option value="streams-asc">Streams (Low to High)</option>
+            <option value="daily-desc">Daily Streams (High to Low)</option>
+            <option value="daily-asc">Daily Streams (Low to High)</option>
+            <option value="date-desc">Release Date (Newest first)</option>
+            <option value="date-asc">Release Date (Oldest first)</option>
+            <option value="title-asc">Title (A-Z)</option>
+            <option value="title-desc">Title (Z-A)</option>
+          </select>
+        </div>
+      </section>
+
       <div class="albums-grid" id="albums-container">
         <!-- Album cards loaded dynamically -->
         <div class="table-loading">Loading albums...</div>
