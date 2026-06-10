@@ -43,8 +43,6 @@ const totalStreamsEl = document.getElementById('total-streams');
 const monthlyListenersEl = document.getElementById('monthly-listeners');
 const monthlyListenersChangeEl = document.getElementById('monthly-listeners-change');
 const followersEl = document.getElementById('followers');
-const artistProjectionContainer = document.getElementById('artist-projection-container');
-const artistProjectionEl = document.getElementById('artist-projection');
 const followersChangeEl = document.getElementById('followers-change');
 
 // Achieved milestones section
@@ -219,17 +217,6 @@ async function fetchData() {
     
     totalSongsEl.textContent = statsData.total_songs;
     lastUpdateEl.textContent = formatDate(statsData.last_update);
-    
-    // Artist year-end projection (only for full-discography artists)
-    if (artistProjectionContainer && artistProjectionEl) {
-      if (!ALBUM_ONLY_ARTISTS.has(currentArtist)) {
-        const proj = getYearEndProjection(statsData.total_streams, statsData.daily_gain);
-        artistProjectionEl.textContent = formatNumber(Math.round(proj));
-        artistProjectionContainer.classList.remove('hidden');
-      } else {
-        artistProjectionContainer.classList.add('hidden');
-      }
-    }
 
     // Fetch artist-level stats (monthly listeners)
     try {
