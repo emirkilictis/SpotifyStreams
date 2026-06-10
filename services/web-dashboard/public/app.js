@@ -2024,6 +2024,20 @@ const ARTIST_THEMES = {
     accentGlow: 'rgba(139, 92, 246, 0.4)',
     borderGlow: 'rgba(139, 92, 246, 0.3)',
     bgGradient: 'radial-gradient(circle at 50% 0%, #1c1236 0%, #080c14 100%)'
+  },
+  '2dIgFjalVxs4ThymZ67YCE': { // Stray Kids - Platinum/Cyber
+    accent: '#e2e2e7',
+    accentHover: '#c7c7cc',
+    accentGlow: 'rgba(226, 226, 231, 0.4)',
+    borderGlow: 'rgba(226, 226, 231, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #242428 0%, #080c14 100%)'
+  },
+  '4UIOuc84ExWojcUzFGtb8W': { // Felix - Warm Gold/Amber
+    accent: '#ffb703',
+    accentHover: '#fb8500',
+    accentGlow: 'rgba(255, 183, 3, 0.4)',
+    borderGlow: 'rgba(255, 183, 3, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #2f2208 0%, #080c14 100%)'
   }
 };
 

@@ -26,6 +26,8 @@ const ARTISTS = {
   '6Ff53KvcvAj5U7Z1vojB5o': '*NSYNC',
   '3p3U04w2DaiBzuYMZnYr00': 'JC Chasez',
   '3LHYvj5ZejV1NLqncEObSJ': 'Vaelis',
+  '2dIgFjalVxs4ThymZ67YCE': 'Stray Kids',
+  '4UIOuc84ExWojcUzFGtb8W': 'Felix',
 };
 
 async function run() {

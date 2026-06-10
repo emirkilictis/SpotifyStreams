@@ -56,7 +56,9 @@ const ARTIST_SEARCH_NAMES = {
   '66CXWjxzNUsdJxJ2JdwvnR': ['ariana grande'],
   '6Ff53KvcvAj5U7Z1vojB5o': ['nsync', '*nsync'],
   '3p3U04w2DaiBzuYMZnYr00': ['jc chasez', 'chasez'],
-  '3LHYvj5ZejV1NLqncEObSJ': ['vaelis']
+  '3LHYvj5ZejV1NLqncEObSJ': ['vaelis'],
+  '2dIgFjalVxs4ThymZ67YCE': ['stray kids'],
+  '4UIOuc84ExWojcUzFGtb8W': ['felix']
 };
 
 function isCoverOrTribute(title) {
@@ -216,6 +218,8 @@ async function scrapeArtist(page, client, artistId, stats) {
     'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o', // *NSYNC
     'spotify:artist:3p3U04w2DaiBzuYMZnYr00', // JC Chasez
     'spotify:artist:3LHYvj5ZejV1NLqncEObSJ', // Vaelis
+    'spotify:artist:2dIgFjalVxs4ThymZ67YCE', // Stray Kids
+    'spotify:artist:4UIOuc84ExWojcUzFGtb8W', // Felix
   ];
   const dbAlbumsRes = artistId === '31TPClRtHm23RisEBtV3X7'
     ? await client.query(`
@@ -445,7 +449,9 @@ async function run() {
         { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande' },
         { id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC' },
         { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez' },
-        { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' }
+        { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' },
+        { id: '2dIgFjalVxs4ThymZ67YCE', name: 'Stray Kids' },
+        { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix' }
       ];
 
       if (artistFilterArg) {
