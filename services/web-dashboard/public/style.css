@@ -2738,3 +2738,123 @@ tbody tr.featured-row:hover {
 @keyframes artist-switch-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ==========================================================================
+   Milestone Filters and Type Badges
+   ========================================================================== */
+.milestone-controls {
+  padding: 14px 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 16px;
+  margin-bottom: 8px;
+}
+
+.milestone-filter-group {
+  display: flex;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.milestone-filter-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: var(--transition-smooth);
+}
+
+.milestone-filter-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.milestone-filter-btn.active {
+  color: var(--accent-green) !important;
+  background: rgba(30, 215, 96, 0.1) !important;
+  border-color: rgba(30, 215, 96, 0.2) !important;
+  box-shadow: 0 0 10px rgba(30, 215, 96, 0.15);
+}
+
+/* Milestone Type Badges */
+.milestone-type-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.milestone-type-badge.type-song {
+  color: var(--accent-green);
+  background: rgba(30, 215, 96, 0.06);
+  border: 1px solid rgba(30, 215, 96, 0.15);
+}
+
+.milestone-type-badge.type-album {
+  color: var(--accent-purple);
+  background: rgba(139, 92, 246, 0.06);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+}
+
+/* Align achieved list layout with the badges */
+.achieved-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.achieved-row .achieved-song {
+  flex: 1;
+}
+
+/* Media Query Adaptations for Milestone Controls */
+@media (max-width: 600px) {
+  .milestone-controls {
+    padding: 10px;
+  }
+  
+  .milestone-filter-group {
+    width: 100%;
+  }
+  
+  .milestone-filter-btn {
+    flex: 1;
+    font-size: 0.78rem;
+    text-align: center;
+    padding: 6px 4px;
+  }
+
+  .achieved-row {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 0;
+  }
+
+  .achieved-row .milestone-type-badge {
+    order: 2;
+  }
+
+  .achieved-row .achieved-song {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .achieved-row .achieved-date {
+    order: 4;
+  }
+}
+

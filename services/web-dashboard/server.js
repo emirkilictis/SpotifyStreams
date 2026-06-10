@@ -356,10 +356,9 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
-    // A milestone M is "reached on date D" when a song's cumulative crossed M between
-    // the previous snapshot (prev_cum < M) and D (cumulative >= M). Because the view's
-    // cumulative is monotonic (running max), each (song, M) has exactly one crossing row.
-    // Only crossings we actually witnessed during tracking are returned (prev_cum NOT NULL).
+    // A milestone M is "reached on date D" when a song or album's cumulative crossed M between
+    // the previous snapshot (prev_cum < M) and D (cumulative >= M). Only crossings we actually
+    // witnessed during tracking are returned (prev_cum NOT NULL).
     const query = `
       WITH thresholds(m) AS (
         VALUES (1000), (5000), (10000), (25000), (50000), (100000), (250000), (500000),
@@ -369,7 +368,8 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
                (1200000000), (1500000000), (1800000000), (2000000000), (2500000000),
                (3000000000), (3500000000), (4000000000), (4500000000), (5000000000)
       ),
-      hist AS (
+      -- Song History and crossings
+      song_hist AS (
         SELECT
           dsc.canonical_id,
           dsc.recorded_date,
@@ -389,16 +389,104 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (a.title ILIKE 'Yours Truly%' OR a.title ILIKE 'My Everything%' OR a.title ILIKE 'Dangerous Woman%' OR a.title ILIKE 'Sweetener%' OR a.title ILIKE 'thank u, next%' OR a.title ILIKE 'Positions%' OR a.title ILIKE 'eternal sunshine%'))
         )
         AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
+      ),
+      song_crossings AS (
+        SELECT
+          h.canonical_id AS song_id,
+          c.title,
+          t.m::bigint AS milestone,
+          MIN(h.recorded_date) AS reached_date,
+          'song'::text AS type
+        FROM song_hist h
+        JOIN thresholds t ON h.prev_cum IS NOT NULL AND h.prev_cum < t.m AND h.cumulative >= t.m
+        JOIN songs c ON c.id = h.canonical_id
+        GROUP BY h.canonical_id, c.title, t.m
+      ),
+      
+      -- Album History and crossings
+      album_songs_mapped AS (
+        SELECT DISTINCT ON (
+          CASE
+            WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
+            WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
+            WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
+            ELSE s.album_id
+          END,
+          COALESCE(s.canonical_id, s.id)
+        )
+        CASE
+          WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
+          WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
+          WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
+          ELSE s.album_id
+        END AS album_id,
+        COALESCE(s.canonical_id, s.id) AS canonical_song_id
+        FROM songs s
+        JOIN albums a ON s.album_id = a.id
+        WHERE (
+          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ'))
+          OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
+        )
+        AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
+        AND ${FSLS_REMIX_EXCLUSION_SQL}
+      ),
+      album_display_titles AS (
+        SELECT DISTINCT ON (
+          CASE 
+            WHEN id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
+            WHEN id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
+            WHEN id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
+            ELSE id 
+          END
+        )
+        CASE 
+          WHEN id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
+          WHEN id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
+          WHEN id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
+          ELSE id 
+        END AS album_id,
+        CASE 
+          WHEN id IN (${FSLS_ALBUM_IDS_SQL}) THEN 'FutureSex/LoveSounds (Deluxe Edition)'
+          WHEN id IN (${TT20_ALBUM_IDS_SQL}) THEN 'The 20/20 Experience (Deluxe Version)'
+          WHEN id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN 'eternal sunshine (Deluxe Edition)'
+          ELSE title 
+        END AS album_title
+        FROM albums
+      ),
+      album_daily_totals AS (
+        SELECT
+          asm.album_id,
+          adt.album_title,
+          dsc.recorded_date,
+          SUM(COALESCE(dsc.cumulative, 0))::bigint AS cumulative
+        FROM daily_streams_canonical dsc
+        JOIN album_songs_mapped asm ON dsc.canonical_id = asm.canonical_song_id
+        JOIN album_display_titles adt ON asm.album_id = adt.album_id
+        GROUP BY asm.album_id, adt.album_title, dsc.recorded_date
+      ),
+      album_hist AS (
+        SELECT
+          album_id,
+          album_title,
+          recorded_date,
+          cumulative,
+          LAG(cumulative) OVER (PARTITION BY album_id ORDER BY recorded_date) AS prev_cum
+        FROM album_daily_totals
+      ),
+      album_crossings AS (
+        SELECT
+          ah.album_id AS song_id, -- align column names for UNION
+          ah.album_title AS title,
+          t.m::bigint AS milestone,
+          MIN(ah.recorded_date) AS reached_date,
+          'album'::text AS type
+        FROM album_hist ah
+        JOIN thresholds t ON ah.prev_cum IS NOT NULL AND ah.prev_cum < t.m AND ah.cumulative >= t.m
+        GROUP BY ah.album_id, ah.album_title, t.m
       )
-      SELECT
-        h.canonical_id AS song_id,
-        c.title,
-        t.m::bigint AS milestone,
-        MIN(h.recorded_date) AS reached_date
-      FROM hist h
-      JOIN thresholds t ON h.prev_cum IS NOT NULL AND h.prev_cum < t.m AND h.cumulative >= t.m
-      JOIN songs c ON c.id = h.canonical_id
-      GROUP BY h.canonical_id, c.title, t.m
+      SELECT * FROM song_crossings
+      UNION ALL
+      SELECT * FROM album_crossings
       ORDER BY reached_date DESC, milestone DESC;
     `;
     const result = await pool.query(query, [artistUri]);

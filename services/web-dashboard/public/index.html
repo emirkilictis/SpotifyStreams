@@ -258,6 +258,15 @@
 
     <!-- Milestones View Section (Hidden initially): Achieved on top, Upcoming below -->
     <div id="milestones-section" class="milestones-view hidden">
+      <!-- Milestones Filter controls -->
+      <section class="milestone-controls glass">
+        <div class="milestone-filter-group">
+          <button class="milestone-filter-btn active" data-filter="all">All Milestones</button>
+          <button class="milestone-filter-btn" data-filter="songs">Songs</button>
+          <button class="milestone-filter-btn" data-filter="albums">Albums</button>
+        </div>
+      </section>
+
       <!-- Achieved Milestones (collapsible, hidden until data exists) -->
       <section id="achieved-milestones-section" class="achieved-milestones-section glass hidden">
         <button id="achieved-toggle-btn" class="achieved-toggle" type="button" aria-expanded="false">

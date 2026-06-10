@@ -7,6 +7,8 @@ let typeFilter = 'all'; // 'all' | 'lead' | 'featured'
 let currentSortField = 'streams'; // 'rank' | 'title' | 'album' | 'duration' | 'streams' | 'gain'
 let currentSortDirection = 'desc';
 let activeView = 'songs'; // 'songs' | 'albums' | 'milestones'
+let milestoneFilter = 'all'; // 'all' | 'songs' | 'albums'
+let lastAchievedMilestonesRawData = [];
 let songsExpanded = false; // when false, the songs table shows only the top N rows
 const SONGS_COLLAPSED_LIMIT = 15;
 let currentArtist = null; // set when artist is picked
@@ -91,6 +93,7 @@ const songModalSpotifyLink = document.getElementById('song-modal-spotify-link');
 // Milestones Section Elements
 const milestonesSection = document.getElementById('milestones-section');
 const milestonesGrid = document.getElementById('milestones-grid');
+const milestoneFilterButtons = document.querySelectorAll('.milestone-filter-btn');
 
 // Formatting Helpers
 function formatNumber(num) {
@@ -254,6 +257,7 @@ async function fetchAlbumsData() {
     }
     
     renderAlbums();
+    renderMilestones();
   } catch (err) {
     console.error('Error fetching albums:', err);
     albumsContainer.innerHTML = `<div class="table-empty" style="color: var(--accent-red);">Failed to load albums!</div>`;
@@ -1451,6 +1455,19 @@ filterButtons.forEach(btn => {
   });
 });
 
+// Milestone Filter button handlers
+if (milestoneFilterButtons) {
+  milestoneFilterButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      milestoneFilterButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      milestoneFilter = btn.dataset.filter;
+      renderMilestones();
+      renderAchievedMilestones(lastAchievedMilestonesRawData);
+    });
+  });
+}
+
 // Sortable headers handler
 sortHeaders.forEach(th => {
   th.addEventListener('click', () => {
@@ -1528,53 +1545,77 @@ function formatMilestoneName(val) {
 function renderMilestones() {
   // Visibility is controlled by the view switcher (Milestones tab); here we
   // only populate the grid, falling back to an empty state when there's nothing.
-  if (!allSongs || allSongs.length === 0) {
+  if ((!allSongs || allSongs.length === 0) && (!allAlbums || allAlbums.length === 0)) {
     milestonesGrid.innerHTML = '<p class="milestones-empty">No milestone data yet.</p>';
     return;
   }
 
-  // Calculate milestone stats for each song
-  const songMilestones = allSongs
-    .filter(song => Number(song.cumulative) > 0)
-    .map(song => {
-      const cumulative = Number(song.cumulative);
-      const dailyGain = Number(song.daily_gain);
-      const nextMilestone = getNextMilestone(cumulative);
-      const percent = (cumulative / nextMilestone) * 100;
-      const dailyAvg = dailyGain > 0 ? dailyGain : 1;
-      const daysRemaining = Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyAvg));
-      return {
-        ...song,
-        nextMilestone,
-        percent,
-        daysRemaining
-      };
-    });
+  let mergedMilestones = [];
+
+  // 1) Calculate milestone stats for songs (if not filtering out songs)
+  if (milestoneFilter === 'all' || milestoneFilter === 'songs') {
+    const songMilestones = allSongs
+      .filter(song => Number(song.cumulative) > 0)
+      .map(song => {
+        const cumulative = Number(song.cumulative);
+        const dailyGain = Number(song.daily_gain);
+        const nextMilestone = getNextMilestone(cumulative);
+        const percent = (cumulative / nextMilestone) * 100;
+        const dailyAvg = dailyGain > 0 ? dailyGain : 1;
+        const daysRemaining = Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyAvg));
+        return {
+          id: song.id,
+          title: song.title,
+          cumulative,
+          daily_gain: dailyGain,
+          nextMilestone,
+          percent,
+          daysRemaining,
+          type: 'song'
+        };
+      });
+    mergedMilestones = mergedMilestones.concat(songMilestones);
+  }
+
+  // 2) Calculate milestone stats for albums (if not filtering out albums)
+  if (milestoneFilter === 'all' || milestoneFilter === 'albums') {
+    const albumMilestones = allAlbums
+      .filter(album => Number(album.total_streams) > 0)
+      .map(album => {
+        const cumulative = Number(album.total_streams);
+        const dailyGain = Number(album.daily_gain);
+        const nextMilestone = getNextMilestone(cumulative);
+        const percent = (cumulative / nextMilestone) * 100;
+        const dailyAvg = dailyGain > 0 ? dailyGain : 1;
+        const daysRemaining = Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyAvg));
+        return {
+          id: album.album_id,
+          title: album.album_title,
+          cumulative,
+          daily_gain: dailyGain,
+          nextMilestone,
+          percent,
+          daysRemaining,
+          type: 'album',
+          release_date: album.release_date || '',
+          image_url: album.image_url || ''
+        };
+      });
+    mergedMilestones = mergedMilestones.concat(albumMilestones);
+  }
 
   // Sort by percentage completed desc
-  songMilestones.sort((a, b) => b.percent - a.percent);
+  mergedMilestones.sort((a, b) => b.percent - a.percent);
 
   // Dedicated tab now, so show a fuller list of the closest milestones.
-  const topMilestones = songMilestones.slice(0, 12);
+  const topMilestones = mergedMilestones.slice(0, 18);
 
   if (topMilestones.length === 0) {
-    milestonesGrid.innerHTML = '<p class="milestones-empty">No upcoming milestones.</p>';
+    milestonesGrid.innerHTML = '<p class="milestones-empty">No upcoming milestones match the filter.</p>';
     return;
   }
 
   milestonesGrid.innerHTML = topMilestones.map(item => {
-    const isFeatured = item.is_featured;
-    const isSolo = item.is_solo;
-    let badgeClass = 'badge-lead';
-    let badgeText = 'Lead';
-    if (isFeatured) {
-      badgeClass = 'badge-feat';
-      badgeText = 'Featured';
-    } else if (isSolo) {
-      badgeClass = 'badge-solo';
-      badgeText = 'Solo';
-    }
-    
     let etaText = `${item.daysRemaining} days left`;
     if (item.daysRemaining > 365) {
       etaText = `${(item.daysRemaining / 365).toFixed(1)} years left`;
@@ -1582,11 +1623,23 @@ function renderMilestones() {
       etaText = `1 day left`;
     }
     
+    const isAlbum = item.type === 'album';
+    const badgeHtml = isAlbum
+      ? `<span class="milestone-type-badge type-album">💿 Album</span>`
+      : `<span class="milestone-type-badge type-song">🎵 Song</span>`;
+      
+    const clickHandler = isAlbum
+      ? `openAlbumById('${item.id}', '${item.title.replace(/'/g, "\\'")}', '${item.release_date}', '${item.image_url.replace(/'/g, "\\'")}')`
+      : `openSongById('${item.id}')`;
+    
     return `
-      <div class="milestone-card glass" onclick="openSongById('${item.id}')" style="cursor: pointer;">
+      <div class="milestone-card glass" onclick="${clickHandler}" style="cursor: pointer;">
         <div class="milestone-card-header">
           <h4 title="${item.title}">${item.title}</h4>
           <span class="eta-badge">${etaText}</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: -4px;">
+          ${badgeHtml}
         </div>
         <div class="milestone-target">
           Target: <strong>${formatMilestoneName(item.nextMilestone)}</strong>
@@ -1609,6 +1662,7 @@ async function fetchAchievedMilestones(headers) {
     const res = await fetch(`/api/milestones-reached?artist=${currentArtist}`, { headers });
     if (!res.ok) { achievedSection.classList.add('hidden'); return; }
     const rows = await res.json();
+    lastAchievedMilestonesRawData = rows;
     renderAchievedMilestones(rows);
   } catch (e) {
     achievedSection.classList.add('hidden');
@@ -1622,15 +1676,36 @@ function renderAchievedMilestones(rows) {
     achievedListEl.innerHTML = '';
     return;
   }
+  
+  // Filter by milestoneFilter
+  const filtered = rows.filter(r => {
+    if (milestoneFilter === 'all') return true;
+    return r.type === milestoneFilter;
+  });
+  
+  if (filtered.length === 0) {
+    achievedSection.classList.add('hidden');
+    achievedListEl.innerHTML = '';
+    return;
+  }
+  
   achievedSection.classList.remove('hidden');
-  if (achievedCountEl) achievedCountEl.textContent = rows.length;
-  achievedListEl.innerHTML = rows.map(r => `
-    <div class="achieved-row">
-      <span class="achieved-milestone">${formatMilestoneName(Number(r.milestone))}</span>
-      <span class="achieved-song" title="${r.title}">${r.title}</span>
-      <span class="achieved-date">${formatDate(r.reached_date)}</span>
-    </div>
-  `).join('');
+  if (achievedCountEl) achievedCountEl.textContent = filtered.length;
+  achievedListEl.innerHTML = filtered.map(r => {
+    const isAlbum = r.type === 'album';
+    const badgeHtml = isAlbum 
+      ? `<span class="milestone-type-badge type-album">💿 Album</span>` 
+      : `<span class="milestone-type-badge type-song">🎵 Song</span>`;
+      
+    return `
+      <div class="achieved-row">
+        <span class="achieved-milestone">${formatMilestoneName(Number(r.milestone))}</span>
+        ${badgeHtml}
+        <span class="achieved-song" title="${r.title}">${r.title}</span>
+        <span class="achieved-date">${formatDate(r.reached_date)}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 if (achievedToggleBtn && achievedListEl) {
