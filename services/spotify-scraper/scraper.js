@@ -65,8 +65,8 @@ function isCoverOrTribute(title) {
   if (!title) return false;
   const lower = title.toLowerCase();
   
-  // Exclude actual Justin Timberlake song "Under Cover" or official "DM-FK" remix
-  if (lower.includes('under cover') || lower.includes('dm-fk')) return false;
+  // Exclude actual Justin Timberlake song "Under Cover", Stray Kids' "Cover Me", or official "DM-FK" remix
+  if (lower.includes('under cover') || lower.includes('cover me') || lower.includes('dm-fk')) return false;
 
   // General tribute, karaoke, lullaby, choir, arrangement or cover patterns
   if (lower.includes('tribute') || 
