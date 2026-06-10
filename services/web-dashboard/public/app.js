@@ -45,6 +45,16 @@ const monthlyListenersChangeEl = document.getElementById('monthly-listeners-chan
 const followersEl = document.getElementById('followers');
 const followersChangeEl = document.getElementById('followers-change');
 
+// Artist Profile Hero Elements
+const artistProfileName = document.getElementById('artist-profile-name');
+const artistHeroAvatar = document.getElementById('artist-hero-avatar');
+const artistHeroBanner = document.getElementById('artist-hero-banner');
+const heroListeners = document.getElementById('hero-listeners');
+const heroFollowers = document.getElementById('hero-followers');
+const heroRank = document.getElementById('hero-rank');
+const heroRankContainer = document.getElementById('hero-rank-container');
+const heroRankSep = document.getElementById('hero-rank-sep');
+
 // Achieved milestones section
 const achievedSection = document.getElementById('achieved-milestones-section');
 const achievedToggleBtn = document.getElementById('achieved-toggle-btn');
@@ -229,17 +239,43 @@ async function fetchData() {
         const fol = artistStats.latest?.followers;
         if (followersEl) followersEl.textContent = (fol !== null && fol !== undefined) ? formatNumber(fol) : '-';
         setStatDelta(followersChangeEl, artistStats.latest?.followers_change);
+
+        // Bind to Artist Profile Hero elements
+        if (heroListeners) heroListeners.textContent = (ml !== null && ml !== undefined) ? formatNumber(ml) : '-';
+        if (heroFollowers) heroFollowers.textContent = (fol !== null && fol !== undefined) ? formatNumber(fol) : '-';
+        
+        const rank = artistStats.latest?.world_rank;
+        if (rank && Number(rank) > 0) {
+          if (heroRank) heroRank.textContent = `#${formatNumber(rank)}`;
+          if (heroRankContainer) heroRankContainer.style.display = '';
+          if (heroRankSep) heroRankSep.style.display = '';
+        } else {
+          if (heroRankContainer) heroRankContainer.style.display = 'none';
+          if (heroRankSep) heroRankSep.style.display = 'none';
+        }
       } else {
         monthlyListenersEl.textContent = '-';
         setStatDelta(monthlyListenersChangeEl, null);
         if (followersEl) followersEl.textContent = '-';
         setStatDelta(followersChangeEl, null);
+
+        // Reset Hero
+        if (heroListeners) heroListeners.textContent = '-';
+        if (heroFollowers) heroFollowers.textContent = '-';
+        if (heroRankContainer) heroRankContainer.style.display = 'none';
+        if (heroRankSep) heroRankSep.style.display = 'none';
       }
     } catch (e) {
       monthlyListenersEl.textContent = '-';
       setStatDelta(monthlyListenersChangeEl, null);
       if (followersEl) followersEl.textContent = '-';
       setStatDelta(followersChangeEl, null);
+
+      // Reset Hero
+      if (heroListeners) heroListeners.textContent = '-';
+      if (heroFollowers) heroFollowers.textContent = '-';
+      if (heroRankContainer) heroRankContainer.style.display = 'none';
+      if (heroRankSep) heroRankSep.style.display = 'none';
     }
 
     // Fetch achieved milestones (separate collapsible section)
@@ -1967,77 +2003,87 @@ rangeToggleBtns.forEach(btn => {
   });
 });
 
-// Artist Theme Configurations (accent, accentHover, accentGlow, borderGlow, bgGradient)
+// Artist Theme Configurations (accent, accentHover, accentGlow, borderGlow, bgGradient, img)
 const ARTIST_THEMES = {
   '31TPClRtHm23RisEBtV3X7': { // Justin Timberlake
     accent: '#1ed760',
     accentHover: '#1db954',
     accentGlow: 'rgba(30, 215, 96, 0.4)',
     borderGlow: 'rgba(30, 215, 96, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #111a2e 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #111a2e 0%, #080c14 100%)',
+    img: '/images/jt.jpg'
   },
   '5L1lO4eRHmJ7a0Q6csE5cT': { // LISA - Yellow
     accent: '#ffd700',
     accentHover: '#e5c100',
     accentGlow: 'rgba(255, 215, 0, 0.4)',
     borderGlow: 'rgba(255, 215, 0, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #2e2610 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #2e2610 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5eb5cd3b3af8b72e32be78571ec'
   },
   '1HY2Jd0NmPuamShAr6KMms': { // Lady Gaga - Pink
     accent: '#ff52a2',
     accentHover: '#e03b85',
     accentGlow: 'rgba(255, 82, 162, 0.4)',
     borderGlow: 'rgba(255, 82, 162, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #301422 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #301422 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5ebaadc18cac8d48124357c38e6'
   },
   '6qqNVTkY8uBg9cP3Jd7DAH': { // Billie Eilish - Lime Green
     accent: '#bad80a',
     accentHover: '#a2be09',
     accentGlow: 'rgba(186, 216, 10, 0.4)',
     borderGlow: 'rgba(186, 216, 10, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #1c240e 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #1c240e 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5eb4a21b4760d2ecb7b0dcdc8da'
   },
   '66CXWjxzNUsdJxJ2JdwvnR': { // Ariana Grande - Lavender
     accent: '#b39ddb',
     accentHover: '#9575cd',
     accentGlow: 'rgba(179, 157, 219, 0.4)',
     borderGlow: 'rgba(179, 157, 219, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #1c142b 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #1c142b 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5eb766397ec42a573a53eb5fb87'
   },
   '6Ff53KvcvAj5U7Z1vojB5o': { // *NSYNC - Frosted Blue
     accent: '#3498db',
     accentHover: '#2980b9',
     accentGlow: 'rgba(52, 152, 219, 0.4)',
     borderGlow: 'rgba(52, 152, 219, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #112036 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #112036 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5eb9414ef07d0ca697726912df1'
   },
   '3p3U04w2DaiBzuYMZnYr00': { // JC Chasez - Crimson Red
     accent: '#e74c3c',
     accentHover: '#c0392b',
     accentGlow: 'rgba(231, 76, 60, 0.4)',
     borderGlow: 'rgba(231, 76, 60, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #291212 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #291212 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5eb784d1c3b5bb30c5db83c8fe2'
   },
   '3LHYvj5ZejV1NLqncEObSJ': { // Vaelis - Indigo/Purple
     accent: '#8b5cf6',
     accentHover: '#7c3aed',
     accentGlow: 'rgba(139, 92, 246, 0.4)',
     borderGlow: 'rgba(139, 92, 246, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #1c1236 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #1c1236 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5eb05e2f96f53a2810f5dcdd6c1'
   },
   '2dIgFjalVxs4ThymZ67YCE': { // Stray Kids - Platinum/Cyber
     accent: '#e2e2e7',
     accentHover: '#c7c7cc',
     accentGlow: 'rgba(226, 226, 231, 0.4)',
     borderGlow: 'rgba(226, 226, 231, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #242428 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #242428 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5ebf9887d2c9288f0e50a3fd69f'
   },
   '4UIOuc84ExWojcUzFGtb8W': { // Felix - Warm Gold/Amber
     accent: '#ffb703',
     accentHover: '#fb8500',
     accentGlow: 'rgba(255, 183, 3, 0.4)',
     borderGlow: 'rgba(255, 183, 3, 0.3)',
-    bgGradient: 'radial-gradient(circle at 50% 0%, #2f2208 0%, #080c14 100%)'
+    bgGradient: 'radial-gradient(circle at 50% 0%, #2f2208 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5eb51e1a166ae0cc73d8ec19909'
   }
 };
 
@@ -2048,6 +2094,18 @@ function applyArtistTheme(artistId) {
   document.documentElement.style.setProperty('--accent-green-glow', theme.accentGlow);
   document.documentElement.style.setProperty('--card-border-glow', theme.borderGlow);
   document.documentElement.style.setProperty('--bg-gradient', theme.bgGradient);
+
+  // Update Profile Hero card
+  if (artistProfileName) {
+    artistProfileName.textContent = currentArtistName || 'Artist';
+  }
+  if (artistHeroAvatar && theme.img) {
+    artistHeroAvatar.src = theme.img;
+    artistHeroAvatar.alt = currentArtistName || 'Artist';
+  }
+  if (artistHeroBanner && theme.img) {
+    artistHeroBanner.style.backgroundImage = `url('${theme.img}')`;
+  }
 }
 
 // Fade the dashboard content + show a themed spinner while an artist's data loads.
