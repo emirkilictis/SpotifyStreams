@@ -77,7 +77,8 @@ async function dedupCanonical(client) {
 
   const { rows } = await client.query(`
     SELECT s.id, s.title, s.duration_ms, s.is_featured, s.album_id, s.primary_artist,
-           a.release_date
+           a.release_date,
+           (SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id) as max_streams
     FROM songs s
     LEFT JOIN albums a ON a.id = s.album_id
     WHERE s.duration_ms IS NOT NULL
@@ -139,9 +140,21 @@ function shouldKeepSeparate(title) {
         }
 
         if (Math.abs(item.duration_ms - ref.duration_ms) <= DURATION_TOLERANCE_MS) {
-          cluster.push(item);
-          placed = true;
-          break;
+          // Only merge if they share playcounts (max_streams is exactly equal), or if either has no streams yet
+          const itemStreams = item.max_streams ? parseInt(item.max_streams, 10) : 0;
+          const refStreams = ref.max_streams ? parseInt(ref.max_streams, 10) : 0;
+          if (itemStreams > 0 && refStreams > 0) {
+            if (itemStreams === refStreams) {
+              cluster.push(item);
+              placed = true;
+              break;
+            }
+          } else {
+            // Fallback: if either is new and has no streams yet, merge them
+            cluster.push(item);
+            placed = true;
+            break;
+          }
         }
       }
       if (!placed) clusters.push([item]);
