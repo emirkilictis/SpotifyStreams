@@ -101,6 +101,33 @@ function formatNumber(num) {
   return Number(num).toLocaleString('en-US');
 }
 
+function formatShortNumber(val) {
+  if (val === null || val === undefined) return '0';
+  const num = Number(val);
+  if (num >= 1000000000) {
+    return (num / 1000000000).toFixed(2) + 'B';
+  }
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(2) + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K';
+  }
+  return num.toString();
+}
+
+function getYearEndProjection(cumulative, dailyGain) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const yearEnd = new Date(currentYear, 11, 31); // Dec 31
+  const diffTime = Math.max(0, yearEnd - now);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  const dailyAvg = Number(dailyGain) > 0 ? Number(dailyGain) : 0;
+  const projected = Number(cumulative) + (dailyAvg * diffDays);
+  return projected;
+}
+
 // Day-over-day change for an artist-stat card (monthly listeners / followers).
 // null => no previous snapshot yet (hide it).
 function setStatDelta(el, change) {
@@ -642,6 +669,12 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       modalStreams.style.color = artistTheme.accent;
       modalGain.textContent = (totalGain > 0 ? '+' : '') + formatNumber(totalGain);
       modalTracks.textContent = songs.length;
+      
+      const albumProj = getYearEndProjection(totalStreams, totalGain);
+      const modalAlbumProjection = document.getElementById('modal-album-projection');
+      if (modalAlbumProjection) {
+        modalAlbumProjection.textContent = formatNumber(Math.round(albumProj));
+      }
       
       // Populate Table with trend column
       modalTbody.innerHTML = songs.map((s, idx) => {
@@ -1632,6 +1665,7 @@ function renderMilestones() {
       ? `openAlbumById('${item.id}', '${item.title.replace(/'/g, "\\'")}', '${item.release_date}', '${item.image_url.replace(/'/g, "\\'")}')`
       : `openSongById('${item.id}')`;
     
+    const projectedVal = getYearEndProjection(item.cumulative, item.daily_gain);
     return `
       <div class="milestone-card glass" onclick="${clickHandler}" style="cursor: pointer;">
         <div class="milestone-card-header">
@@ -1649,6 +1683,10 @@ function renderMilestones() {
         </div>
         <div class="milestone-percent-completed">
           ${item.percent.toFixed(1)}% (${formatNumber(item.cumulative)})
+        </div>
+        <div class="milestone-projection" style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px; display: flex; justify-content: space-between;">
+          <span>Dec 31 Projection:</span>
+          <strong style="color: var(--text-primary);">${formatShortNumber(projectedVal)}</strong>
         </div>
       </div>
     `;
@@ -1744,6 +1782,13 @@ window.openSongById = async function(songId) {
   // Milestone Progress
   const cumulative = Number(song.cumulative);
   const dailyGain = Number(song.daily_gain);
+  
+  // Year-End Projection
+  const songProj = getYearEndProjection(cumulative, dailyGain);
+  const modalSongProjection = document.getElementById('modal-song-projection');
+  if (modalSongProjection) {
+    modalSongProjection.textContent = formatNumber(Math.round(songProj));
+  }
   const nextMilestone = getNextMilestone(cumulative);
   const percent = (cumulative / nextMilestone) * 100;
   const dailyAvg = dailyGain > 0 ? dailyGain : 1;
