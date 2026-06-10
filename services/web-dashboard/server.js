@@ -43,6 +43,25 @@ const FSLS_ALBUM_IDS = [
 ];
 const FSLS_ALBUM_IDS_SQL = FSLS_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
+// The 20/20 Experience (Deluxe) family: the deluxe itself + the standalone
+// "Mirrors - Radio Edit" single + the live "Suit & Tie - Radio Edit" single.
+// Both the album list totals and the album-detail tracklist count these
+// singles into the deluxe album.
+const TT20_ALBUM_IDS = [
+  '0O82niJ0NpcptYRxogeEZu', '28GWVLkctSuSWQ1EUIxZ8m', '5jlQrOtSuTXojcvBCpivyo',
+];
+const TT20_ALBUM_IDS_SQL = TT20_ALBUM_IDS.map(id => `'${id}'`).join(', ');
+
+// Alternate versions hidden from album tracklists AND album totals
+// (the songs stay in the catalog / overall artist totals).
+const HIDDEN_ALBUM_TRACK_IDS = [
+  '1FaU6P6WJF8irbZ1MXo9ky',  // Pose - Main Version (FSLS Deluxe)
+  '2rXovB7Zco7nc3nTHXKJoh',  // My Love (feat. T.I.) - Instrumental
+  '5CORNAMvxPl6uCikCsq1Ei',  // What Goes Around...Comes Around - Instrumental
+  '6233Z1W8t9Wn1f1gZqHhQ5',  // Suit & Tie - Radio Edit (frozen 2026-05-26 copy; replaced by live 4mQVHEjrnuUd7G5IVhSYTk)
+];
+const HIDDEN_ALBUM_TRACK_IDS_SQL = HIDDEN_ALBUM_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
 // SQL boolean matching NON-official alternate versions by title: DJ remixes,
 // club/radio mixes, dubs, instrumentals, and "<Song> - <Name> Radio Edit".
 // Official radio edits ("<Song> - Radio Edit", nothing between dash and the
@@ -397,17 +416,19 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
     const query = `
       WITH album_canonical_songs AS (
         SELECT DISTINCT ON (
-          CASE 
-            WHEN a.id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+          CASE
+            WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
+            WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
-            ELSE s.album_id 
+            ELSE s.album_id
           END,
           COALESCE(s.canonical_id, s.id)
         )
-        CASE 
-          WHEN a.id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+        CASE
+          WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
+          WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
-          ELSE s.album_id 
+          ELSE s.album_id
         END AS album_id,
         COALESCE(s.canonical_id, s.id) AS canonical_song_id,
         COALESCE(dsc.cumulative, 0) AS cumulative,
@@ -426,6 +447,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ'))
           OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
         )
+        AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
         AND ${FSLS_REMIX_EXCLUSION_SQL}
       ),
       unique_albums AS (
@@ -614,7 +636,7 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
             -- The 20/20 Experience (Deluxe): also include the standalone "Mirrors - Radio Edit"
             -- and the live "Suit & Tie - Radio Edit" single (deluxe copy was delisted/frozen)
             $1 = '0O82niJ0NpcptYRxogeEZu'
-            AND s.album_id IN ('0O82niJ0NpcptYRxogeEZu', '28GWVLkctSuSWQ1EUIxZ8m', '5jlQrOtSuTXojcvBCpivyo')
+            AND s.album_id IN (${TT20_ALBUM_IDS_SQL})
           )
           OR (
             $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
@@ -624,12 +646,7 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
           )
         )
         -- Hidden alternate versions (display only — songs stay in the catalog / DB)
-        AND COALESCE(s.canonical_id, s.id) NOT IN (
-          '1FaU6P6WJF8irbZ1MXo9ky',  -- Pose - Main Version (FSLS Deluxe)
-          '2rXovB7Zco7nc3nTHXKJoh',  -- My Love (feat. T.I.) - Instrumental
-          '5CORNAMvxPl6uCikCsq1Ei',  -- What Goes Around...Comes Around - Instrumental
-          '6233Z1W8t9Wn1f1gZqHhQ5'   -- Suit & Tie - Radio Edit (frozen 2026-05-26 copy; replaced by live 4mQVHEjrnuUd7G5IVhSYTk)
-        )
+        AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
         -- Drop third-party DJ remixes/mixes/dubs/instrumentals & unofficial
         -- "Radio Edit"s pulled into the FSLS family by the discography scrape.
         AND ${FSLS_REMIX_EXCLUSION_SQL}
@@ -704,26 +721,42 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
     }
 
     const query = `
-      SELECT 
+      WITH album_canonicals AS (
+        -- Same membership rules as the tracklist: resolve the album's songs to
+        -- their canonical ids first, so tracks whose canonical copy lives on a
+        -- different album (e.g. Say Something's single) are still counted.
+        SELECT DISTINCT COALESCE(s.canonical_id, s.id) AS cid
+        FROM songs s
+        WHERE
+          (
+            (
+              $1 = '0tcExuDWMQdBbwSpqN8Ku2'
+              AND s.album_id IN (${FSLS_ALBUM_IDS_SQL})
+            )
+            OR (
+              $1 = '0O82niJ0NpcptYRxogeEZu'
+              AND s.album_id IN (${TT20_ALBUM_IDS_SQL})
+            )
+            OR (
+              $1 = '5EYKrEDnKhhcNxGedaRQeK'
+              AND s.album_id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp')
+            )
+            OR (
+              $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
+              AND $1 <> '0O82niJ0NpcptYRxogeEZu'
+              AND $1 <> '5EYKrEDnKhhcNxGedaRQeK'
+              AND s.album_id = $1
+            )
+          )
+          AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
+          AND ${FSLS_REMIX_EXCLUSION_SQL}
+      )
+      SELECT
         dsc.recorded_date,
         SUM(dsc.cumulative)::bigint AS cumulative,
         SUM(dsc.daily_gain)::bigint AS daily_gain
       FROM daily_streams_canonical dsc
-      JOIN songs s ON s.id = dsc.canonical_id
-      WHERE 
-        (
-          $1 = '0tcExuDWMQdBbwSpqN8Ku2' 
-          AND s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo')
-        )
-        OR (
-          $1 = '5EYKrEDnKhhcNxGedaRQeK' 
-          AND s.album_id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp')
-        )
-        OR (
-          $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
-          AND $1 <> '5EYKrEDnKhhcNxGedaRQeK'
-          AND s.album_id = $1
-        )
+      JOIN album_canonicals ac ON ac.cid = dsc.canonical_id
       GROUP BY dsc.recorded_date
       ORDER BY dsc.recorded_date ASC;
     `;

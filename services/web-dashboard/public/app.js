@@ -915,12 +915,23 @@ async function downloadModalAsImage() {
   }
 
   try {
+    // Web fonts still loading render as blank text in the capture.
+    if (document.fonts && document.fonts.ready) {
+      await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 3000))]);
+    }
+
     const rowCount = modalCard.querySelectorAll('.modal-table tbody tr').length || 10;
     const virtualHeight = Math.max(2000, 600 + rowCount * 60);
 
+    // Render as sharp as the device allows. iOS Safari caps canvases at roughly
+    // 16.7M pixels — pick the largest scale (≤2) whose 800px-wide canvas fits,
+    // instead of a blanket 1.0 that comes out blurry on 3x Retina phones.
+    const estimatedHeight = 600 + rowCount * 60;
+    const mobileScale = Math.max(1, Math.min(2, Math.sqrt(16000000 / (800 * estimatedHeight))));
+
     const canvas = await html2canvas(modalCard, {
       backgroundColor: '#080c14', // Match dashboard background color
-      scale: isMobile ? 1.0 : 2, // Set to 1.0 to avoid iOS canvas size limit crashes
+      scale: isMobile ? mobileScale : 2,
       useCORS: true, // Allow external Spotify cover image domains
       imageTimeout: 15000, // Don't hang forever on a slow cover image
       logging: false,
@@ -1042,6 +1053,10 @@ async function downloadModalAsImage() {
 
         const clonedGains = clonedDoc.querySelectorAll('.modal-table td .gain-cell');
         clonedGains.forEach(el => el.style.setProperty('font-size', '0.9rem', 'important'));
+
+        // UI controls (Detailed Analysis / Daily Card) don't belong in the shared image
+        const clonedToggles = clonedDoc.querySelector('.detailed-analysis-toggle-container');
+        if (clonedToggles) clonedToggles.style.setProperty('display', 'none', 'important');
 
         // Clean up backdrop filter on all elements inside the cloned tree
         const glassElements = clonedDoc.querySelectorAll('.glass');
@@ -1323,7 +1338,9 @@ async function downloadDailyCard() {
     // image looks identical regardless of the (possibly narrow) mobile preview.
     const canvas = await html2canvas(dailyCardEl, {
       backgroundColor: '#080c14',
-      scale: isMobile ? 1.5 : 2,
+      // The daily card is small (600px wide) — full 2x fits well under the
+      // iOS canvas area limit and keeps text sharp on Retina screens.
+      scale: 2,
       useCORS: true,
       imageTimeout: 15000,
       logging: false,
@@ -1899,6 +1916,12 @@ function applyArtistTheme(artistId) {
   document.documentElement.style.setProperty('--bg-gradient', theme.bgGradient);
 }
 
+// Fade the dashboard content + show a themed spinner while an artist's data loads.
+const dashboardMain = document.querySelector('.dashboard-container');
+function setDashboardLoading(on) {
+  if (dashboardMain) dashboardMain.classList.toggle('is-loading', on);
+}
+
 // Artist Selector Handler
 const artistSelector = document.getElementById('artist-selector');
 const dashboardTitle = document.getElementById('dashboard-title');
@@ -1925,8 +1948,12 @@ if (artistSelector) {
       if (statsGrid) statsGrid.classList.remove('hidden');
       setActiveView('songs');
     }
-    await fetchData();
-    await fetchAlbumsData();
+    setDashboardLoading(true);
+    try {
+      await Promise.all([fetchData(), fetchAlbumsData()]);
+    } finally {
+      setDashboardLoading(false);
+    }
   });
 }
 
@@ -1966,9 +1993,13 @@ async function enterDashboard(artistId, artistName) {
     if (statsGrid) statsGrid.classList.remove('hidden');
     setActiveView('songs');
   }
-  await fetchData();
-  await fetchAlbumsData();
-  
+  setDashboardLoading(true);
+  try {
+    await Promise.all([fetchData(), fetchAlbumsData()]);
+  } finally {
+    setDashboardLoading(false);
+  }
+
   // Scroll to top
   window.scrollTo(0, 0);
 }
@@ -2078,9 +2109,9 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   overlay.style.left = '0';
   overlay.style.width = '100%';
   overlay.style.height = '100%';
-  overlay.style.backgroundColor = 'rgba(4, 6, 10, 0.85)';
-  overlay.style.backdropFilter = 'blur(16px)';
-  overlay.style.webkitBackdropFilter = 'blur(16px)';
+  // Fully opaque: iOS Safari doesn't always honor backdrop-filter here, and the
+  // capture-expanded modal behind would bleed through a translucent backdrop.
+  overlay.style.backgroundColor = '#04060a';
   overlay.style.zIndex = '9999';
   overlay.style.display = 'flex';
   overlay.style.flexDirection = 'column';
@@ -2106,8 +2137,17 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   document.body.appendChild(overlay);
 
+  // Lock the page behind the overlay — on iOS the body keeps scrolling under
+  // fixed overlays, exposing the capture-expanded modal.
+  const origBodyOverflow = document.body.style.overflow;
+  const origHtmlOverflow = document.documentElement.style.overflow;
+  document.body.style.overflow = 'hidden';
+  document.documentElement.style.overflow = 'hidden';
+
   document.getElementById('close-mobile-overlay').addEventListener('click', () => {
     overlay.remove();
+    document.body.style.overflow = origBodyOverflow;
+    document.documentElement.style.overflow = origHtmlOverflow;
     if (imageUrl && imageUrl.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
   });
 }

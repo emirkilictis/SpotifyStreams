@@ -2708,3 +2708,33 @@ tbody tr.featured-row:hover {
 }
 
 
+
+/* ===== Artist switch loading transition ===== */
+.dashboard-container > * {
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+
+.dashboard-container.is-loading > * {
+  opacity: 0.3;
+  filter: saturate(0.5) blur(1.5px);
+  pointer-events: none;
+}
+
+.dashboard-container.is-loading::after {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: var(--accent-green);
+  border-radius: 50%;
+  animation: artist-switch-spin 0.8s linear infinite;
+  z-index: 500;
+}
+
+@keyframes artist-switch-spin {
+  to { transform: rotate(360deg); }
+}
