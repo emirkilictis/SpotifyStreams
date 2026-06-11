@@ -84,7 +84,50 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false
+  },
+  max: 5,
+  // Close our idle clients before Neon's ~5min autosuspend severs them,
+  // so we reconnect cleanly instead of getting killed sockets.
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 15000,
+  keepAlive: true
+});
+
+// Neon autosuspend kills idle connections; without this listener the
+// resulting 'error' event would crash the whole Node process.
+pool.on('error', (err) => {
+  console.error('[db] Idle client error (recovering):', err.message);
+});
+
+// Errors Neon throws while suspended/waking — safe to retry.
+const TRANSIENT_PG_CODES = new Set(['XX000', '57P01', '57P02', '57P03', '08000', '08001', '08003', '08006']);
+const TRANSIENT_NET_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND']);
+const isTransientDbError = (err) =>
+  TRANSIENT_PG_CODES.has(err.code) ||
+  TRANSIENT_NET_CODES.has(err.code) ||
+  /connection terminated|control plane|connection refused|timeout exceeded/i.test(err.message || '');
+
+// pool.query with retry/backoff so a request arriving while Neon wakes up
+// (a few seconds, occasionally longer) succeeds instead of returning 500.
+const RETRY_DELAYS_MS = [500, 1500, 4000, 8000];
+async function dbQuery(text, params) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await pool.query(text, params);
+    } catch (err) {
+      if (attempt >= RETRY_DELAYS_MS.length || !isTransientDbError(err)) throw err;
+      console.warn(`[db] Transient error "${err.code || err.message}", retry ${attempt + 1}/${RETRY_DELAYS_MS.length}...`);
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
   }
+}
+
+// Last-resort guards: log instead of letting a stray async error take the site down.
+process.on('unhandledRejection', (err) => {
+  console.error('[fatal-guard] Unhandled rejection:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[fatal-guard] Uncaught exception:', err);
 });
 
 app.use(express.json());
@@ -95,6 +138,13 @@ app.use(cookieParser('spotify-streams-secret-key'));
 // JC Chasez stays locked separately via validateArtistAccess / isJcAllowed
 // (X-JC-Passcode header), which do NOT depend on this middleware.
 const requireAuth = (req, res, next) => next();
+
+// Keep-alive ping target (cron-job.org, every 10 min) — keeps Render's free
+// instance from spinning down. Deliberately does NOT touch the DB so Neon can
+// still autosuspend and save its free compute hours.
+app.get('/healthz', (req, res) => {
+  res.status(200).send('ok');
+});
 
 // Public Routes
 app.get('/login', (req, res) => {
@@ -110,7 +160,7 @@ app.post('/api/login', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Passcode is required!' });
   }
   try {
-    const result = await pool.query('SELECT * FROM access_codes WHERE code = $1', [passcode]);
+    const result = await dbQuery('SELECT * FROM access_codes WHERE code = $1', [passcode]);
     if (result.rows.length > 0) {
       res.cookie('fan_session', passcode, {
         signed: true,
@@ -241,7 +291,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
       AND ${FSLS_REMIX_EXCLUSION_SQL}
       ORDER BY cumulative DESC;
     `;
-    const result = await pool.query(query, [artistUri]);
+    const result = await dbQuery(query, [artistUri]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch songs error:', err);
@@ -306,7 +356,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
       )
       AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL});
     `;
-    const result = await pool.query(query, [artistUri]);
+    const result = await dbQuery(query, [artistUri]);
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Fetch stats error:', err);
@@ -319,7 +369,7 @@ app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res)
   const artistId = artistParam.replace('spotify:artist:', '');
   try {
     // Last two daily snapshots → latest values + day-over-day change.
-    const latestRes = await pool.query(
+    const latestRes = await dbQuery(
       `SELECT artist_name, monthly_listeners, followers, world_rank, recorded_date
        FROM artist_stats
        WHERE artist_id = $1
@@ -327,7 +377,7 @@ app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res)
        LIMIT 2`,
       [artistId]
     );
-    const historyRes = await pool.query(
+    const historyRes = await dbQuery(
       `SELECT recorded_date, monthly_listeners, followers
        FROM artist_stats
        WHERE artist_id = $1 AND monthly_listeners IS NOT NULL
@@ -497,7 +547,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
       SELECT * FROM album_crossings
       ORDER BY reached_date DESC, milestone DESC;
     `;
-    const result = await pool.query(query, [artistUri]);
+    const result = await dbQuery(query, [artistUri]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch milestones reached error:', err);
@@ -660,7 +710,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
       GROUP BY ua.album_id, ua.album_title, ua.release_date, ua.image_url
       ORDER BY release_date DESC NULLS LAST, total_streams DESC;
     `;
-    const result = await pool.query(query, [artistUri]);
+    const result = await dbQuery(query, [artistUri]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch albums error:', err);
@@ -671,7 +721,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
 app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
   try {
     // Check if album belongs to JC Chasez (spotify:artist:3p3U04w2DaiBzuYMZnYr00)
-    const albumCheck = await pool.query(
+    const albumCheck = await dbQuery(
       `SELECT DISTINCT s.primary_artist 
        FROM songs s 
        WHERE s.album_id = $1`,
@@ -760,7 +810,7 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
         CASE WHEN id = '6ToFxXRBtl5TJFEyIoYK3f' THEN 1 ELSE 0 END ASC,
         track_number ASC;
     `;
-    const result = await pool.query(query, [req.params.id]);
+    const result = await dbQuery(query, [req.params.id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch album songs error:', err);
@@ -770,7 +820,7 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
 
 app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
   try {
-    const songCheck = await pool.query(
+    const songCheck = await dbQuery(
       `SELECT primary_artist FROM songs WHERE id = $1`,
       [req.params.id]
     );
@@ -790,7 +840,7 @@ app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
       WHERE canonical_id = $1
       ORDER BY recorded_date ASC;
     `;
-    const result = await pool.query(query, [req.params.id]);
+    const result = await dbQuery(query, [req.params.id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch song history error:', err);
@@ -800,7 +850,7 @@ app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
 
 app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
   try {
-    const albumCheck = await pool.query(
+    const albumCheck = await dbQuery(
       `SELECT DISTINCT s.primary_artist 
        FROM songs s 
        WHERE s.album_id = $1`,
@@ -858,7 +908,7 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
       GROUP BY dsc.recorded_date
       ORDER BY dsc.recorded_date ASC;
     `;
-    const result = await pool.query(query, [req.params.id]);
+    const result = await dbQuery(query, [req.params.id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch album history error:', err);
