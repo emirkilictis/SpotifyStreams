@@ -750,13 +750,8 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       modalStreams.style.color = artistTheme.accent;
       modalGain.textContent = (totalGain > 0 ? '+' : '') + formatNumber(totalGain);
       modalTracks.textContent = songs.length;
-      
-      const albumProj = getYearEndProjection(totalStreams, totalGain);
-      const modalAlbumProjection = document.getElementById('modal-album-projection');
-      if (modalAlbumProjection) {
-        modalAlbumProjection.textContent = formatNumber(Math.round(albumProj));
-      }
-      
+
+
       // Populate Table with trend column
       modalTbody.innerHTML = songs.map((s, idx) => {
         const dailyGain = Number(s.daily_gain);
