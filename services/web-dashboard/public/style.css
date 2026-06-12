@@ -1359,37 +1359,33 @@ tbody tr.featured-row:hover {
   box-shadow: inset 0 0 0 1px rgba(30, 215, 96, 0.2);
 }
 
-/* Albums Grid & Card */
+/* Albums Grid — cover-only square cards */
 .albums-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px;
   width: 100%;
 }
 
-/* Compact vertical album list (stacked rows) */
 .album-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  padding: 0;
   cursor: pointer;
+  border-radius: 10px;
+  overflow: hidden;
   transition: var(--transition-smooth);
 }
 
 .album-row:hover {
-  transform: translateX(2px);
+  transform: translateY(-2px);
   border-color: var(--accent-green-glow);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4), 0 0 12px rgba(30, 215, 96, 0.08);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45), 0 0 14px rgba(30, 215, 96, 0.1);
 }
 
 .album-row-cover {
-  flex: 0 0 auto;
-  width: 56px;
-  height: 56px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  width: 100%;
+  height: 100%;
   background: #181818;
 }
 
@@ -1398,57 +1394,6 @@ tbody tr.featured-row:hover {
   height: 100%;
   object-fit: cover;
   display: block;
-}
-
-.album-row-info {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.album-row-title {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.album-row-sub {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.album-row-stats {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 22px;
-  text-align: right;
-}
-
-.album-row-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.album-row-stat .label {
-  font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-secondary);
-}
-
-.album-row-stat .value {
-  font-family: 'Outfit', sans-serif;
-  font-size: 1rem;
-  font-weight: 600;
 }
 
 /* Modal Backdrop & Sheet */
@@ -2600,34 +2545,9 @@ tbody tr.featured-row:hover {
     gap: 8px;
   }
 
-  .album-row {
-    padding: 9px 11px;
-    gap: 11px;
-  }
-
-  .album-row-cover {
-    width: 48px;
-    height: 48px;
-  }
-
-  .album-row-title {
-    font-size: 0.92rem;
-  }
-
-  .album-row-sub {
-    font-size: 0.72rem;
-  }
-
-  .album-row-stats {
-    gap: 14px;
-  }
-
-  .album-row-stat .label {
-    font-size: 0.6rem;
-  }
-
-  .album-row-stat .value {
-    font-size: 0.88rem;
+  .albums-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
   }
 
   .chart-section {
@@ -3029,6 +2949,52 @@ tbody tr.featured-row:hover {
   .artist-hero-stats {
     justify-content: center;
     font-size: 0.85rem;
+  }
+}
+
+/* Image-only variant: bigger centered avatar, lighter banner, no info column. */
+.artist-hero-card--image-only {
+  padding: 36px 24px;
+  min-height: 280px;
+  justify-content: center;
+}
+.artist-hero-card--image-only::before {
+  background: radial-gradient(
+    circle at center,
+    rgba(8, 12, 20, 0.35) 0%,
+    rgba(8, 12, 20, 0.75) 70%,
+    rgba(8, 12, 20, 0.92) 100%
+  );
+}
+.artist-hero-card--image-only .artist-hero-banner {
+  filter: blur(20px) brightness(0.7);
+  opacity: 0.95;
+}
+.artist-hero-card--image-only .artist-hero-content {
+  justify-content: center;
+  gap: 0;
+}
+.artist-hero-card--image-only .artist-hero-avatar {
+  width: 200px;
+  height: 200px;
+  border-width: 4px;
+  box-shadow:
+    0 14px 44px var(--accent-green-glow),
+    0 0 32px rgba(255, 255, 255, 0.14),
+    0 0 0 8px rgba(0, 0, 0, 0.25);
+}
+.artist-hero-card--image-only:hover .artist-hero-avatar {
+  transform: scale(1.05);
+}
+
+@media (max-width: 768px) {
+  .artist-hero-card--image-only {
+    padding: 28px 16px;
+    min-height: 240px;
+  }
+  .artist-hero-card--image-only .artist-hero-avatar {
+    width: 170px;
+    height: 170px;
   }
 }
 
