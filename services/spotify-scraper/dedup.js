@@ -3,7 +3,15 @@
  *
  * Aynı şarkının farklı release'lerini gruplar:
  *   - Normalize edilmiş title eşleşirse
- *   - Duration ±2000ms toleransla aynıysa
+ *   - Duration ±4000ms toleransla aynıysa
+ *   - VE aynı linked kayıtsa: playcount'lar drift toleransı içinde eşitse
+ *     (Spotify linked kopyalarda aynı sayacı gösterir; aynı saat içinde farklı
+ *     albümlerden scrape edilince binde birkaç oynar — birebir eşitlik İSTEME)
+ *     YA DA kopyalardan biri donmuşsa (2+ gündür snapshot yok = delisted/hidden,
+ *     sayacı geride kalmış linked kopya — FSLS standard vakası).
+ *   - Bağımsız sayaçlı canlı kopyalar (re-recording'ler, örn. SKZ compilation
+ *     versiyonları) MERGE EDİLMEZ — kworb gibi ikisi de ayrı sayılır.
+ *   - Farklı dashboard artist bucket'ları ASLA merge edilmez.
  *
  * Canonical seçimi (öncelik sırası):
  *   1) Own (is_featured=false) > Featured
@@ -12,6 +20,32 @@
  */
 
 const DURATION_TOLERANCE_MS = 4000;
+
+// Linked kopya sayaç drift toleransı: aynı kayıt, scrape zamanı farkından
+// kaynaklı sapma. Saatlik gain en büyük şarkıda bile %0.05'i geçmez; %0.5
+// hem drift'i rahat kapsar hem de gerçek re-recording'leri (%10+) ayırır.
+const LINKED_COUNT_TOLERANCE = 0.005;
+
+// Bu süredir snapshot almayan kopya donmuş sayılır (delisted/hidden).
+// 2 gün: tek bir başarısız scrape günü yüzünden canlı şarkılar donmuş sanılmasın.
+const FROZEN_AFTER_MS = 2 * 24 * 60 * 60 * 1000;
+
+// Dashboard artist bucket'ları (server.js'teki filtrelerle aynı liste).
+// Farklı bucket'lardaki şarkılar asla merge edilmez — jenerik isimli
+// (Intro, Forever...) şarkıların sanatçılar arası yapışmasını önler.
+const NAMED_ARTISTS = new Set([
+  'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT', // LISA
+  'spotify:artist:1HY2Jd0NmPuamShAr6KMms', // Lady Gaga
+  'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH', // Billie Eilish
+  'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR', // Ariana Grande
+  'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o', // *NSYNC
+  'spotify:artist:3p3U04w2DaiBzuYMZnYr00', // JC Chasez
+  'spotify:artist:3LHYvj5ZejV1NLqncEObSJ', // Vaelis
+  'spotify:artist:2dIgFjalVxs4ThymZ67YCE', // Stray Kids
+  'spotify:artist:4UIOuc84ExWojcUzFGtb8W', // Felix
+]);
+// Adlı sanatçı değilse JT/collab havuzu — kendi içinde merge serbest.
+const artistBucket = (pa) => (NAMED_ARTISTS.has(pa) ? pa : 'collab');
 
 // Track IDs that must always remain independent — never merge into another canonical
 const NEVER_MERGE = new Set([
@@ -76,9 +110,14 @@ function scoreCanonical(song) {
 async function dedupCanonical(client) {
   console.log('[dedup] Canonical eşleştirme başlıyor...');
 
+  const maxDateRes = await client.query(`SELECT MAX(recorded_date) AS max_d FROM stream_stats`);
+  const maxDate = maxDateRes.rows[0]?.max_d ? new Date(maxDateRes.rows[0].max_d).getTime() : 0;
+
   const { rows } = await client.query(`
     SELECT s.id, s.title, s.duration_ms, s.is_featured, s.album_id, s.primary_artist,
-           a.release_date
+           a.release_date,
+           COALESCE((SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id), 0)::bigint AS max_streams,
+           (SELECT MAX(recorded_date) FROM stream_stats WHERE song_id = s.id) AS last_date
     FROM songs s
     LEFT JOIN albums a ON a.id = s.album_id
     WHERE s.duration_ms IS NOT NULL
@@ -124,7 +163,10 @@ function shouldKeepSeparate(title) {
       let placed = false;
       for (const cluster of clusters) {
         const ref = cluster[0];
-        
+
+        // Farklı dashboard bucket'larındaki şarkılar asla birleşmez
+        if (artistBucket(item.primary_artist) !== artistBucket(ref.primary_artist)) continue;
+
         // Prevent merging different versions (live, instrumental, etc.) for all artists
         const isRefSpecial = shouldKeepSeparate(ref.title);
         const isItemSpecial = shouldKeepSeparate(item.title);
@@ -139,7 +181,22 @@ function shouldKeepSeparate(title) {
           if (refTitleLower.includes('performance') !== itemTitleLower.includes('performance')) continue;
         }
 
-        if (Math.abs(item.duration_ms - ref.duration_ms) <= DURATION_TOLERANCE_MS) {
+        if (Math.abs(item.duration_ms - ref.duration_ms) > DURATION_TOLERANCE_MS) continue;
+
+        // Linked kopya mı? Sayaçlar drift toleransı içinde eşitse aynı kayıttır.
+        // Henüz hiç snapshot'ı olmayan yeni kopya da merge edilir (eski fallback).
+        const a = Number(item.max_streams) || 0;
+        const b = Number(ref.max_streams) || 0;
+        const sameLinkedCount = a === 0 || b === 0 ||
+          Math.abs(a - b) <= Math.max(a, b) * LINKED_COUNT_TOLERANCE;
+
+        // Donmuş kopya: 2+ gündür snapshot yok (delisted/hidden) — sayacı
+        // geride kalmış linked kopya, yine merge edilir.
+        const isFrozen = (d) =>
+          maxDate > 0 && (!d || new Date(d).getTime() < maxDate - FROZEN_AFTER_MS);
+        const eitherFrozen = isFrozen(item.last_date) || isFrozen(ref.last_date);
+
+        if (sameLinkedCount || eitherFrozen) {
           cluster.push(item);
           placed = true;
           break;
