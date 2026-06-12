@@ -414,7 +414,11 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
   try {
     // A milestone M is "reached on date D" when a song or album's cumulative crossed M between
     // the previous snapshot (prev_cum < M) and D (cumulative >= M). Only crossings we actually
-    // witnessed during tracking are returned (prev_cum NOT NULL).
+    // witnessed during tracking are returned: prev_cum NOT NULL AND the gap between snapshots
+    // is small (≤ MILESTONE_MAX_GAP_DAYS). A song frozen for weeks then refreshed makes a huge
+    // jump that crosses several thresholds — attributing that jump to the refresh date would
+    // wrongly claim "reached 1B today" when it actually happened during the gap. We skip those.
+    const MILESTONE_MAX_GAP_DAYS = 2;
     const query = `
       WITH thresholds(m) AS (
         VALUES (1000), (5000), (10000), (25000), (50000), (100000), (250000), (500000),
@@ -430,7 +434,8 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           dsc.canonical_id,
           dsc.recorded_date,
           dsc.cumulative,
-          LAG(dsc.cumulative) OVER (PARTITION BY dsc.canonical_id ORDER BY dsc.recorded_date) AS prev_cum
+          LAG(dsc.cumulative) OVER (PARTITION BY dsc.canonical_id ORDER BY dsc.recorded_date) AS prev_cum,
+          LAG(dsc.recorded_date) OVER (PARTITION BY dsc.canonical_id ORDER BY dsc.recorded_date) AS prev_date
         FROM daily_streams_canonical dsc
         JOIN songs s ON s.id = dsc.canonical_id
         JOIN albums a ON s.album_id = a.id
@@ -456,7 +461,9 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           MIN(h.recorded_date) AS reached_date,
           'song'::text AS type
         FROM song_hist h
-        JOIN thresholds t ON h.prev_cum IS NOT NULL AND h.prev_cum < t.m AND h.cumulative >= t.m
+        JOIN thresholds t ON h.prev_cum IS NOT NULL
+                         AND (h.recorded_date - h.prev_date) <= ${MILESTONE_MAX_GAP_DAYS}
+                         AND h.prev_cum < t.m AND h.cumulative >= t.m
         JOIN songs c ON c.id = h.canonical_id
         GROUP BY h.canonical_id, c.title, t.m
       ),
@@ -511,16 +518,33 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
         END AS album_title
         FROM albums
       ),
-      album_daily_totals AS (
+      album_daily_raw AS (
         SELECT
           asm.album_id,
           adt.album_title,
           dsc.recorded_date,
-          SUM(COALESCE(dsc.cumulative, 0))::bigint AS cumulative
+          SUM(COALESCE(dsc.cumulative, 0))::bigint AS raw_cumulative
         FROM daily_streams_canonical dsc
         JOIN album_songs_mapped asm ON dsc.canonical_id = asm.canonical_song_id
         JOIN album_display_titles adt ON asm.album_id = adt.album_id
         GROUP BY asm.album_id, adt.album_title, dsc.recorded_date
+      ),
+      -- Running max over the raw daily sum: if a day's scrape is partial (some
+      -- songs failed and the SUM dipped) we hold the previous high instead of
+      -- dropping, so the next full scrape doesn't look like a milestone jump.
+      -- The per-song view already enforces a running max; this protects against
+      -- the album-level SUM losing rows on partial-scrape days.
+      album_daily_totals AS (
+        SELECT
+          album_id,
+          album_title,
+          recorded_date,
+          MAX(raw_cumulative) OVER (
+            PARTITION BY album_id
+            ORDER BY recorded_date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS cumulative
+        FROM album_daily_raw
       ),
       album_hist AS (
         SELECT
@@ -528,8 +552,18 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           album_title,
           recorded_date,
           cumulative,
-          LAG(cumulative) OVER (PARTITION BY album_id ORDER BY recorded_date) AS prev_cum
+          LAG(cumulative) OVER (PARTITION BY album_id ORDER BY recorded_date) AS prev_cum,
+          LAG(recorded_date) OVER (PARTITION BY album_id ORDER BY recorded_date) AS prev_date
         FROM album_daily_totals
+      ),
+      -- The min cumulative we have ever observed for this album. If it is already
+      -- above some milestone M, then the album crossed M before tracking started
+      -- (or before the album's song roster stabilised in our DB) — don't claim
+      -- those crossings happened on the day the album-level sum first jumped past M.
+      album_min_cum AS (
+        SELECT album_id, MIN(cumulative) AS min_seen
+        FROM album_hist
+        GROUP BY album_id
       ),
       album_crossings AS (
         SELECT
@@ -539,7 +573,11 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           MIN(ah.recorded_date) AS reached_date,
           'album'::text AS type
         FROM album_hist ah
-        JOIN thresholds t ON ah.prev_cum IS NOT NULL AND ah.prev_cum < t.m AND ah.cumulative >= t.m
+        JOIN album_min_cum amc ON amc.album_id = ah.album_id
+        JOIN thresholds t ON ah.prev_cum IS NOT NULL
+                         AND (ah.recorded_date - ah.prev_date) <= ${MILESTONE_MAX_GAP_DAYS}
+                         AND ah.prev_cum < t.m AND ah.cumulative >= t.m
+                         AND amc.min_seen < t.m
         GROUP BY ah.album_id, ah.album_title, t.m
       )
       SELECT * FROM song_crossings
