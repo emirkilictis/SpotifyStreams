@@ -76,14 +76,9 @@ function scoreCanonical(song) {
 async function dedupCanonical(client) {
   console.log('[dedup] Canonical eşleştirme başlıyor...');
 
-  const maxDateRes = await client.query(`SELECT MAX(recorded_date) as max_d FROM stream_stats`);
-  const maxDate = maxDateRes.rows[0]?.max_d ? new Date(maxDateRes.rows[0].max_d).getTime() : 0;
-
   const { rows } = await client.query(`
     SELECT s.id, s.title, s.duration_ms, s.is_featured, s.album_id, s.primary_artist,
-           a.release_date,
-           COALESCE((SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id), 0)::bigint AS max_streams,
-           COALESCE((SELECT MAX(recorded_date) FROM stream_stats WHERE song_id = s.id), '1970-01-01'::date) AS last_date
+           a.release_date
     FROM songs s
     LEFT JOIN albums a ON a.id = s.album_id
     WHERE s.duration_ms IS NOT NULL
@@ -144,12 +139,7 @@ function shouldKeepSeparate(title) {
           if (refTitleLower.includes('performance') !== itemTitleLower.includes('performance')) continue;
         }
 
-        const itemTime = item.last_date ? new Date(item.last_date).getTime() : 0;
-        const refTime = ref.last_date ? new Date(ref.last_date).getTime() : 0;
-        const eitherFrozen = (maxDate > 0) && (itemTime < maxDate || refTime < maxDate);
-
-        if (Math.abs(item.duration_ms - ref.duration_ms) <= DURATION_TOLERANCE_MS &&
-            (String(item.max_streams) === String(ref.max_streams) || eitherFrozen)) {
+        if (Math.abs(item.duration_ms - ref.duration_ms) <= DURATION_TOLERANCE_MS) {
           cluster.push(item);
           placed = true;
           break;
