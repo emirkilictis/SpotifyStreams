@@ -25,6 +25,7 @@ const FORCE_CANONICAL = {
   '5oUnVKzkdNTaLtn4EnJjEP': '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit copy → main Radio Edit
   '6Ffur3eTvi1KhHwu7b9TQd': '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit copy → main Radio Edit
   '2iWljCivLjWnLkwItPZdRV': '13X42np3KJr0o2LkK1MG76', // My Love (Single Version) → My Love (Main Version)
+  '24CBAWq81pQNTftNAxVLYk': '0Gasl1wiqhENYa8RskLpPw', // (Another Song) All Over Again FSLS standard → deluxe
 };
 
 /**
@@ -48,7 +49,7 @@ function normalizeTitle(title) {
   t = t.replace(/\s*[\(\[][^\)\]]*(?:remaster|remix|mix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|interlude|new\s+version|original|from)[^\)\]]*[\)\]]/gi, '');
   t = t.replace(/\s*-\s*(?:remaster|remix|version|edition|edit|anniversary|deluxe|bonus|instrumental|clean|explicit|live|acoustic|radio|extended|new\s+version|original|album\s+version).*$/gi, '');
   t = t.replace(/\b(?:interlude|explicit|clean|deluxe|remastered|remaster|album version)\b/gi, '');
-  t = t.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  t = t.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   return t;
 }
 
@@ -75,10 +76,14 @@ function scoreCanonical(song) {
 async function dedupCanonical(client) {
   console.log('[dedup] Canonical eşleştirme başlıyor...');
 
+  const maxDateRes = await client.query(`SELECT MAX(recorded_date) as max_d FROM stream_stats`);
+  const maxDate = maxDateRes.rows[0]?.max_d ? new Date(maxDateRes.rows[0].max_d).getTime() : 0;
+
   const { rows } = await client.query(`
     SELECT s.id, s.title, s.duration_ms, s.is_featured, s.album_id, s.primary_artist,
            a.release_date,
-           (SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id) as max_streams
+           COALESCE((SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id), 0)::bigint AS max_streams,
+           COALESCE((SELECT MAX(recorded_date) FROM stream_stats WHERE song_id = s.id), '1970-01-01'::date) AS last_date
     FROM songs s
     LEFT JOIN albums a ON a.id = s.album_id
     WHERE s.duration_ms IS NOT NULL
@@ -139,22 +144,15 @@ function shouldKeepSeparate(title) {
           if (refTitleLower.includes('performance') !== itemTitleLower.includes('performance')) continue;
         }
 
-        if (Math.abs(item.duration_ms - ref.duration_ms) <= DURATION_TOLERANCE_MS) {
-          // Only merge if they share playcounts (max_streams is exactly equal), or if either has no streams yet
-          const itemStreams = item.max_streams ? parseInt(item.max_streams, 10) : 0;
-          const refStreams = ref.max_streams ? parseInt(ref.max_streams, 10) : 0;
-          if (itemStreams > 0 && refStreams > 0) {
-            if (itemStreams === refStreams) {
-              cluster.push(item);
-              placed = true;
-              break;
-            }
-          } else {
-            // Fallback: if either is new and has no streams yet, merge them
-            cluster.push(item);
-            placed = true;
-            break;
-          }
+        const itemTime = item.last_date ? new Date(item.last_date).getTime() : 0;
+        const refTime = ref.last_date ? new Date(ref.last_date).getTime() : 0;
+        const eitherFrozen = (maxDate > 0) && (itemTime < maxDate || refTime < maxDate);
+
+        if (Math.abs(item.duration_ms - ref.duration_ms) <= DURATION_TOLERANCE_MS &&
+            (String(item.max_streams) === String(ref.max_streams) || eitherFrozen)) {
+          cluster.push(item);
+          placed = true;
+          break;
         }
       }
       if (!placed) clusters.push([item]);
