@@ -26,9 +26,22 @@ const DURATION_TOLERANCE_MS = 4000;
 // hem drift'i rahat kapsar hem de gerçek re-recording'leri (%10+) ayırır.
 const LINKED_COUNT_TOLERANCE = 0.005;
 
-// Bu süredir snapshot almayan kopya donmuş sayılır (delisted/hidden).
-// 2 gün: tek bir başarısız scrape günü yüzünden canlı şarkılar donmuş sanılmasın.
-const FROZEN_AFTER_MS = 2 * 24 * 60 * 60 * 1000;
+// Default frozen eşiği: bir kopyanın last snapshot'ı global max'ten 1+ tam gün
+// gerideyse donmuş sayılır (delisted/hidden/standart edition gibi linked-ama-
+// scrape-edilmeyen kopyalar). 1 gün, Spotify'ın bir günlük gecikmesini tolere
+// eder ve hâlâ FIFA WC Goals tipi 2 günlük gap'leri yakalar.
+const DEFAULT_FROZEN_AFTER_MS = 24 * 60 * 60 * 1000;
+
+// Per-artist override'lar: bağımsız sayaçlı canlı kopyaları olan sanatçılar
+// için frozen eşiğini yukarı çek — re-recording'ler tek günlük başarısız bir
+// scrape yüzünden yanlışlıkla orijinaliyle birleştirilmesin.
+const ARTIST_FROZEN_AFTER_MS = {
+  // Stray Kids: SKZ2020 ve diğer compilation'larda bağımsız sayaçlı çoklu
+  // re-recording var — bunlar her gün canlı scrape ediliyor. 7 gün eşiği bir
+  // hafta üst üste scrape kaçırılsa bile re-recording'leri korur.
+  'spotify:artist:2dIgFjalVxs4ThymZ67YCE': 7 * 24 * 60 * 60 * 1000,
+};
+const frozenThresholdFor = (pa) => ARTIST_FROZEN_AFTER_MS[pa] ?? DEFAULT_FROZEN_AFTER_MS;
 
 // Dashboard artist bucket'ları (server.js'teki filtrelerle aynı liste).
 // Farklı bucket'lardaki şarkılar asla merge edilmez — jenerik isimli
@@ -191,11 +204,19 @@ function shouldKeepSeparate(title) {
         const sameLinkedCount = a === 0 || b === 0 ||
           Math.abs(a - b) <= Math.max(a, b) * LINKED_COUNT_TOLERANCE;
 
-        // Donmuş kopya: 2+ gündür snapshot yok (delisted/hidden) — sayacı
-        // geride kalmış linked kopya, yine merge edilir.
-        const isFrozen = (d) =>
-          maxDate > 0 && (!d || new Date(d).getTime() < maxDate - FROZEN_AFTER_MS);
-        const eitherFrozen = isFrozen(item.last_date) || isFrozen(ref.last_date);
+        // Donmuş kopya: artist-bazlı eşik kadar süredir snapshot yok
+        // (delisted/hidden) — sayacı geride kalmış linked kopya, yine merge.
+        // SKZ gibi bağımsız sayaçlı re-recording'i olan sanatçılarda eşik
+        // yüksek, böylece tek günlük başarısız scrape'te re-recording'ler
+        // yanlışlıkla orijinal ile birleştirilmez.
+        const isFrozen = (d, pa) => {
+          if (maxDate === 0) return false;
+          if (!d) return true;
+          const ms = frozenThresholdFor(pa);
+          return new Date(d).getTime() < maxDate - ms;
+        };
+        const eitherFrozen = isFrozen(item.last_date, item.primary_artist) ||
+                             isFrozen(ref.last_date, ref.primary_artist);
 
         if (sameLinkedCount || eitherFrozen) {
           cluster.push(item);

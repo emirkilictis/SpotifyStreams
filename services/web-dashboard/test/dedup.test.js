@@ -7,9 +7,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { dedupCanonical } = require('../../spotify-scraper/dedup');
 
-// Tüm canlı şarkıların son snapshot tarihi; donmuşlar bundan 2+ gün geride.
+// Tüm canlı şarkıların son snapshot tarihi.
 const TODAY = new Date('2026-06-13');
-const FROZEN_DATE = new Date('2026-05-26');
+const FROZEN_DATE = new Date('2026-05-26');        // ~18 gün geride — herkes için frozen
+const STALE_2D    = new Date('2026-06-11');        // 2 gün geride — default için frozen, SKZ override için değil
+const STALE_5D    = new Date('2026-06-08');        // 5 gün geride — default + SKZ default için frozen, SKZ override için DEĞİL
+const SKZ_ARTIST  = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE';
 
 function makeFakeClient(rows) {
   const assignments = {}; // aliasId -> canonicalId
@@ -74,6 +77,17 @@ const ROWS = [
 
   // FORCE_CANONICAL: this id is always pinned to a specific canonical.
   { id: '2iWljCivLjWnLkwItPZdRV', title: 'Unique Force Track', duration_ms: 180000, is_featured: false, album_id: 'al10', primary_artist: 'art1', release_date: D('2007-01-01'), ...live(800) },
+
+  // "goals": default artist, drift büyük (%7.7) AMA kopya 2 gün geride.
+  // Default frozen eşiği 1 gün -> frozen -> merge (LISA FIFA WC vakası).
+  { id: 'g1', title: 'Goals', duration_ms: 180000, is_featured: false, album_id: 'al14', primary_artist: 'art1', release_date: D('2026-01-01'), max_streams: 14_930_000, last_date: TODAY },
+  { id: 'g2', title: 'Goals', duration_ms: 180000, is_featured: false, album_id: 'al15', primary_artist: 'art1', release_date: D('2026-01-02'), max_streams: 13_780_000, last_date: STALE_2D },
+
+  // "domino": SKZ artist, drift büyük, kopya 5 gün geride.
+  // SKZ frozen eşiği 7 gün -> frozen DEĞİL -> drift büyük olduğu için merge edilmez.
+  // Eğer override yoksa default 1 gün eşiği frozen sayardı ve yanlışlıkla birleştirirdi.
+  { id: 'dom1', title: 'Domino', duration_ms: 200000, is_featured: false, album_id: 'al16', primary_artist: SKZ_ARTIST, release_date: D('2018-01-01'), max_streams: 80_000_000, last_date: TODAY },
+  { id: 'dom2', title: 'Domino', duration_ms: 200000, is_featured: false, album_id: 'al17', primary_artist: SKZ_ARTIST, release_date: D('2020-01-01'), max_streams: 40_000_000, last_date: STALE_5D },
 ];
 
 test('dedupCanonical groups duplicates and picks the right canonical', async () => {
@@ -90,9 +104,10 @@ test('dedupCanonical groups duplicates and picks the right canonical', async () 
   // cry me a river: frozen copy merges into the live canonical
   assert.equal(a['nnn'], 'mmm', 'frozen copy should merge into canonical');
 
-  // 3 canonical groups, 3 aliases linked (force overrides are separate)
-  assert.equal(canonicalCount, 3);
-  assert.equal(aliasCount, 3);
+  // 4 canonical groups (my love, forever, cry me a river, goals), 4 aliases linked
+  // (force overrides are separate). 'goals' is the LISA stale-standard case.
+  assert.equal(canonicalCount, 4);
+  assert.equal(aliasCount, 4);
 });
 
 test('dedupCanonical keeps different-duration same-title tracks separate', async () => {
@@ -133,6 +148,21 @@ test('dedupCanonical respects NEVER_MERGE', async () => {
   const a = client.assignments;
   assert.equal(a['6ToFxXRBtl5TJFEyIoYK3f'], undefined, 'never-merge id stays independent');
   assert.equal(a['jjj'], undefined, 'its sibling has nothing to merge into');
+});
+
+test('dedupCanonical merges a 2-day-stale copy under default frozen threshold (Lisa Goals)', async () => {
+  const client = makeFakeClient(ROWS);
+  await dedupCanonical(client);
+  // g2 frozen (2 days back), default 1-day threshold -> merge
+  assert.equal(client.assignments['g2'], 'g1', 'stale standard copy should merge under default frozen rule');
+});
+
+test('dedupCanonical respects per-artist frozen threshold (Stray Kids re-recording protected)', async () => {
+  const client = makeFakeClient(ROWS);
+  await dedupCanonical(client);
+  // dom2 only 5 days stale; SKZ override is 7 days -> NOT frozen; drift large -> stays separate
+  assert.equal(client.assignments['dom2'], undefined, 'SKZ re-recording must stay independent under override');
+  assert.equal(client.assignments['dom1'], undefined, 'SKZ original must stay independent under override');
 });
 
 test('dedupCanonical applies FORCE_CANONICAL overrides', async () => {
