@@ -2420,4 +2420,72 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   });
 }
 
+// ---- Feedback / request form ----
+(function initFeedbackForm() {
+  const fab = document.getElementById('feedback-fab');
+  const modal = document.getElementById('feedback-modal');
+  const closeBtn = document.getElementById('feedback-close-btn');
+  const form = document.getElementById('feedback-form');
+  const messageEl = document.getElementById('feedback-message');
+  const contactEl = document.getElementById('feedback-contact');
+  const submitBtn = document.getElementById('feedback-submit');
+  const statusEl = document.getElementById('feedback-status');
+  if (!fab || !modal || !form) return;
+
+  const open = () => {
+    modal.classList.remove('hidden');
+    statusEl.textContent = '';
+    statusEl.className = 'feedback-status';
+    setTimeout(() => messageEl.focus(), 50);
+  };
+  const close = () => modal.classList.add('hidden');
+
+  fab.addEventListener('click', open);
+  closeBtn.addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const message = messageEl.value.trim();
+    if (message.length < 3) {
+      statusEl.textContent = 'Lütfen birkaç kelime yaz.';
+      statusEl.className = 'feedback-status err';
+      return;
+    }
+    submitBtn.disabled = true;
+    statusEl.textContent = 'Gönderiliyor...';
+    statusEl.className = 'feedback-status';
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          contact: contactEl.value.trim(),
+          artist: currentArtist || '',
+          page: location.pathname + location.search,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        statusEl.textContent = 'Teşekkürler! Ulaştı. 💚';
+        statusEl.className = 'feedback-status ok';
+        form.reset();
+        setTimeout(close, 1400);
+      } else {
+        statusEl.textContent = data.error || 'Gönderilemedi, sonra tekrar dene.';
+        statusEl.className = 'feedback-status err';
+      }
+    } catch {
+      statusEl.textContent = 'Bağlantı hatası, sonra tekrar dene.';
+      statusEl.className = 'feedback-status err';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+})();
+
 

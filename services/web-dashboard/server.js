@@ -29,6 +29,19 @@ const ARTIST_OG = {
 const JC_PASSCODES = ['peakedinhighschool', 'flop'];
 const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
 
+// Admin passcode for reading visitor feedback/requests. Set ADMIN_PASSCODE in the
+// environment (Render dashboard); falls back to a dev default so local runs work.
+const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || 'jtadmin';
+const isAdmin = (passcode) => typeof passcode === 'string' && passcode.length > 0 && passcode === ADMIN_PASSCODE;
+
+// Salt for hashing submitter IPs (abuse tracking without storing raw IPs).
+const IP_HASH_SECRET = process.env.IP_HASH_SECRET || 'spotify-streams-ip-salt';
+const crypto = require('crypto');
+const hashIp = (ip) => crypto.createHash('sha256').update(String(ip) + IP_HASH_SECRET).digest('hex').slice(0, 32);
+
+// In-memory throttle: one submission per IP-hash per 30s (best-effort, resets on redeploy).
+const lastSubmitAt = new Map();
+
 // Tracks hidden from EVERY listing (songs list, album tracklist, milestones).
 // Dead duplicates whose live copy is tracked under a different id.
 const HIDDEN_TRACK_IDS = ['6233Z1W8t9Wn1f1gZqHhQ5']; // Suit & Tie - Radio Edit (frozen 2026-05-26; live = 4mQVHEjrnuUd7G5IVhSYTk)
@@ -951,6 +964,88 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Fetch album history error:', err);
     res.status(500).json({ error: 'Failed to load album history.' });
+  }
+});
+
+// ---- Visitor feedback / artist-request form ----------------------------------
+
+// Public: submit a request or feedback. Stored for the admin to read later.
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const message = String(req.body.message || '').trim();
+    const contact = String(req.body.contact || '').trim().slice(0, 200) || null;
+    const artistId = String(req.body.artist || '').replace('spotify:artist:', '').slice(0, 40) || null;
+    const pagePath = String(req.body.page || '').slice(0, 300) || null;
+
+    if (message.length < 3) {
+      return res.status(400).json({ error: 'Lütfen birkaç kelime yaz.' });
+    }
+    if (message.length > 2000) {
+      return res.status(400).json({ error: 'Mesaj çok uzun (maks 2000 karakter).' });
+    }
+
+    const ip = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const ipHash = hashIp(ip);
+    const now = Date.now();
+    const prev = lastSubmitAt.get(ipHash) || 0;
+    if (now - prev < 30000) {
+      return res.status(429).json({ error: 'Çok hızlı — birkaç saniye sonra tekrar dene.' });
+    }
+    lastSubmitAt.set(ipHash, now);
+
+    await dbQuery(
+      `INSERT INTO feedback_requests (message, contact, artist_id, page_path, ip_hash, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [message, contact, artistId, pagePath, ipHash, String(req.headers['user-agent'] || '').slice(0, 400)]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Feedback submit error:', err);
+    res.status(500).json({ error: 'Gönderilemedi, sonra tekrar dene.' });
+  }
+});
+
+// Admin: list submissions. Auth via X-Admin-Passcode header or ?key= query.
+const requireAdmin = (req, res, next) => {
+  const key = req.headers['x-admin-passcode'] || req.query.key;
+  if (!isAdmin(key)) return res.status(403).json({ error: 'Forbidden' });
+  next();
+};
+
+app.get('/api/feedback', requireAdmin, async (req, res) => {
+  try {
+    const status = req.query.status;
+    const params = [];
+    let where = '';
+    if (status && ['new', 'read', 'done', 'spam'].includes(status)) {
+      params.push(status);
+      where = `WHERE status = $1`;
+    }
+    const result = await dbQuery(
+      `SELECT id, message, contact, artist_id, page_path, status, created_at
+       FROM feedback_requests ${where}
+       ORDER BY created_at DESC LIMIT 500`,
+      params
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Feedback list error:', err);
+    res.status(500).json({ error: 'Failed to load feedback.' });
+  }
+});
+
+// Admin: update a submission's status (read / done / spam).
+app.patch('/api/feedback/:id', requireAdmin, async (req, res) => {
+  try {
+    const status = String(req.body.status || '');
+    if (!['new', 'read', 'done', 'spam'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    await dbQuery(`UPDATE feedback_requests SET status = $1 WHERE id = $2`, [status, req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Feedback update error:', err);
+    res.status(500).json({ error: 'Failed to update.' });
   }
 });
 
