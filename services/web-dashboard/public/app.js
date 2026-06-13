@@ -2058,6 +2058,10 @@ rangeToggleBtns.forEach(btn => {
   });
 });
 
+// Bump when a local hero image (e.g. /images/jt.jpg) is replaced so the browser
+// fetches the new file instead of serving the cached one.
+const HERO_IMAGE_VERSION = '20260613';
+
 // Artist Theme Configurations (accent, accentHover, accentGlow, borderGlow, bgGradient, img)
 const ARTIST_THEMES = {
   '31TPClRtHm23RisEBtV3X7': { // Justin Timberlake
@@ -2154,12 +2158,17 @@ function applyArtistTheme(artistId) {
   if (artistProfileName) {
     artistProfileName.textContent = currentArtistName || 'Artist';
   }
-  if (artistHeroAvatar && theme.img) {
-    artistHeroAvatar.src = theme.img;
-    artistHeroAvatar.alt = currentArtistName || 'Artist';
-  }
-  if (artistHeroBanner && theme.img) {
-    artistHeroBanner.style.backgroundImage = `url('${theme.img}')`;
+  if (theme.img) {
+    // Local images can be hot-swapped; bust the browser cache so a new file shows immediately.
+    const isLocal = theme.img.startsWith('/');
+    const src = isLocal ? `${theme.img}?v=${HERO_IMAGE_VERSION}` : theme.img;
+    if (artistHeroAvatar) {
+      artistHeroAvatar.src = src;
+      artistHeroAvatar.alt = currentArtistName || 'Artist';
+    }
+    if (artistHeroBanner) {
+      artistHeroBanner.style.backgroundImage = `url('${src}')`;
+    }
   }
 }
 
