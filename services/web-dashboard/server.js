@@ -978,10 +978,10 @@ app.post('/api/feedback', async (req, res) => {
     const pagePath = String(req.body.page || '').slice(0, 300) || null;
 
     if (message.length < 3) {
-      return res.status(400).json({ error: 'Lütfen birkaç kelime yaz.' });
+      return res.status(400).json({ error: 'Please write a few words.' });
     }
     if (message.length > 2000) {
-      return res.status(400).json({ error: 'Mesaj çok uzun (maks 2000 karakter).' });
+      return res.status(400).json({ error: 'Message too long (max 2000 characters).' });
     }
 
     const ip = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
@@ -989,7 +989,7 @@ app.post('/api/feedback', async (req, res) => {
     const now = Date.now();
     const prev = lastSubmitAt.get(ipHash) || 0;
     if (now - prev < 30000) {
-      return res.status(429).json({ error: 'Çok hızlı — birkaç saniye sonra tekrar dene.' });
+      return res.status(429).json({ error: 'Too fast — please try again in a few seconds.' });
     }
     lastSubmitAt.set(ipHash, now);
 
@@ -1001,7 +1001,7 @@ app.post('/api/feedback', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Feedback submit error:', err);
-    res.status(500).json({ error: 'Gönderilemedi, sonra tekrar dene.' });
+    res.status(500).json({ error: 'Could not send, please try again later.' });
   }
 });
 

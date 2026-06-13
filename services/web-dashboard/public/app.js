@@ -2451,12 +2451,12 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     e.preventDefault();
     const message = messageEl.value.trim();
     if (message.length < 3) {
-      statusEl.textContent = 'Lütfen birkaç kelime yaz.';
+      statusEl.textContent = 'Please write a few words.';
       statusEl.className = 'feedback-status err';
       return;
     }
     submitBtn.disabled = true;
-    statusEl.textContent = 'Gönderiliyor...';
+    statusEl.textContent = 'Sending...';
     statusEl.className = 'feedback-status';
     try {
       const res = await fetch('/api/feedback', {
@@ -2471,16 +2471,16 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        statusEl.textContent = 'Teşekkürler! Ulaştı. 💚';
+        statusEl.textContent = 'Thanks! Got it. 💚';
         statusEl.className = 'feedback-status ok';
         form.reset();
         setTimeout(close, 1400);
       } else {
-        statusEl.textContent = data.error || 'Gönderilemedi, sonra tekrar dene.';
+        statusEl.textContent = data.error || 'Could not send, please try again later.';
         statusEl.className = 'feedback-status err';
       }
     } catch {
-      statusEl.textContent = 'Bağlantı hatası, sonra tekrar dene.';
+      statusEl.textContent = 'Connection error, please try again later.';
       statusEl.className = 'feedback-status err';
     } finally {
       submitBtn.disabled = false;
