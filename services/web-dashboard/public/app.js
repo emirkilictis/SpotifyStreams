@@ -1020,6 +1020,33 @@ albumModal.addEventListener('click', (e) => {
   if (e.target === albumModal) closeModal();
 });
 
+// ---- Centralised modal UX: Escape to close + body scroll-lock ----
+// Lock background scrolling whenever any modal backdrop is visible, and close
+// the topmost open modal on Escape. Watches the three modals' class changes so
+// every open/close path is covered without touching each opener.
+(function initModalUX() {
+  const modals = ['album-modal', 'song-modal', 'feedback-modal']
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+  if (!modals.length) return;
+
+  const isOpen = (m) => m && !m.classList.contains('hidden');
+  const syncScrollLock = () => {
+    document.body.classList.toggle('modal-open', modals.some(isOpen));
+  };
+
+  const obs = new MutationObserver(syncScrollLock);
+  modals.forEach((m) => obs.observe(m, { attributes: true, attributeFilter: ['class'] }));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    // Close only the first open modal; each modal owns its own cleanup.
+    if (isOpen(albumModal)) return closeModal();
+    if (isOpen(songModal)) return closeSongModal();
+    // feedback modal handles its own Escape in initFeedbackForm()
+  });
+})();
+
 // Download Modal as Image (Twitter Share Card)
 async function downloadModalAsImage() {
   const modalCard = document.querySelector('.modal-card');

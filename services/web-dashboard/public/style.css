@@ -1549,6 +1549,11 @@ tbody tr.featured-row:hover {
   font-weight: 600;
 }
 
+/* Prevent background scroll while any modal is open. */
+body.modal-open {
+  overflow: hidden;
+}
+
 /* Modal Backdrop & Sheet */
 .modal-backdrop {
   position: fixed;
