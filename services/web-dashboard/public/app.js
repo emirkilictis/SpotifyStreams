@@ -2122,7 +2122,7 @@ rangeToggleBtns.forEach(btn => {
 
 // Bump when a local hero image (e.g. /images/jt.jpg) is replaced so the browser
 // fetches the new file instead of serving the cached one.
-const HERO_IMAGE_VERSION = '20260614';
+const HERO_IMAGE_VERSION = '20260614b';
 
 // Artist Theme Configurations (accent, accentHover, accentGlow, borderGlow, bgGradient, img)
 const ARTIST_THEMES = {
