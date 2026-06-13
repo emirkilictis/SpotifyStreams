@@ -207,11 +207,46 @@ function filterHistoryByRange(history, range) {
   });
 }
 
+// ---- Skeleton / empty-state helpers ----
+function skeletonRows(count, cols) {
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    let cells = `<td><div class="skeleton-cell-flex"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-line" style="width:${50 + (i * 7) % 40}%"></div></div></td>`;
+    for (let c = 1; c < cols; c++) {
+      cells += `<td><div class="skeleton skeleton-line" style="width:${45 + (i * 11 + c * 13) % 45}%;margin-left:auto"></div></td>`;
+    }
+    html += `<tr class="skeleton-row">${cells}</tr>`;
+  }
+  return html;
+}
+function skeletonAlbumRows(count) {
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    html += `<div class="album-row glass skeleton-album">
+      <div class="skeleton skeleton-thumb"></div>
+      <div class="skel-lines">
+        <div class="skeleton skeleton-line" style="width:${55 + (i * 9) % 35}%"></div>
+        <div class="skeleton skeleton-line" style="width:${30 + (i * 7) % 25}%;height:9px"></div>
+      </div>
+    </div>`;
+  }
+  return html;
+}
+function emptyState(title, sub, accentColor) {
+  const icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`;
+  const titleStyle = accentColor ? ` style="color:${accentColor}"` : '';
+  return `<div class="empty-state">${icon}<div class="empty-title"${titleStyle}>${title}</div>${sub ? `<div class="empty-sub">${sub}</div>` : ''}</div>`;
+}
+
 // Fetch Songs and Stats
 async function fetchData() {
   try {
     const headers = {};
     if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+
+    // Show skeleton rows in the songs table while loading.
+    const songsTbodyEl = document.getElementById('songs-tbody');
+    if (songsTbodyEl) songsTbodyEl.innerHTML = skeletonRows(8, 5);
 
     // Fetch stats
     const statsRes = await fetch(`/api/stats?artist=${currentArtist}`, { headers });
@@ -307,7 +342,7 @@ async function fetchData() {
 // Fetch Albums
 async function fetchAlbumsData() {
   try {
-    albumsContainer.innerHTML = '<div class="table-loading">Loading albums...</div>';
+    albumsContainer.innerHTML = skeletonAlbumRows(6);
     
     const headers = {};
     if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
@@ -446,7 +481,7 @@ function renderSongs() {
 
   // 3) Generate HTML
   if (filteredSongs.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="table-empty">No songs found matching search criteria.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5">${emptyState('No songs found', 'No tracks match your search. Try a different title.')}</td></tr>`;
     if (songsShowAllBtn) songsShowAllBtn.hidden = true;
     return;
   }
@@ -536,7 +571,7 @@ const DEFAULT_THEME = { accent: '#1db954', gradStart: '#162016', gradEnd: '#0d0d
 // Render Albums Grid
 function renderAlbums() {
   if (!allAlbums || allAlbums.length === 0) {
-    albumsContainer.innerHTML = '<div class="table-empty">No albums found in database.</div>';
+    albumsContainer.innerHTML = emptyState('No albums yet', 'Albums will appear here once they\'re tracked.');
     return;
   }
 
@@ -547,7 +582,7 @@ function renderAlbums() {
   });
 
   if (filteredAlbums.length === 0) {
-    albumsContainer.innerHTML = '<div class="table-empty">No matching albums found.</div>';
+    albumsContainer.innerHTML = emptyState('No matching albums', `Nothing matches “${albumSearchFilter}”. Try a different search.`);
     return;
   }
 
@@ -641,7 +676,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   // Show modal layout
   albumModal.classList.remove('hidden');
   modalCard.scrollTop = 0; // Reset scroll position to top
-  modalTbody.innerHTML = `<tr><td colspan="6" class="table-loading">Loading album tracks...</td></tr>`;
+  modalTbody.innerHTML = skeletonRows(5, 6);
   
   if (title) {
     modalTitle.textContent = title;
@@ -791,7 +826,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
         `;
       }).join('');
     } else {
-      modalTbody.innerHTML = `<tr><td colspan="6" class="table-empty">No tracked songs found in this album.</td></tr>`;
+      modalTbody.innerHTML = `<tr><td colspan="6">${emptyState('No tracked songs', 'This album has no tracked songs yet.')}</td></tr>`;
     }
   } catch (err) {
     console.error('Error loading album details:', err);
@@ -1670,7 +1705,7 @@ function renderMilestones() {
   // Visibility is controlled by the view switcher (Milestones tab); here we
   // only populate the grid, falling back to an empty state when there's nothing.
   if ((!allSongs || allSongs.length === 0) && (!allAlbums || allAlbums.length === 0)) {
-    milestonesGrid.innerHTML = '<p class="milestones-empty">No milestone data yet.</p>';
+    milestonesGrid.innerHTML = emptyState('No milestone data yet', 'Upcoming milestones appear once streaming data is tracked.');
     return;
   }
 
@@ -1735,7 +1770,7 @@ function renderMilestones() {
   const topMilestones = mergedMilestones.slice(0, 18);
 
   if (topMilestones.length === 0) {
-    milestonesGrid.innerHTML = '<p class="milestones-empty">No upcoming milestones match the filter.</p>';
+    milestonesGrid.innerHTML = emptyState('No upcoming milestones', 'Nothing matches this filter right now.');
     return;
   }
 
