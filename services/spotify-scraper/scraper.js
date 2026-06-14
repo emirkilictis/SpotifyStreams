@@ -365,12 +365,12 @@ async function scrapeArtist(page, client, artistId, stats) {
 async function artistHasTodaysData(client, artistUri) {
   const res = await client.query(
     `SELECT
-       COUNT(*) FILTER (WHERE ss.recorded_date = (NOW() AT TIME ZONE 'Europe/Istanbul')::date) AS today_cnt,
+       COUNT(*) FILTER (WHERE ss.recorded_date = ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date) AS today_cnt,
        COUNT(*) FILTER (WHERE ss.recorded_date = (
          SELECT MAX(ss2.recorded_date)
          FROM stream_stats ss2
          JOIN songs s2 ON s2.id = ss2.song_id
-         WHERE s2.primary_artist = $1 AND ss2.recorded_date < (NOW() AT TIME ZONE 'Europe/Istanbul')::date
+         WHERE s2.primary_artist = $1 AND ss2.recorded_date < ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date
        )) AS prev_cnt
      FROM stream_stats ss
      JOIN songs s ON s.id = ss.song_id

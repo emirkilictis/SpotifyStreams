@@ -84,7 +84,7 @@ async function upsertStreamStat(client, songId, streamCount) {
 
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
-     VALUES ($1, $2, (NOW() AT TIME ZONE 'Europe/Istanbul')::date, NOW())
+     VALUES ($1, $2, ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date, NOW())
      ON CONFLICT (song_id, recorded_date) DO UPDATE
        SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
            recorded_at  = NOW()`,
@@ -100,7 +100,7 @@ async function upsertStreamStat(client, songId, streamCount) {
 async function upsertArtistStat(client, s) {
   await client.query(
     `INSERT INTO artist_stats (artist_id, artist_name, monthly_listeners, followers, world_rank, recorded_date, recorded_at)
-     VALUES ($1, $2, $3, $4, $5, (NOW() AT TIME ZONE 'Europe/Istanbul')::date, NOW())
+     VALUES ($1, $2, $3, $4, $5, ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date, NOW())
      ON CONFLICT (artist_id, recorded_date) DO UPDATE
        SET artist_name       = COALESCE(EXCLUDED.artist_name, artist_stats.artist_name),
            monthly_listeners = EXCLUDED.monthly_listeners,
