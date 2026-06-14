@@ -58,9 +58,30 @@ async function upsertSong(client, song) {
 
 /**
  * Stream stat upsert — aynı gün için tek kayıt (unique index: song_id + DATE(recorded_at)).
- * Güncelleme: stream_count daha büyükse yazar (Spotify sayacı asla geri gitmiyor).
+ *
+ * Stale-snapshot koruması: Spotify playcountları her gün güncellemeyebilir.
+ * Eğer yeni gelen playcount, veritabanındaki son kaydedilen değerden büyük DEĞİLSE,
+ * o gün için satır YAZILMAZ. Bu sayede "bugün − dün" farkı (daily_gain) her zaman
+ * gerçek bir artışı yansıtır; sahte 0-gain günleri ve sonraki 2x spike'lar önlenir.
+ *
+ * Returns true if a row was written, false if skipped (stale).
  */
 async function upsertStreamStat(client, songId, streamCount) {
+  // Check if this playcount is actually newer than what we already have
+  const lastRes = await client.query(
+    `SELECT stream_count FROM stream_stats
+     WHERE song_id = $1
+     ORDER BY recorded_date DESC LIMIT 1`,
+    [songId]
+  );
+  const lastCount = lastRes.rows[0]?.stream_count
+    ? parseInt(lastRes.rows[0].stream_count, 10) : 0;
+
+  // Skip stale writes: only record if Spotify actually increased the count
+  if (lastCount > 0 && streamCount <= lastCount) {
+    return false;
+  }
+
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
      VALUES ($1, $2, (NOW() AT TIME ZONE 'Europe/Istanbul')::date, NOW())
@@ -69,6 +90,7 @@ async function upsertStreamStat(client, songId, streamCount) {
            recorded_at  = NOW()`,
     [songId, streamCount]
   );
+  return true;
 }
 
 /**
