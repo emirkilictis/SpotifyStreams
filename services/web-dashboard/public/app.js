@@ -260,9 +260,14 @@ async function fetchData() {
     featStreamsEl.textContent = formatNumber(statsData.feat_streams);
     soloStreamsEl.textContent = formatNumber(statsData.solo_streams);
     
-    // Bind daily streams total
-    const dailyGainTotal = Number(statsData.daily_gain);
-    dailyStreamsEl.textContent = (dailyGainTotal > 0 ? '+' : '') + formatNumber(dailyGainTotal);
+    // Bind daily streams. We show the 7-day trailing average rather than the raw
+    // day-over-day gain: Spotify's update cadence is irregular (a 0M day followed
+    // by a ~2x day), so the raw number bounces wildly. The average is the stable,
+    // representative daily rate. Falls back to raw if the field is missing.
+    const dailyAvg = statsData.daily_avg_7d != null
+      ? Number(statsData.daily_avg_7d)
+      : Number(statsData.daily_gain);
+    dailyStreamsEl.textContent = (dailyAvg > 0 ? '+' : '') + formatNumber(dailyAvg);
     
     totalSongsEl.textContent = statsData.total_songs;
     lastUpdateEl.textContent = formatDate(statsData.last_update);

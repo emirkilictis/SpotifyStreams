@@ -47,6 +47,24 @@ const lastSubmitAt = new Map();
 const HIDDEN_TRACK_IDS = ['6233Z1W8t9Wn1f1gZqHhQ5']; // Suit & Tie - Radio Edit (frozen 2026-05-26; live = 4mQVHEjrnuUd7G5IVhSYTk)
 const HIDDEN_TRACK_IDS_SQL = HIDDEN_TRACK_IDS.map(id => `'${id}'`).join(', ');
 
+// The per-artist "which songs belong to this artist's dashboard bucket" filter,
+// parameterised by table aliases so it can be reused in subqueries. $1 is the
+// artist URI. MUST stay in sync with the inline copies in /api/songs & /api/stats.
+function artistBucketMatchSQL(s, a) {
+  return `(
+    ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (${s}.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:4UIOuc84ExWojcUzFGtb8W'))
+    OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND ${s}.primary_artist = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT')
+    OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND ${s}.primary_artist = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o')
+    OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND ${s}.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
+    OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND ${s}.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
+    OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND ${s}.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
+    OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND ${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W')
+    OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))
+    OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (${a}.title ILIKE 'HIT ME HARD AND SOFT%' OR ${a}.title ILIKE 'Happier Than Ever%' OR ${a}.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%' OR ${a}.title ILIKE 'dont smile at me%' OR ${a}.title ILIKE 'don''t smile at me%' OR ${a}.title ILIKE 'Guitar Songs%'))
+    OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))
+  )`;
+}
+
 // FutureSex/LoveSounds album-id family (all editions + the comp that holds the
 // official LoveStoned radio edit). The full-discography scrape pulled in dozens
 // of third-party DJ remixes/mixes/dubs/instrumentals released under these ids.
@@ -323,6 +341,25 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_featured), 0)::bigint AS feat_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_solo), 0)::bigint AS solo_streams,
         COALESCE(SUM(dsc.daily_gain), 0)::bigint AS daily_gain,
+        -- 7-day trailing average of the artist's total daily gain. Smooths out
+        -- Spotify's irregular update cadence (some days post 0, the next ~2x),
+        -- which otherwise makes the headline daily number bounce wildly.
+        -- Robust to catalogue additions: a song's first snapshot has NULL
+        -- daily_gain (LAG), so newly-tracked songs don't spike the average.
+        (
+          SELECT COALESCE(ROUND(AVG(pd.day_gain)), 0)::bigint
+          FROM (
+            SELECT d2.recorded_date, SUM(d2.daily_gain) AS day_gain
+            FROM daily_streams_canonical d2
+            JOIN songs s2 ON s2.id = d2.canonical_id
+            JOIN albums a2 ON s2.album_id = a2.id
+            WHERE ${artistBucketMatchSQL('s2', 'a2')}
+              AND s2.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
+            GROUP BY d2.recorded_date
+            ORDER BY d2.recorded_date DESC
+            LIMIT 7
+          ) pd
+        ) AS daily_avg_7d,
         COUNT(*)::int AS total_songs,
         MAX(dsc.recorded_date) AS last_update
       FROM (
