@@ -10,7 +10,7 @@ require('dotenv').config({ path: '../../.env' });
 
 const { launchBrowser, fetchAlbumTracks } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
-const { getPool, upsertAlbum, upsertSong, upsertStreamStat, upsertArtistStat, closePool } = require('./db');
+const { getPool, upsertAlbum, upsertSong, upsertStreamStat, upsertArtistStat, setScraperStatus, closePool } = require('./db');
 const { dedupCanonical } = require('./dedup');
 
 const ARTIST_ID  = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
@@ -394,6 +394,7 @@ async function run() {
     const client = await pool.connect();
 
     try {
+      await setScraperStatus(client, 'scraping');
       // Canary Update Check — detect Spotify's daily playcount rollover using JT's
       // "Mirrors". This is a GLOBAL gate (Spotify refreshes all artists together), but
       // it no longer exits the process: a run cut short mid-list (e.g. GHA timeout)
@@ -476,6 +477,7 @@ async function run() {
 
         if (pendingArtists.length === 0) {
           console.log('[scraper] All artists already have today\'s data. Nothing to do. Exiting gracefully.');
+          await setScraperStatus(client, 'idle');
           client.release();
           await closePool();
           await browser.close();
@@ -488,6 +490,7 @@ async function run() {
         // run since the canary's last positive detection, so we scrape them.)
         if (!spotifyUpdatedToday && pendingArtists.length === artistsToRun.length) {
           console.log('[scraper] No fresh update and no artist captured yet today. Exiting gracefully.');
+          await setScraperStatus(client, 'idle');
           client.release();
           await closePool();
           await browser.close();
@@ -503,9 +506,15 @@ async function run() {
     } finally {
       try {
         console.log('[scraper] Running database deduplication step...');
+        await setScraperStatus(client, 'deduping');
         await dedupCanonical(client);
       } catch (dedupErr) {
         console.error('[scraper] Deduplication step failed:', dedupErr.message);
+      }
+      try {
+        await setScraperStatus(client, 'idle');
+      } catch (statusErr) {
+        console.error('[scraper] Failed to set idle status:', statusErr.message);
       }
       client.release();
     }

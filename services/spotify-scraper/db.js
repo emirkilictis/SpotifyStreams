@@ -111,8 +111,22 @@ async function upsertArtistStat(client, s) {
   );
 }
 
+/**
+ * Scraper status update — tracks if scraper is 'idle', 'scraping', or 'deduping'.
+ */
+async function setScraperStatus(client, status) {
+  await client.query(
+    `INSERT INTO scraper_status (id, status, updated_at)
+     VALUES (1, $1, NOW())
+     ON CONFLICT (id) DO UPDATE
+       SET status = EXCLUDED.status,
+           updated_at = NOW()`,
+    [status]
+  );
+}
+
 async function closePool() {
   if (pool) await pool.end();
 }
 
-module.exports = { getPool, upsertAlbum, upsertSong, upsertStreamStat, upsertArtistStat, closePool };
+module.exports = { getPool, upsertAlbum, upsertSong, upsertStreamStat, upsertArtistStat, setScraperStatus, closePool };

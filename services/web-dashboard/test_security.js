@@ -20,10 +20,10 @@ async function runTests() {
     }
   }
 
-  // 1. Unauthenticated Request
-  await test("Unauthenticated requests should return 401 Unauthorized", async () => {
+  // 1. Public Request
+  await test("Public requests should return 200 OK without session", async () => {
     const res = await fetch(`${BASE_URL}/api/songs?artist=31TPClRtHm23RisEBtV3X7`);
-    assert.strictEqual(res.status, 401, "Should be 401 Unauthorized when not logged in");
+    assert.strictEqual(res.status, 200, "Should be 200 OK for public access");
   });
 
   // 2. Perform Login

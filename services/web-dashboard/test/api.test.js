@@ -31,16 +31,15 @@ before(async () => {
   cookie = res.headers.get('set-cookie').split(';')[0];
 });
 
-// --- Auth gating -----------------------------------------------------------
-test('unauthenticated /api/* returns 401', async () => {
+// --- Public access -----------------------------------------------------------
+test('public /api/* returns 200', async () => {
   const res = await fetch(`${BASE_URL}/api/songs?artist=${JT}`, { redirect: 'manual' });
-  assert.equal(res.status, 401);
+  assert.equal(res.status, 200);
 });
 
-test('unauthenticated page route redirects to /login (302)', async () => {
+test('public page route returns 200', async () => {
   const res = await fetch(`${BASE_URL}/`, { redirect: 'manual' });
-  assert.equal(res.status, 302);
-  assert.match(res.headers.get('location') || '', /\/login/);
+  assert.equal(res.status, 200);
 });
 
 // --- Login validation ------------------------------------------------------

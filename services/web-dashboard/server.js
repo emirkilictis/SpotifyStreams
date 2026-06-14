@@ -458,6 +458,15 @@ app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res)
   }
 });
 
+app.get('/api/scraper-status', requireAuth, async (req, res) => {
+  try {
+    const statusRes = await dbQuery('SELECT status FROM scraper_status WHERE id = 1');
+    res.json({ status: statusRes.rows[0]?.status || 'idle' });
+  } catch (err) {
+    res.json({ status: 'idle' });
+  }
+});
+
 app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;

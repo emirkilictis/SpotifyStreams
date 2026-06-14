@@ -2550,4 +2550,64 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   });
 })();
 
+// ---- Scraper Status Polling & Overlay ----
+(function initScraperStatus() {
+  const overlay = document.getElementById('scraper-overlay');
+  const title = document.getElementById('scraper-overlay-title');
+  const desc = document.getElementById('scraper-overlay-desc');
+  if (!overlay) return;
+
+  let lastStatus = 'idle';
+
+  async function checkScraperStatus() {
+    try {
+      const res = await fetch('/api/scraper-status');
+      if (!res.ok) {
+        updateOverlay('idle');
+        return;
+      }
+      const data = await res.json();
+      updateOverlay(data.status || 'idle');
+    } catch (err) {
+      console.error('Failed to fetch scraper status:', err);
+      updateOverlay('idle');
+    }
+  }
+
+  async function updateOverlay(status) {
+    if (status === 'scraping') {
+      if (title) title.textContent = 'Syncing Spotify playcounts...';
+      if (desc) desc.textContent = 'We are currently fetching the latest playcounts from Spotify. The dashboard is temporarily locked to prevent displaying inconsistent streams.';
+      overlay.classList.remove('hidden');
+    } else if (status === 'deduping') {
+      if (title) title.textContent = 'Optimizing database & merging duplicates...';
+      if (desc) desc.textContent = 'We are clean-up deduplicating streams and preparing daily stats. The dashboard will load automatically in a few moments.';
+      overlay.classList.remove('hidden');
+    } else {
+      const wasActive = (lastStatus === 'scraping' || lastStatus === 'deduping');
+      overlay.classList.add('hidden');
+      if (wasActive && status === 'idle') {
+        console.log('Scraper finished. Reloading data...');
+        if (currentArtist) {
+          setDashboardLoading(true);
+          try {
+            await Promise.all([fetchData(), fetchAlbumsData()]);
+          } catch (err) {
+            console.error('Failed to reload data:', err);
+          } finally {
+            setDashboardLoading(false);
+          }
+        }
+      }
+    }
+    lastStatus = status;
+  }
+
+  // Check immediately on load
+  checkScraperStatus();
+
+  // Poll every 10 seconds
+  setInterval(checkScraperStatus, 10000);
+})();
+
 
