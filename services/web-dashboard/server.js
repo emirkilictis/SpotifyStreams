@@ -1144,6 +1144,11 @@ app.get(['/', '/index.html'], requireAuth, (req, res) => {
   res.type('html').send(html);
 });
 
+// Admin panel (the page is static; the feedback API it calls is passcode-gated).
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/admin.html'));
+});
+
 // Protected Static Files
 app.use(requireAuth, express.static(path.join(__dirname, 'public')));
 

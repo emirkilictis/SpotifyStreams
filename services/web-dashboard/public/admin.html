@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Admin — Requests &amp; Feedback</title>
+  <style>
+    :root {
+      --bg: #0a0e16;
+      --card: #121826;
+      --card-2: #1a2233;
+      --border: rgba(255,255,255,0.08);
+      --text: #f1f5f9;
+      --muted: #8b96a8;
+      --faint: #5b6678;
+      --green: #1ed760;
+      --green-dim: rgba(30,215,96,0.15);
+      --red: #f87171;
+      --amber: #fbbf24;
+      --blue: #60a5fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 28px 18px 80px; }
+    header.top {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 24px;
+    }
+    header.top h1 { font-size: 1.4rem; margin: 0; font-weight: 800; }
+    header.top .sub { color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
+    .logout-btn {
+      background: var(--card-2); color: var(--muted); border: 1px solid var(--border);
+      border-radius: 8px; padding: 7px 14px; font-size: 0.82rem; cursor: pointer;
+    }
+    .logout-btn:hover { color: var(--text); }
+
+    /* Login gate */
+    .gate {
+      max-width: 380px; margin: 12vh auto 0; background: var(--card);
+      border: 1px solid var(--border); border-radius: 16px; padding: 30px 26px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+    .gate h2 { margin: 0 0 6px; font-size: 1.3rem; }
+    .gate p { color: var(--muted); font-size: 0.86rem; margin: 0 0 18px; }
+    .gate input {
+      width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 0.95rem; padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .gate input:focus { outline: none; border-color: var(--green); }
+    .btn-primary {
+      width: 100%; background: var(--green); color: #052e13; border: none;
+      border-radius: 10px; padding: 12px; font-size: 0.95rem; font-weight: 700;
+      cursor: pointer; transition: filter 0.15s ease;
+    }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-primary:disabled { opacity: 0.6; cursor: default; }
+    .gate-err { color: var(--red); font-size: 0.84rem; margin: 10px 0 0; min-height: 1em; text-align: center; }
+
+    /* Filters */
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+    .filter-btn {
+      background: var(--card); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 999px; padding: 7px 14px; font-size: 0.82rem; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .filter-btn:hover { color: var(--text); }
+    .filter-btn.active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+    .filter-btn .count { opacity: 0.7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+    /* Cards */
+    .item {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 16px 18px; margin-bottom: 12px;
+    }
+    .item.is-spam { opacity: 0.55; }
+    .item-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .badge {
+      font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+      padding: 3px 9px; border-radius: 999px;
+    }
+    .badge.new  { background: var(--green-dim); color: var(--green); }
+    .badge.read { background: rgba(96,165,250,0.15); color: var(--blue); }
+    .badge.done { background: rgba(139,150,168,0.18); color: var(--muted); }
+    .badge.spam { background: rgba(248,113,113,0.15); color: var(--red); }
+    .item-meta { color: var(--faint); font-size: 0.76rem; margin-left: auto; text-align: right; }
+    .item-artist { color: var(--muted); font-size: 0.78rem; }
+    .item-msg { font-size: 0.96rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .item-contact {
+      margin-top: 8px; font-size: 0.82rem; color: var(--muted);
+    }
+    .item-contact b { color: var(--text); font-weight: 600; }
+    .item-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .act {
+      background: var(--card-2); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 8px; padding: 6px 12px; font-size: 0.78rem; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .act:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+    .act.danger:hover { color: var(--red); border-color: var(--red); }
+    .act.ok:hover { color: var(--green); border-color: var(--green); }
+
+    .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+    .loading { text-align: center; color: var(--muted); padding: 40px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <!-- Login gate -->
+  <div id="gate" class="gate">
+    <h2>Admin</h2>
+    <p>Enter the admin passcode to read submitted requests.</p>
+    <form id="gate-form">
+      <input id="gate-pass" type="password" placeholder="Passcode" autocomplete="current-password" autofocus>
+      <button type="submit" id="gate-btn" class="btn-primary">Unlock</button>
+      <p id="gate-err" class="gate-err"></p>
+    </form>
+  </div>
+
+  <!-- Panel -->
+  <div id="panel" class="wrap hidden">
+    <header class="top">
+      <div>
+        <h1>Requests &amp; Feedback</h1>
+        <div class="sub" id="total-sub">—</div>
+      </div>
+      <button id="logout" class="logout-btn">Lock</button>
+    </header>
+    <div class="filters" id="filters"></div>
+    <div id="list"></div>
+  </div>
+
+  <script>
+    const ARTIST_NAMES = {
+      '31TPClRtHm23RisEBtV3X7': 'Justin Timberlake',
+      '5L1lO4eRHmJ7a0Q6csE5cT': 'LISA',
+      '1HY2Jd0NmPuamShAr6KMms': 'Lady Gaga',
+      '6qqNVTkY8uBg9cP3Jd7DAH': 'Billie Eilish',
+      '66CXWjxzNUsdJxJ2JdwvnR': 'Ariana Grande',
+      '6Ff53KvcvAj5U7Z1vojB5o': '*NSYNC',
+      '3LHYvj5ZejV1NLqncEObSJ': 'Vaelis',
+      '2dIgFjalVxs4ThymZ67YCE': 'Stray Kids',
+      '4UIOuc84ExWojcUzFGtb8W': 'Felix',
+      '3p3U04w2DaiBzuYMZnYr00': 'JC Chasez',
+    };
+    const STATUSES = ['all', 'new', 'read', 'done', 'spam'];
+
+    const gate = document.getElementById('gate');
+    const gateForm = document.getElementById('gate-form');
+    const gatePass = document.getElementById('gate-pass');
+    const gateBtn = document.getElementById('gate-btn');
+    const gateErr = document.getElementById('gate-err');
+    const panel = document.getElementById('panel');
+    const filtersEl = document.getElementById('filters');
+    const listEl = document.getElementById('list');
+    const totalSub = document.getElementById('total-sub');
+
+    let passcode = sessionStorage.getItem('admin_pass') || '';
+    let currentFilter = 'all';
+    let allRows = [];
+
+    const esc = (s) => String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    function fmtDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    }
+
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ 'X-Admin-Passcode': passcode }, opts.headers || {});
+      return fetch(path, Object.assign({}, opts, { headers }));
+    }
+
+    async function load() {
+      listEl.innerHTML = '<div class="loading">Loading…</div>';
+      try {
+        const res = await api('/api/feedback');
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error('load failed');
+        allRows = await res.json();
+        render();
+      } catch (e) {
+        listEl.innerHTML = '<div class="empty">Could not load. Try again.</div>';
+      }
+    }
+
+    function counts() {
+      const c = { all: allRows.length, new: 0, read: 0, done: 0, spam: 0 };
+      allRows.forEach(r => { if (c[r.status] != null) c[r.status]++; });
+      return c;
+    }
+
+    function render() {
+      const c = counts();
+      totalSub.textContent = `${c.all} total · ${c.new} new`;
+      filtersEl.innerHTML = STATUSES.map(s =>
+        `<button class="filter-btn ${s === currentFilter ? 'active' : ''}" data-status="${s}">
+          ${s[0].toUpperCase() + s.slice(1)}<span class="count">${c[s]}</span>
+        </button>`).join('');
+
+      const rows = currentFilter === 'all' ? allRows : allRows.filter(r => r.status === currentFilter);
+      if (!rows.length) {
+        listEl.innerHTML = '<div class="empty">Nothing here.</div>';
+        return;
+      }
+      listEl.innerHTML = rows.map(r => {
+        const artist = r.artist_id ? (ARTIST_NAMES[r.artist_id] || r.artist_id) : null;
+        const contact = r.contact ? `<div class="item-contact">Contact: <b>${esc(r.contact)}</b></div>` : '';
+        const acts = [];
+        if (r.status !== 'read') acts.push(`<button class="act" data-id="${r.id}" data-set="read">Mark read</button>`);
+        if (r.status !== 'done') acts.push(`<button class="act ok" data-id="${r.id}" data-set="done">Done</button>`);
+        if (r.status !== 'spam') acts.push(`<button class="act danger" data-id="${r.id}" data-set="spam">Spam</button>`);
+        if (r.status !== 'new')  acts.push(`<button class="act" data-id="${r.id}" data-set="new">↺ New</button>`);
+        return `<div class="item ${r.status === 'spam' ? 'is-spam' : ''}">
+          <div class="item-head">
+            <span class="badge ${r.status}">${r.status}</span>
+            ${artist ? `<span class="item-artist">${esc(artist)}</span>` : ''}
+            <span class="item-meta">${fmtDate(r.created_at)}${r.page_path ? `<br>${esc(r.page_path)}` : ''}</span>
+          </div>
+          <div class="item-msg">${esc(r.message)}</div>
+          ${contact}
+          <div class="item-actions">${acts.join('')}</div>
+        </div>`;
+      }).join('');
+    }
+
+    async function setStatus(id, status) {
+      const row = allRows.find(r => String(r.id) === String(id));
+      const prev = row ? row.status : null;
+      if (row) { row.status = status; render(); } // optimistic
+      try {
+        const res = await api('/api/feedback/' + id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        if (row) { row.status = prev; render(); }
+      }
+    }
+
+    function unlock() {
+      gate.classList.add('hidden');
+      panel.classList.remove('hidden');
+      load();
+    }
+    function lock(msg) {
+      passcode = '';
+      sessionStorage.removeItem('admin_pass');
+      panel.classList.add('hidden');
+      gate.classList.remove('hidden');
+      gateErr.textContent = msg || '';
+      gatePass.value = '';
+      gatePass.focus();
+    }
+
+    gateForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      passcode = gatePass.value.trim();
+      if (!passcode) return;
+      gateBtn.disabled = true;
+      gateErr.textContent = '';
+      try {
+        const res = await api('/api/feedback');
+        if (res.status === 403) { gateErr.textContent = 'Wrong passcode.'; return; }
+        if (!res.ok) { gateErr.textContent = 'Error, try again.'; return; }
+        sessionStorage.setItem('admin_pass', passcode);
+        allRows = await res.json();
+        gate.classList.add('hidden');
+        panel.classList.remove('hidden');
+        render();
+      } catch {
+        gateErr.textContent = 'Connection error.';
+      } finally {
+        gateBtn.disabled = false;
+      }
+    });
+
+    document.getElementById('logout').addEventListener('click', () => lock(''));
+    filtersEl.addEventListener('click', (e) => {
+      const b = e.target.closest('.filter-btn');
+      if (!b) return;
+      currentFilter = b.dataset.status;
+      render();
+    });
+    listEl.addEventListener('click', (e) => {
+      const b = e.target.closest('.act');
+      if (!b) return;
+      setStatus(b.dataset.id, b.dataset.set);
+    });
+
+    // Auto-unlock if we already have a passcode from this session.
+    if (passcode) unlock();
+  </script>
+</body>
+</html>
