@@ -58,7 +58,8 @@ const ARTIST_SEARCH_NAMES = {
   '3p3U04w2DaiBzuYMZnYr00': ['jc chasez', 'chasez'],
   '3LHYvj5ZejV1NLqncEObSJ': ['vaelis'],
   '2dIgFjalVxs4ThymZ67YCE': ['stray kids'],
-  '4UIOuc84ExWojcUzFGtb8W': ['felix']
+  '4UIOuc84ExWojcUzFGtb8W': ['felix'],
+  '2W8yFh0Ga6Yf3jiayVxwkE': ['dove cameron', 'dove']
 };
 
 function isCoverOrTribute(title) {
@@ -220,6 +221,7 @@ async function scrapeArtist(page, client, artistId, stats) {
     'spotify:artist:3LHYvj5ZejV1NLqncEObSJ', // Vaelis
     'spotify:artist:2dIgFjalVxs4ThymZ67YCE', // Stray Kids
     'spotify:artist:4UIOuc84ExWojcUzFGtb8W', // Felix
+    'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE', // Dove Cameron
   ];
   const dbAlbumsRes = artistId === '31TPClRtHm23RisEBtV3X7'
     ? await client.query(`
@@ -452,7 +454,8 @@ async function run() {
         { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez' },
         { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' },
         { id: '2dIgFjalVxs4ThymZ67YCE', name: 'Stray Kids' },
-        { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix' }
+        { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix' },
+        { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' }
       ];
 
       if (artistFilterArg) {

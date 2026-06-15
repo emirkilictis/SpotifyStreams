@@ -2205,6 +2205,14 @@ const ARTIST_THEMES = {
     borderGlow: 'rgba(255, 183, 3, 0.3)',
     bgGradient: 'radial-gradient(circle at 50% 0%, #2f2208 0%, #080c14 100%)',
     img: 'https://i.scdn.co/image/ab6761610000e5eb51e1a166ae0cc73d8ec19909'
+  },
+  '2W8yFh0Ga6Yf3jiayVxwkE': { // Dove Cameron - Lavender/Violet
+    accent: '#b794f6',
+    accentHover: '#9f7aea',
+    accentGlow: 'rgba(183, 148, 246, 0.4)',
+    borderGlow: 'rgba(183, 148, 246, 0.3)',
+    bgGradient: 'radial-gradient(circle at 50% 0%, #241a33 0%, #080c14 100%)',
+    img: 'https://i.scdn.co/image/ab6761610000e5eb0c5fcd837c1420d97f500ef9'
   }
 };
 
