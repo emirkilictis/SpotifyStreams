@@ -47,6 +47,18 @@ const lastSubmitAt = new Map();
 const HIDDEN_TRACK_IDS = ['6233Z1W8t9Wn1f1gZqHhQ5']; // Suit & Tie - Radio Edit (frozen 2026-05-26; live = 4mQVHEjrnuUd7G5IVhSYTk)
 const HIDDEN_TRACK_IDS_SQL = HIDDEN_TRACK_IDS.map(id => `'${id}'`).join(', ');
 
+// Felix is credited (sub-unit / featured) on these Stray Kids tracks, so kworb
+// lists them on Felix's artist page. Their primary_artist is Stray Kids, so they
+// fall outside Felix's "primary_artist = Felix" bucket — pin them in explicitly.
+// They stay counted under Stray Kids too (kworb counts a song on every credited
+// artist's page), so no double-subtraction is needed.
+const FELIX_EXTRA_TRACK_IDS = [
+  '1Iu7bqGwYVB6OGq4uLt2ak', // Because (Changbin, Felix)
+  '3VMeAc0SlgLaS9RzA8TSxH', // Deep end (Felix)
+  '0bxB5Jie9fGKTIibfYVfei', // Up All Night (Bang Chan, Changbin, Felix, Seungmin)
+];
+const FELIX_EXTRA_TRACK_IDS_SQL = FELIX_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
 // The per-artist "which songs belong to this artist's dashboard bucket" filter,
 // parameterised by table aliases so it can be reused in subqueries. $1 is the
 // artist URI. MUST stay in sync with the inline copies in /api/songs & /api/stats.
@@ -58,7 +70,7 @@ function artistBucketMatchSQL(s, a) {
     OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND ${s}.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
     OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND ${s}.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
     OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND ${s}.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
-    OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND ${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W')
+    OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR ${s}.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
     OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))
     OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (${a}.title ILIKE 'HIT ME HARD AND SOFT%' OR ${a}.title ILIKE 'Happier Than Ever%' OR ${a}.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%' OR ${a}.title ILIKE 'dont smile at me%' OR ${a}.title ILIKE 'don''t smile at me%' OR ${a}.title ILIKE 'Guitar Songs%'))
     OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))
@@ -294,7 +306,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
         OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
         OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
-        OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W')
+        OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR s.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
         OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
             a.title ILIKE '%fame monster%'
             OR a.title ILIKE '%mayhem%'
@@ -380,7 +392,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
         OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
         OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
         OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
-        OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W')
+        OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR s.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
         OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
             a.title ILIKE '%fame monster%'
             OR a.title ILIKE '%mayhem%'
@@ -505,7 +517,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
           OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
           OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
-          OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W')
+          OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR s.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
           OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (a.title ILIKE '%fame monster%' OR a.title ILIKE '%mayhem%' OR a.id = '5C7E6m8S9vJ36z0Z39O64L'))
           OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (a.title ILIKE 'HIT ME HARD AND SOFT%' OR a.title ILIKE 'Happier Than Ever%' OR a.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%' OR a.title ILIKE 'dont smile at me%' OR a.title ILIKE 'don''t smile at me%' OR a.title ILIKE 'Guitar Songs%'))
           OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (a.title ILIKE 'Yours Truly%' OR a.title ILIKE 'My Everything%' OR a.title ILIKE 'Dangerous Woman%' OR a.title ILIKE 'Sweetener%' OR a.title ILIKE 'thank u, next%' OR a.title ILIKE 'Positions%' OR a.title ILIKE 'eternal sunshine%'))
