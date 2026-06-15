@@ -111,6 +111,27 @@
     .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
     .loading { text-align: center; color: var(--muted); padding: 40px; }
     .hidden { display: none !important; }
+
+    /* Toolbar */
+    .toolbar { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+    .search {
+      flex: 1; min-width: 180px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 0.9rem; padding: 10px 14px;
+    }
+    .search:focus { outline: none; border-color: var(--green); }
+    .search::placeholder { color: var(--faint); }
+    .tool-btn {
+      background: var(--card); border: 1px solid var(--border); color: var(--muted);
+      border-radius: 10px; padding: 10px 14px; font-size: 0.84rem; cursor: pointer;
+      white-space: nowrap; transition: all 0.15s ease;
+    }
+    .tool-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+    .tool-btn.spin { opacity: 0.6; }
+
+    .act.del:hover { color: var(--red); border-color: var(--red); }
+    .item-contact a { color: var(--green); text-decoration: none; }
+    .item-contact a:hover { text-decoration: underline; }
+    .hl { background: rgba(30,215,96,0.25); border-radius: 3px; color: #fff; }
   </style>
 </head>
 <body>
@@ -135,6 +156,11 @@
       <button id="logout" class="logout-btn">Lock</button>
     </header>
     <div class="filters" id="filters"></div>
+    <div class="toolbar">
+      <input id="search" class="search" type="search" placeholder="Search messages or contacts…" autocomplete="off">
+      <button id="sort-btn" class="tool-btn" title="Toggle sort order">↓ Newest</button>
+      <button id="refresh-btn" class="tool-btn" title="Reload">⟳ Refresh</button>
+    </div>
     <div id="list"></div>
   </div>
 
@@ -163,13 +189,33 @@
     const filtersEl = document.getElementById('filters');
     const listEl = document.getElementById('list');
     const totalSub = document.getElementById('total-sub');
+    const searchEl = document.getElementById('search');
+    const sortBtn = document.getElementById('sort-btn');
+    const refreshBtn = document.getElementById('refresh-btn');
 
     let passcode = sessionStorage.getItem('admin_pass') || '';
     let currentFilter = 'all';
     let allRows = [];
+    let searchQuery = '';
+    let sortDesc = true; // newest first
 
     const esc = (s) => String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Highlight the search term inside already-escaped text.
+    function highlight(escaped) {
+      if (!searchQuery) return escaped;
+      const q = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return escaped.replace(new RegExp('(' + q + ')', 'gi'), '<span class="hl">$1</span>');
+    }
+
+    // Turn a contact string into a clickable link when it looks like an email or handle.
+    function linkifyContact(raw) {
+      const s = esc(raw);
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return `<a href="mailto:${s}">${s}</a>`;
+      if (/^@\w{1,30}$/.test(raw)) return `<a href="https://x.com/${s.slice(1)}" target="_blank" rel="noopener">${s}</a>`;
+      return `<b>${s}</b>`;
+    }
 
     function fmtDate(iso) {
       if (!iso) return '';
@@ -209,26 +255,38 @@
           ${s[0].toUpperCase() + s.slice(1)}<span class="count">${c[s]}</span>
         </button>`).join('');
 
-      const rows = currentFilter === 'all' ? allRows : allRows.filter(r => r.status === currentFilter);
+      let rows = currentFilter === 'all' ? allRows.slice() : allRows.filter(r => r.status === currentFilter);
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        rows = rows.filter(r =>
+          (r.message || '').toLowerCase().includes(q) ||
+          (r.contact || '').toLowerCase().includes(q) ||
+          (ARTIST_NAMES[r.artist_id] || '').toLowerCase().includes(q));
+      }
+      rows.sort((a, b) => {
+        const d = new Date(b.created_at) - new Date(a.created_at);
+        return sortDesc ? d : -d;
+      });
       if (!rows.length) {
-        listEl.innerHTML = '<div class="empty">Nothing here.</div>';
+        listEl.innerHTML = `<div class="empty">${searchQuery ? 'No matches.' : 'Nothing here.'}</div>`;
         return;
       }
       listEl.innerHTML = rows.map(r => {
         const artist = r.artist_id ? (ARTIST_NAMES[r.artist_id] || r.artist_id) : null;
-        const contact = r.contact ? `<div class="item-contact">Contact: <b>${esc(r.contact)}</b></div>` : '';
+        const contact = r.contact ? `<div class="item-contact">Contact: ${linkifyContact(r.contact)}</div>` : '';
         const acts = [];
         if (r.status !== 'read') acts.push(`<button class="act" data-id="${r.id}" data-set="read">Mark read</button>`);
         if (r.status !== 'done') acts.push(`<button class="act ok" data-id="${r.id}" data-set="done">Done</button>`);
         if (r.status !== 'spam') acts.push(`<button class="act danger" data-id="${r.id}" data-set="spam">Spam</button>`);
         if (r.status !== 'new')  acts.push(`<button class="act" data-id="${r.id}" data-set="new">↺ New</button>`);
+        acts.push(`<button class="act del" data-id="${r.id}" data-del="1">Delete</button>`);
         return `<div class="item ${r.status === 'spam' ? 'is-spam' : ''}">
           <div class="item-head">
             <span class="badge ${r.status}">${r.status}</span>
             ${artist ? `<span class="item-artist">${esc(artist)}</span>` : ''}
             <span class="item-meta">${fmtDate(r.created_at)}${r.page_path ? `<br>${esc(r.page_path)}` : ''}</span>
           </div>
-          <div class="item-msg">${esc(r.message)}</div>
+          <div class="item-msg">${highlight(esc(r.message))}</div>
           ${contact}
           <div class="item-actions">${acts.join('')}</div>
         </div>`;
@@ -248,6 +306,19 @@
         if (!res.ok) throw new Error();
       } catch {
         if (row) { row.status = prev; render(); }
+      }
+    }
+
+    async function deleteItem(id) {
+      if (!confirm('Delete this submission permanently?')) return;
+      const idx = allRows.findIndex(r => String(r.id) === String(id));
+      const backup = idx >= 0 ? allRows[idx] : null;
+      if (idx >= 0) { allRows.splice(idx, 1); render(); } // optimistic
+      try {
+        const res = await api('/api/feedback/' + id, { method: 'DELETE' });
+        if (!res.ok) throw new Error();
+      } catch {
+        if (backup) { allRows.splice(idx, 0, backup); render(); }
       }
     }
 
@@ -298,7 +369,25 @@
     listEl.addEventListener('click', (e) => {
       const b = e.target.closest('.act');
       if (!b) return;
-      setStatus(b.dataset.id, b.dataset.set);
+      if (b.dataset.del) deleteItem(b.dataset.id);
+      else setStatus(b.dataset.id, b.dataset.set);
+    });
+
+    // Search (debounced), sort toggle, refresh.
+    let searchTimer;
+    searchEl.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { searchQuery = searchEl.value.trim(); render(); }, 150);
+    });
+    sortBtn.addEventListener('click', () => {
+      sortDesc = !sortDesc;
+      sortBtn.textContent = sortDesc ? '↓ Newest' : '↑ Oldest';
+      render();
+    });
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.classList.add('spin');
+      await load();
+      refreshBtn.classList.remove('spin');
     });
 
     // Auto-unlock if we already have a passcode from this session.

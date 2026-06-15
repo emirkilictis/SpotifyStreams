@@ -1112,6 +1112,17 @@ app.patch('/api/feedback/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Admin: permanently delete a submission.
+app.delete('/api/feedback/:id', requireAdmin, async (req, res) => {
+  try {
+    await dbQuery(`DELETE FROM feedback_requests WHERE id = $1`, [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Feedback delete error:', err);
+    res.status(500).json({ error: 'Failed to delete.' });
+  }
+});
+
 // Serve index.html with cache-busting query strings on app.js/style.css so that a new
 // deploy is always picked up — even by aggressive mobile caches (iOS Safari bfcache).
 // The version token is derived from the asset mtimes, so it changes only on real updates.
