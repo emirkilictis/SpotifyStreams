@@ -4,6 +4,11 @@ on:
   # Tetikleme harici scheduler'dan (cron-job.org) workflow_dispatch ile geliyor.
   # GitHub'in kendi schedule cron'u guvenilmez (job'lari dusuruyor), o yuzden kaldirildi.
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force a full scrape + dedup even if today is already captured'
+        type: boolean
+        default: false
 
 jobs:
   scrape:
@@ -32,6 +37,7 @@ jobs:
           SP_DC:        ${{ secrets.SP_DC }}
           SP_KEY:       ${{ secrets.SP_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FORCE_SCRAPE: ${{ inputs.force }}
         run: node scraper.js
 
       - name: Notify on failure
