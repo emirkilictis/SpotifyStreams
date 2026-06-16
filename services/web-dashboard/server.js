@@ -301,38 +301,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         FROM daily_streams_canonical
         ORDER BY canonical_id, recorded_date DESC
       ) dsc ON s.id = dsc.canonical_id
-      WHERE s.canonical_id IS NULL AND (
-        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE'))
-        OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT')
-        OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o')
-        OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
-        OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
-        OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
-        OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR s.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
-        OR ($1 = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE' AND s.primary_artist = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE')
-        OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
-            a.title ILIKE '%fame monster%'
-            OR a.title ILIKE '%mayhem%'
-            OR a.id = '5C7E6m8S9vJ36z0Z39O64L'
-        ))
-        OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
-            a.title ILIKE 'HIT ME HARD AND SOFT%'
-            OR a.title ILIKE 'Happier Than Ever%'
-            OR a.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%'
-            OR a.title ILIKE 'dont smile at me%'
-            OR a.title ILIKE 'don''t smile at me%'
-            OR a.title ILIKE 'Guitar Songs%'
-        ))
-        OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
-            a.title ILIKE 'Yours Truly%'
-            OR a.title ILIKE 'My Everything%'
-            OR a.title ILIKE 'Dangerous Woman%'
-            OR a.title ILIKE 'Sweetener%'
-            OR a.title ILIKE 'thank u, next%'
-            OR a.title ILIKE 'Positions%'
-            OR a.title ILIKE 'eternal sunshine%'
-        ))
-      )
+      WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
       AND ${FSLS_REMIX_EXCLUSION_SQL}
       ORDER BY cumulative DESC;
@@ -388,38 +357,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
       ) dsc
       JOIN songs s ON s.id = dsc.canonical_id
       JOIN albums a ON s.album_id = a.id
-      WHERE (
-        ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE'))
-        OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT')
-        OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o')
-        OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
-        OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
-        OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
-        OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR s.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
-        OR ($1 = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE' AND s.primary_artist = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE')
-        OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
-            a.title ILIKE '%fame monster%'
-            OR a.title ILIKE '%mayhem%'
-            OR a.id = '5C7E6m8S9vJ36z0Z39O64L'
-        ))
-        OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
-            a.title ILIKE 'HIT ME HARD AND SOFT%'
-            OR a.title ILIKE 'Happier Than Ever%'
-            OR a.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%'
-            OR a.title ILIKE 'dont smile at me%'
-            OR a.title ILIKE 'don''t smile at me%'
-            OR a.title ILIKE 'Guitar Songs%'
-        ))
-        OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
-            a.title ILIKE 'Yours Truly%'
-            OR a.title ILIKE 'My Everything%'
-            OR a.title ILIKE 'Dangerous Woman%'
-            OR a.title ILIKE 'Sweetener%'
-            OR a.title ILIKE 'thank u, next%'
-            OR a.title ILIKE 'Positions%'
-            OR a.title ILIKE 'eternal sunshine%'
-        ))
-      )
+      WHERE ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL});
     `;
     const result = await dbQuery(query, [artistUri]);
@@ -514,19 +452,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
         FROM daily_streams_canonical dsc
         JOIN songs s ON s.id = dsc.canonical_id
         JOIN albums a ON s.album_id = a.id
-        WHERE (
-          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE'))
-          OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT')
-          OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o')
-          OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
-          OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
-          OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
-          OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (s.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR s.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
-        OR ($1 = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE' AND s.primary_artist = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE')
-          OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (a.title ILIKE '%fame monster%' OR a.title ILIKE '%mayhem%' OR a.id = '5C7E6m8S9vJ36z0Z39O64L'))
-          OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (a.title ILIKE 'HIT ME HARD AND SOFT%' OR a.title ILIKE 'Happier Than Ever%' OR a.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%' OR a.title ILIKE 'dont smile at me%' OR a.title ILIKE 'don''t smile at me%' OR a.title ILIKE 'Guitar Songs%'))
-          OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (a.title ILIKE 'Yours Truly%' OR a.title ILIKE 'My Everything%' OR a.title ILIKE 'Dangerous Woman%' OR a.title ILIKE 'Sweetener%' OR a.title ILIKE 'thank u, next%' OR a.title ILIKE 'Positions%' OR a.title ILIKE 'eternal sunshine%'))
-        )
+        WHERE ${artistBucketMatchSQL('s', 'a')}
         AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
       ),
       song_crossings AS (
