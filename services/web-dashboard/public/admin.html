@@ -132,6 +132,40 @@
     .item-contact a { color: var(--green); text-decoration: none; }
     .item-contact a:hover { text-decoration: underline; }
     .hl { background: rgba(30,215,96,0.25); border-radius: 3px; color: #fff; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+    .tab {
+      background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
+      padding: 8px 14px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-bottom: -1px;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+    /* Artist management */
+    .artist-form { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .af-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .af-row .search { flex: 1; margin: 0; }
+    .af-checks { align-items: center; }
+    .af-checks label { color: var(--muted); font-size: 0.85rem; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+    .af-spacer { flex: 1; }
+    .af-err { text-align: left; margin: 4px 0 0; }
+
+    .artist-row {
+      display: flex; align-items: center; gap: 14px; background: var(--card);
+      border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px;
+    }
+    .artist-row.inactive { opacity: 0.5; }
+    .artist-row img { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: var(--card-2); }
+    .artist-row .ar-main { flex: 1; min-width: 0; }
+    .artist-row .ar-name { font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .artist-row .ar-id { font-size: 0.72rem; color: var(--faint); font-family: monospace; }
+    .ar-swatch { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); flex-shrink: 0; }
+    .ar-tag { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 999px; background: var(--card-2); color: var(--muted); }
+    .ar-tag.album { background: rgba(96,165,250,0.15); color: var(--blue); }
+    .ar-tag.locked { background: rgba(251,191,36,0.15); color: var(--amber); }
+    .ar-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .ar-order { font-size: 0.8rem; color: var(--faint); min-width: 22px; text-align: center; }
   </style>
 </head>
 <body>
@@ -150,18 +184,56 @@
   <div id="panel" class="wrap hidden">
     <header class="top">
       <div>
-        <h1>Requests &amp; Feedback</h1>
+        <h1>Admin</h1>
         <div class="sub" id="total-sub">—</div>
       </div>
       <button id="logout" class="logout-btn">Lock</button>
     </header>
-    <div class="filters" id="filters"></div>
-    <div class="toolbar">
-      <input id="search" class="search" type="search" placeholder="Search messages or contacts…" autocomplete="off">
-      <button id="sort-btn" class="tool-btn" title="Toggle sort order">↓ Newest</button>
-      <button id="refresh-btn" class="tool-btn" title="Reload">⟳ Refresh</button>
+
+    <div class="tabs">
+      <button class="tab active" data-view="feedback">Requests</button>
+      <button class="tab" data-view="artists">Artists</button>
     </div>
-    <div id="list"></div>
+
+    <!-- Feedback view -->
+    <div id="feedback-view">
+      <div class="filters" id="filters"></div>
+      <div class="toolbar">
+        <input id="search" class="search" type="search" placeholder="Search messages or contacts…" autocomplete="off">
+        <button id="sort-btn" class="tool-btn" title="Toggle sort order">↓ Newest</button>
+        <button id="refresh-btn" class="tool-btn" title="Reload">⟳ Refresh</button>
+      </div>
+      <div id="list"></div>
+    </div>
+
+    <!-- Artists view -->
+    <div id="artists-view" class="hidden">
+      <div class="toolbar">
+        <button id="artist-add-btn" class="tool-btn">+ Add artist</button>
+        <button id="artists-refresh" class="tool-btn" title="Reload">⟳ Refresh</button>
+      </div>
+      <form id="artist-form" class="artist-form hidden">
+        <div class="af-row">
+          <input id="af-id" class="search" placeholder="Spotify artist id (22 chars)" autocomplete="off">
+          <input id="af-name" class="search" placeholder="Name" autocomplete="off">
+        </div>
+        <div class="af-row">
+          <input id="af-image" class="search" placeholder="Image URL (/images/… or https://…)" autocomplete="off">
+          <input id="af-accent" class="search" placeholder="#accent" autocomplete="off">
+          <input id="af-order" class="search" type="number" placeholder="Order" style="max-width:90px">
+        </div>
+        <div class="af-row af-checks">
+          <label><input type="checkbox" id="af-albumonly"> Album-only</label>
+          <label><input type="checkbox" id="af-locked"> Locked</label>
+          <label><input type="checkbox" id="af-active" checked> Active</label>
+          <span class="af-spacer"></span>
+          <button type="button" id="af-cancel" class="tool-btn">Cancel</button>
+          <button type="submit" id="af-save" class="btn-primary" style="width:auto;padding:8px 18px">Save</button>
+        </div>
+        <p class="af-err gate-err" id="af-err"></p>
+      </form>
+      <div id="artists-list"></div>
+    </div>
   </div>
 
   <script>
@@ -388,6 +460,132 @@
       refreshBtn.classList.add('spin');
       await load();
       refreshBtn.classList.remove('spin');
+    });
+
+    // ---- Artist management ----
+    const artistsView = document.getElementById('artists-view');
+    const feedbackView = document.getElementById('feedback-view');
+    const artistsListEl = document.getElementById('artists-list');
+    const artistForm = document.getElementById('artist-form');
+    let artists = [];
+    let artistsLoaded = false;
+    let editingId = null;
+
+    const af = {
+      id: document.getElementById('af-id'), name: document.getElementById('af-name'),
+      image: document.getElementById('af-image'), accent: document.getElementById('af-accent'),
+      order: document.getElementById('af-order'), albumonly: document.getElementById('af-albumonly'),
+      locked: document.getElementById('af-locked'), active: document.getElementById('af-active'),
+      err: document.getElementById('af-err'),
+    };
+
+    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const v = t.dataset.view;
+      feedbackView.classList.toggle('hidden', v !== 'feedback');
+      artistsView.classList.toggle('hidden', v !== 'artists');
+      if (v === 'artists' && !artistsLoaded) loadArtists();
+    }));
+
+    async function loadArtists() {
+      artistsListEl.innerHTML = '<div class="loading">Loading…</div>';
+      try {
+        const res = await api('/api/admin/artists');
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error();
+        artists = await res.json();
+        artistsLoaded = true;
+        renderArtists();
+      } catch {
+        artistsListEl.innerHTML = '<div class="empty">Could not load artists. Is migration 013 applied?</div>';
+      }
+    }
+
+    function renderArtists() {
+      if (!artists.length) { artistsListEl.innerHTML = '<div class="empty">No artists yet.</div>'; return; }
+      artistsListEl.innerHTML = artists.map(a => {
+        const tags = [];
+        if (a.album_only) tags.push('<span class="ar-tag album">album-only</span>');
+        if (a.locked) tags.push('<span class="ar-tag locked">locked</span>');
+        if (!a.active) tags.push('<span class="ar-tag">inactive</span>');
+        const img = a.image_url || `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'/>`;
+        return `<div class="artist-row ${a.active ? '' : 'inactive'}">
+          <span class="ar-order">${a.sort_order}</span>
+          <img src="${esc(img)}" alt="" loading="lazy">
+          <div class="ar-main">
+            <div class="ar-name">${a.accent ? `<span class="ar-swatch" style="background:${esc(a.accent)}"></span>` : ''}${esc(a.name)} ${tags.join(' ')}</div>
+            <div class="ar-id">${esc(a.artist_id)}</div>
+          </div>
+          <div class="ar-actions">
+            <button class="act" data-edit="${esc(a.artist_id)}">Edit</button>
+            <button class="act" data-toggle="${esc(a.artist_id)}">${a.active ? 'Hide' : 'Show'}</button>
+            <button class="act del" data-del="${esc(a.artist_id)}">Delete</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function showForm(artist) {
+      editingId = artist ? artist.artist_id : null;
+      af.err.textContent = '';
+      af.id.value = artist ? artist.artist_id : '';
+      af.id.readOnly = !!artist;
+      af.name.value = artist ? artist.name : '';
+      af.image.value = artist ? (artist.image_url || '') : '';
+      af.accent.value = artist ? (artist.accent || '') : '';
+      af.order.value = artist ? artist.sort_order : (artists.length + 1);
+      af.albumonly.checked = artist ? !!artist.album_only : false;
+      af.locked.checked = artist ? !!artist.locked : false;
+      af.active.checked = artist ? !!artist.active : true;
+      artistForm.classList.remove('hidden');
+      af.name.focus();
+    }
+
+    document.getElementById('artist-add-btn').addEventListener('click', () => showForm(null));
+    document.getElementById('af-cancel').addEventListener('click', () => artistForm.classList.add('hidden'));
+    document.getElementById('artists-refresh').addEventListener('click', loadArtists);
+
+    artistForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {
+        artist_id: af.id.value.trim().replace('spotify:artist:', ''),
+        name: af.name.value.trim(),
+        image_url: af.image.value.trim() || null,
+        accent: af.accent.value.trim() || null,
+        sort_order: af.order.value === '' ? 100 : Number(af.order.value),
+        album_only: af.albumonly.checked,
+        locked: af.locked.checked,
+        active: af.active.checked,
+      };
+      if (!/^[A-Za-z0-9]{22}$/.test(body.artist_id)) { af.err.textContent = 'Invalid Spotify artist id (22 chars).'; return; }
+      if (!body.name) { af.err.textContent = 'Name is required.'; return; }
+      try {
+        const res = await api('/api/admin/artists', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { af.err.textContent = d.error || 'Save failed.'; return; }
+        artistForm.classList.add('hidden');
+        await loadArtists();
+      } catch { af.err.textContent = 'Connection error.'; }
+    });
+
+    artistsListEl.addEventListener('click', async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.edit) { showForm(artists.find(a => a.artist_id === b.dataset.edit)); return; }
+      if (b.dataset.toggle) {
+        const a = artists.find(x => x.artist_id === b.dataset.toggle);
+        await api('/api/admin/artists/' + b.dataset.toggle, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !a.active }),
+        });
+        await loadArtists(); return;
+      }
+      if (b.dataset.del) {
+        if (!confirm('Remove this artist from the roster? (songs/streams are untouched)')) return;
+        await api('/api/admin/artists/' + b.dataset.del, { method: 'DELETE' });
+        await loadArtists();
+      }
     });
 
     // Auto-unlock if we already have a passcode from this session.
