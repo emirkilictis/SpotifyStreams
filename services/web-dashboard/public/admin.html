@@ -166,6 +166,48 @@
     .ar-tag.locked { background: rgba(251,191,36,0.15); color: var(--amber); }
     .ar-actions { display: flex; gap: 6px; flex-shrink: 0; }
     .ar-order { font-size: 0.8rem; color: var(--faint); min-width: 22px; text-align: center; }
+
+    /* Scraper Status view */
+    .status-global-card {
+      display: flex; align-items: center; gap: 14px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 18px; margin-bottom: 20px;
+    }
+    .sg-dot {
+      width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+      background: var(--faint);
+    }
+    .sg-dot.idle    { background: var(--green); }
+    .sg-dot.active  { background: var(--amber); animation: pulse 1.2s ease-in-out infinite; }
+    .sg-dot.error   { background: var(--red); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.35; }
+    }
+    .sg-info { display: flex; flex-direction: column; gap: 3px; }
+    .sg-info span:first-child { font-weight: 700; font-size: 0.95rem; }
+    .sg-time { font-size: 0.78rem; color: var(--muted); }
+
+    .status-table {
+      width: 100%; border-collapse: collapse; font-size: 0.84rem;
+    }
+    .status-table th {
+      text-align: left; color: var(--muted); font-weight: 600;
+      padding: 6px 10px 10px; border-bottom: 1px solid var(--border);
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .status-table td {
+      padding: 10px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);
+      vertical-align: middle;
+    }
+    .status-table tr:last-child td { border-bottom: none; }
+    .status-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .st-name { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+    .st-name img { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; background: var(--card-2); }
+    .st-date { color: var(--text); }
+    .st-date.stale { color: var(--amber); }
+    .st-date.missing { color: var(--faint); font-style: italic; }
+    .st-rows { color: var(--muted); }
+    .st-inactive { opacity: 0.45; }
   </style>
 </head>
 <body>
@@ -193,6 +235,7 @@
     <div class="tabs">
       <button class="tab active" data-view="feedback">Requests</button>
       <button class="tab" data-view="artists">Artists</button>
+      <button class="tab" data-view="status">Status</button>
     </div>
 
     <!-- Feedback view -->
@@ -233,6 +276,23 @@
         <p class="af-err gate-err" id="af-err"></p>
       </form>
       <div id="artists-list"></div>
+    </div>
+
+    <!-- Status view -->
+    <div id="status-view" class="hidden">
+      <div class="toolbar">
+        <button id="status-refresh" class="tool-btn">⟳ Refresh</button>
+      </div>
+      <!-- Global scraper status banner -->
+      <div id="status-global" class="status-global-card">
+        <div class="sg-dot" id="sg-dot"></div>
+        <div class="sg-info">
+          <span id="sg-label">—</span>
+          <span id="sg-time" class="sg-time"></span>
+        </div>
+      </div>
+      <!-- Per-artist table -->
+      <div id="status-list"></div>
     </div>
   </div>
 
@@ -465,6 +525,7 @@
     // ---- Artist management ----
     const artistsView = document.getElementById('artists-view');
     const feedbackView = document.getElementById('feedback-view');
+    const statusView = document.getElementById('status-view');
     const artistsListEl = document.getElementById('artists-list');
     const artistForm = document.getElementById('artist-form');
     let artists = [];
@@ -485,8 +546,11 @@
       const v = t.dataset.view;
       feedbackView.classList.toggle('hidden', v !== 'feedback');
       artistsView.classList.toggle('hidden', v !== 'artists');
+      statusView.classList.toggle('hidden', v !== 'status');
       if (v === 'artists' && !artistsLoaded) loadArtists();
+      if (v === 'status') loadScraperStatus();
     }));
+
 
     async function loadArtists() {
       artistsListEl.innerHTML = '<div class="loading">Loading…</div>';
@@ -590,6 +654,94 @@
 
     // Auto-unlock if we already have a passcode from this session.
     if (passcode) unlock();
+
+    // ---- Scraper Status ----
+    const sgDot   = document.getElementById('sg-dot');
+    const sgLabel = document.getElementById('sg-label');
+    const sgTime  = document.getElementById('sg-time');
+    const statusListEl = document.getElementById('status-list');
+
+    function fmtDate(iso) {
+      if (!iso) return null;
+      const d = new Date(iso);
+      if (isNaN(d)) return null;
+      const now = new Date();
+      const diffDays = (now - d) / 86400000;
+      if (diffDays < 1) return 'Today — ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (diffDays < 2) return 'Yesterday';
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function isStale(isoDate) {
+      if (!isoDate) return false;
+      return (new Date() - new Date(isoDate)) > 2 * 86400000; // > 2 days
+    }
+
+    async function loadScraperStatus() {
+      sgDot.className = 'sg-dot';
+      sgLabel.textContent = 'Loading…';
+      sgTime.textContent = '';
+      statusListEl.innerHTML = '<div class="loading">Loading…</div>';
+      try {
+        const res = await api('/api/scraper-status');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+
+        // Global banner
+        const statusMap = {
+          idle:     { label: 'Idle — scraper not running',  cls: 'idle'   },
+          scraping: { label: 'Scraping in progress…',       cls: 'active' },
+          deduping: { label: 'Deduplicating data…',         cls: 'active' },
+          error:    { label: 'Error — last run failed',     cls: 'error'  },
+        };
+        const s = statusMap[data.status] || { label: data.status, cls: '' };
+        sgDot.className = 'sg-dot ' + s.cls;
+        sgLabel.textContent = s.label;
+        sgTime.textContent = data.updated_at
+          ? 'Last updated: ' + fmtDate(data.updated_at)
+          : '';
+
+        // Per-artist table
+        if (!data.artists || !data.artists.length) {
+          statusListEl.innerHTML = '<div class="empty">No artist data yet.</div>';
+          return;
+        }
+        const rows = data.artists.map(a => {
+          const lastDate = a.last_date ? fmtDate(a.last_date) : null;
+          const stale = isStale(a.last_date);
+          const dateClass = !lastDate ? 'missing' : stale ? 'stale' : '';
+          const dateText = lastDate || 'No data';
+          const firstDate = a.first_date ? fmtDate(a.first_date) : '—';
+          const rowClass = a.active ? '' : 'st-inactive';
+          return `<tr class="${rowClass}">
+            <td><div class="st-name">
+              <span>${a.name}</span>
+              ${!a.active ? '<span class="ar-tag">hidden</span>' : ''}
+            </div></td>
+            <td class="st-date ${dateClass}">${dateText}${stale ? ' ⚠' : ''}</td>
+            <td class="st-rows">${a.row_count ? a.row_count.toLocaleString() : '—'}</td>
+            <td class="st-rows">${firstDate}</td>
+          </tr>`;
+        }).join('');
+        statusListEl.innerHTML = `
+          <table class="status-table">
+            <thead>
+              <tr>
+                <th>Artist</th>
+                <th>Last snapshot</th>
+                <th>Total rows</th>
+                <th>Tracking since</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+      } catch {
+        sgLabel.textContent = 'Failed to load status.';
+        statusListEl.innerHTML = '<div class="empty">Could not reach the status endpoint.</div>';
+      }
+    }
+
+    document.getElementById('status-refresh').addEventListener('click', loadScraperStatus);
   </script>
 </body>
 </html>

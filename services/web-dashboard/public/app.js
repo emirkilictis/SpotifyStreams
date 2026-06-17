@@ -2271,6 +2271,8 @@ if (artistSelector) {
       dashboardTitle.textContent = `${selectedName} Spotify Streams`;
     }
     document.title = `${selectedName} Spotify Streams - Fan Dashboard`;
+    // Patch OG meta tags for the new artist
+    if (window._patchOgForArtist) window._patchOgForArtist(currentArtist, selectedName);
     
     // For album-only artists (Gaga, Billie, Ariana), force active view to 'albums'
     if (ALBUM_ONLY_ARTISTS.has(currentArtist)) {
@@ -2307,6 +2309,8 @@ async function enterDashboard(artistId, artistName) {
   
   // Apply dynamic artist theme colors
   applyArtistTheme(artistId);
+  // Patch OG meta tags for the selected artist
+  if (window._patchOgForArtist) window._patchOgForArtist(artistId, artistName);
   
   // Update dropdown to match
   if (artistSelector) {
@@ -2443,6 +2447,40 @@ if (backToPickerBtn) {
 // album-only to match what's been edited in the admin panel. Locked artists (JC)
 // are left untouched so the lock isn't bypassed. Fails silently on any error, so
 // the hardcoded values always remain as a fallback.
+
+// Derive full theme palette from a single hex accent colour.
+// Keeps hover/glow/gradient in sync when admin changes only the accent.
+function deriveThemeFromAccent(hex) {
+  // Parse #rrggbb or #rgb into { r, g, b }
+  let r, g, b;
+  const h = hex.replace('#', '');
+  if (h.length === 3) {
+    r = parseInt(h[0] + h[0], 16);
+    g = parseInt(h[1] + h[1], 16);
+    b = parseInt(h[2] + h[2], 16);
+  } else {
+    r = parseInt(h.slice(0, 2), 16);
+    g = parseInt(h.slice(2, 4), 16);
+    b = parseInt(h.slice(4, 6), 16);
+  }
+  // Hover: darken by ~12 %
+  const dr = Math.max(0, Math.round(r * 0.88));
+  const dg = Math.max(0, Math.round(g * 0.88));
+  const db = Math.max(0, Math.round(b * 0.88));
+  const toHex = n => n.toString(16).padStart(2, '0');
+  // Background tint: very dark version of accent for the hero gradient
+  const tr = Math.min(255, Math.round(r * 0.18));
+  const tg = Math.min(255, Math.round(g * 0.18));
+  const tb = Math.min(255, Math.round(b * 0.18));
+  return {
+    accent:      hex,
+    accentHover: `#${toHex(dr)}${toHex(dg)}${toHex(db)}`,
+    accentGlow:  `rgba(${r}, ${g}, ${b}, 0.4)`,
+    borderGlow:  `rgba(${r}, ${g}, ${b}, 0.3)`,
+    bgGradient:  `radial-gradient(circle at 50% 0%, rgb(${tr},${tg},${tb}) 0%, #080c14 100%)`,
+  };
+}
+
 (async function applyRoster() {
   let roster;
   try {
@@ -2460,12 +2498,20 @@ if (backToPickerBtn) {
   ALBUM_ONLY_ARTISTS.clear();
   roster.forEach(a => { if (a.album_only) ALBUM_ONLY_ARTISTS.add(a.artist_id); });
 
-  // Patch hero theme image/accent for artists we already theme.
+  // Patch hero theme — derive full palette from accent so hover/glow/gradient
+  // always stay in sync when the admin only changes the accent hex.
   roster.forEach(a => {
     const th = ARTIST_THEMES[a.artist_id];
     if (!th) return;
     if (a.image_url) th.img = a.image_url;
-    if (a.accent) th.accent = a.accent;
+    if (a.accent) {
+      const derived = deriveThemeFromAccent(a.accent);
+      th.accent      = derived.accent;
+      th.accentHover = derived.accentHover;
+      th.accentGlow  = derived.accentGlow;
+      th.borderGlow  = derived.borderGlow;
+      th.bgGradient  = derived.bgGradient;
+    }
   });
 
   // Patch picker cards (skip locked — keep the lock placeholder intact).
@@ -2497,6 +2543,24 @@ if (backToPickerBtn) {
       .sort((x, y) => order(x.value) - order(y.value))
       .forEach(o => artistSelector.appendChild(o));
   }
+
+  // ---- Adım 4: OG meta tag patch ----
+  // Patch og:image + og:title for the currently selected artist (if any).
+  // Also sets up a hook so switching artists later also updates OG tags.
+  function patchOgForArtist(artistId, artistName) {
+    const a = byId[artistId];
+    if (!a) return;
+    const ogImage = document.querySelector('meta[property="og:image"]');
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    const ogDesc  = document.querySelector('meta[property="og:description"]');
+    if (ogImage && a.image_url) ogImage.setAttribute('content', a.image_url);
+    if (ogTitle && artistName)  ogTitle.setAttribute('content', `${artistName} Spotify Streams — Fan Dashboard`);
+    if (ogDesc  && artistName)  ogDesc.setAttribute('content',  `Live Spotify stream counts, daily gains and milestone tracking for ${artistName}.`);
+  }
+  // Patch immediately if an artist is already selected (e.g. back from picker).
+  if (currentArtist) patchOgForArtist(currentArtist, currentArtistName);
+  // Expose so artistSelector change handler can call it after applyRoster runs.
+  window._patchOgForArtist = patchOgForArtist;
 })();
 
 // Do NOT auto-load — wait for picker selection

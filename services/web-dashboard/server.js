@@ -432,12 +432,51 @@ app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res)
 
 app.get('/api/scraper-status', requireAuth, async (req, res) => {
   try {
-    const statusRes = await dbQuery('SELECT status FROM scraper_status WHERE id = 1');
-    res.json({ status: statusRes.rows[0]?.status || 'idle' });
+    // 1. Global scraper status row
+    const statusRes = await dbQuery(
+      'SELECT status, started_at, updated_at FROM scraper_status WHERE id = 1'
+    );
+    const global = statusRes.rows[0] || { status: 'idle', started_at: null, updated_at: null };
+
+    // 2. Per-artist: last snapshot date + row count from daily_streams_canonical.
+    //    Join via songs.primary_artist (the canonical artist URI column) →
+    //    daily_streams_canonical (view on canonical_streams keyed by canonical_id = songs.id).
+    //    Falls back gracefully if tracked_artists doesn't exist yet.
+    let perArtist = [];
+    try {
+      const artistRes = await dbQuery(`
+        SELECT
+          ta.artist_id,
+          ta.name,
+          ta.active,
+          COUNT(DISTINCT dsc.canonical_id)::int  AS row_count,
+          MAX(dsc.recorded_date)                  AS last_date,
+          MIN(dsc.recorded_date)                  AS first_date
+        FROM tracked_artists ta
+        LEFT JOIN songs s
+          ON s.primary_artist = 'spotify:artist:' || ta.artist_id
+        LEFT JOIN daily_streams_canonical dsc
+          ON dsc.canonical_id = s.id
+        GROUP BY ta.artist_id, ta.name, ta.active
+        ORDER BY ta.sort_order, ta.name
+      `);
+      perArtist = artistRes.rows;
+    } catch (_) {
+      // tracked_artists table may not exist yet — skip per-artist data
+    }
+
+
+    res.json({
+      status:      global.status,
+      started_at:  global.started_at,
+      updated_at:  global.updated_at,
+      artists:     perArtist,
+    });
   } catch (err) {
-    res.json({ status: 'idle' });
+    res.json({ status: 'idle', started_at: null, updated_at: null, artists: [] });
   }
 });
+
 
 app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
