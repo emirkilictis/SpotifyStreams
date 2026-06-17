@@ -1218,6 +1218,42 @@ app.delete('/api/admin/artists/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Admin: trigger the scraper process in the background (optionally per-artist).
+app.post('/api/admin/scrape', requireAdmin, async (req, res) => {
+  const { spawn } = require('child_process');
+  const { artist_id } = req.body || {};
+  
+  let args = ['scraper.js', '--force'];
+  if (artist_id) {
+    const cleanId = String(artist_id).replace('spotify:artist:', '').trim();
+    if (!/^[A-Za-z0-9]{22}$/.test(cleanId)) {
+      return res.status(400).json({ error: 'Invalid artist ID.' });
+    }
+    args.push(`--artists=${cleanId}`);
+  }
+
+  try {
+    const statusRes = await dbQuery("SELECT status FROM scraper_status WHERE id = 1");
+    const currentStatus = statusRes.rows[0]?.status || 'idle';
+    if (currentStatus === 'scraping' || currentStatus === 'deduping') {
+      return res.status(409).json({ error: `Scraper is already active (status: ${currentStatus}). Please wait.` });
+    }
+  } catch (err) {
+    console.warn('[scrape-trigger] Failed to check scraper status, proceeding anyway:', err.message);
+  }
+
+  const child = spawn('node', args, {
+    cwd: path.join(__dirname, '../spotify-scraper'),
+    detached: true,
+    stdio: 'ignore'
+  });
+
+  child.unref();
+
+  console.log(`[scrape-trigger] Spawned scraper with args: ${args.join(' ')} (PID: ${child.pid})`);
+  res.json({ success: true, message: 'Scrape started in the background.' });
+});
+
 // Serve index.html with cache-busting query strings on app.js/style.css so that a new
 // deploy is always picked up — even by aggressive mobile caches (iOS Safari bfcache).
 // The version token is derived from the asset mtimes, so it changes only on real updates.

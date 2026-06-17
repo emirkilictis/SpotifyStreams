@@ -254,6 +254,7 @@
       <div class="toolbar">
         <button id="artist-add-btn" class="tool-btn">+ Add artist</button>
         <button id="artists-refresh" class="tool-btn" title="Reload">⟳ Refresh</button>
+        <button id="artists-scrape-all" class="tool-btn" style="margin-left: auto; border-color: rgba(30,215,96,0.3); color: var(--green);">⟳ Sync All Playcounts</button>
       </div>
       <form id="artist-form" class="artist-form hidden">
         <div class="af-row">
@@ -282,6 +283,7 @@
     <div id="status-view" class="hidden">
       <div class="toolbar">
         <button id="status-refresh" class="tool-btn">⟳ Refresh</button>
+        <button id="status-scrape-all" class="tool-btn" style="margin-left: auto; border-color: rgba(30,215,96,0.3); color: var(--green);">⟳ Sync All Playcounts</button>
       </div>
       <!-- Global scraper status banner -->
       <div id="status-global" class="status-global-card">
@@ -582,6 +584,7 @@
             <div class="ar-id">${esc(a.artist_id)}</div>
           </div>
           <div class="ar-actions">
+            <button class="act ok" data-scrape="${esc(a.artist_id)}">Sync</button>
             <button class="act" data-edit="${esc(a.artist_id)}">Edit</button>
             <button class="act" data-toggle="${esc(a.artist_id)}">${a.active ? 'Hide' : 'Show'}</button>
             <button class="act del" data-del="${esc(a.artist_id)}">Delete</button>
@@ -637,6 +640,7 @@
 
     artistsListEl.addEventListener('click', async (e) => {
       const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.scrape) { await triggerScrape(b.dataset.scrape, b); return; }
       if (b.dataset.edit) { showForm(artists.find(a => a.artist_id === b.dataset.edit)); return; }
       if (b.dataset.toggle) {
         const a = artists.find(x => x.artist_id === b.dataset.toggle);
@@ -721,6 +725,9 @@
             <td class="st-date ${dateClass}">${dateText}${stale ? ' ⚠' : ''}</td>
             <td class="st-rows">${a.row_count ? a.row_count.toLocaleString() : '—'}</td>
             <td class="st-rows">${firstDate}</td>
+            <td style="text-align: right; padding-right: 14px;">
+              <button class="act ok" data-scrape="${esc(a.artist_id)}">Sync</button>
+            </td>
           </tr>`;
         }).join('');
         statusListEl.innerHTML = `
@@ -731,6 +738,7 @@
                 <th>Last snapshot</th>
                 <th>Total rows</th>
                 <th>Tracking since</th>
+                <th style="text-align: right; padding-right: 14px;">Actions</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -742,6 +750,61 @@
     }
 
     document.getElementById('status-refresh').addEventListener('click', loadScraperStatus);
+
+    // Trigger scraper (artistId = null for all artists, otherwise specific artist)
+    async function triggerScrape(artistId = null, btn = null) {
+      if (!btn && artistId) {
+        // Find any sync button for this artist in either tab
+        btn = document.querySelector(`button[data-scrape="${artistId}"]`);
+      }
+      const prevText = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Starting…';
+      }
+      try {
+        const res = await api('/api/admin/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ artist_id: artistId })
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(d.error || 'Failed to start scraping.');
+        } else {
+          alert(d.message || 'Scrape started in the background.');
+          // Switch to Status tab if not already active to show status
+          const statusTab = document.querySelector('.tab[data-view="status"]');
+          if (statusTab && !statusTab.classList.contains('active')) {
+            statusTab.click();
+          } else {
+            loadScraperStatus();
+          }
+        }
+      } catch (err) {
+        alert('Connection error starting scraper.');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = prevText;
+        }
+      }
+    }
+
+    // Bind event listeners for global sync buttons
+    document.getElementById('artists-scrape-all').addEventListener('click', (e) => {
+      triggerScrape(null, e.target);
+    });
+    document.getElementById('status-scrape-all').addEventListener('click', (e) => {
+      triggerScrape(null, e.target);
+    });
+
+    statusListEl.addEventListener('click', async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.scrape) {
+        await triggerScrape(b.dataset.scrape, b);
+      }
+    });
   </script>
 </body>
 </html>
