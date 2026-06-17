@@ -20,6 +20,11 @@
  */
 
 const DURATION_TOLERANCE_MS = 4000;
+// Wider tolerance applied only when two same-title copies have the EXACT same
+// playcount (a near-certain linked-copy signal). Catches metadata-noise duration
+// gaps (~4-10s) while still keeping genuinely different cuts (e.g. a 22s radio
+// edit) apart.
+const EXACT_MATCH_DURATION_TOLERANCE_MS = 12000;
 
 // Linked kopya sayaç drift toleransı: aynı kayıt, scrape zamanı farkından
 // kaynaklı sapma. Saatlik gain en büyük şarkıda bile %0.05'i geçmez; %0.5
@@ -197,12 +202,23 @@ function shouldKeepSeparate(title) {
           if (refTitleLower.includes('performance') !== itemTitleLower.includes('performance')) continue;
         }
 
-        if (Math.abs(item.duration_ms - ref.duration_ms) > DURATION_TOLERANCE_MS) continue;
+        const a = Number(item.max_streams) || 0;
+        const b = Number(ref.max_streams) || 0;
+
+        // EXACT same non-zero playcount = almost certainly the same linked
+        // recording (Spotify only shows identical counts, to the single stream,
+        // for linked copies). In that case widen the duration tolerance so a few
+        // seconds of metadata noise (remaster length / edition tagging) doesn't
+        // split them — this is what split JT's "(Another Song) All Over Again"
+        // (4.0s spread) and Felix's "ReawakeR". We still cap it (12s) so genuinely
+        // different cuts that merely share a count stay apart (e.g. a 22s-shorter
+        // radio edit of "Give It To Me").
+        const exactSameStreams = a > 0 && a === b;
+        const durTol = exactSameStreams ? EXACT_MATCH_DURATION_TOLERANCE_MS : DURATION_TOLERANCE_MS;
+        if (Math.abs(item.duration_ms - ref.duration_ms) > durTol) continue;
 
         // Linked kopya mı? Sayaçlar drift toleransı içinde eşitse aynı kayıttır.
         // Henüz hiç snapshot'ı olmayan yeni kopya da merge edilir (eski fallback).
-        const a = Number(item.max_streams) || 0;
-        const b = Number(ref.max_streams) || 0;
         const sameLinkedCount = a === 0 || b === 0 ||
           Math.abs(a - b) <= Math.max(a, b) * LINKED_COUNT_TOLERANCE;
 

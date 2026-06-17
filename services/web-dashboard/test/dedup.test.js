@@ -67,6 +67,11 @@ const ROWS = [
   { id: 'mmm', title: 'Cry Me A River', duration_ms: 290000, is_featured: false, album_id: 'al10', primary_artist: 'art1', release_date: D('2002-01-01'), ...live(1_000_000_000) },
   { id: 'nnn', title: 'Cry Me A River', duration_ms: 290000, is_featured: false, album_id: 'al11', primary_artist: 'art1', release_date: D('2003-01-01'), ...frozen(900_000_000) },
 
+  // "all over again": EXACT same playcount but 5.5s apart (>4s default tol) ->
+  // must merge via the wider exact-match tolerance (JT "(Another Song)" case).
+  { id: 'aoa1', title: 'All Over Again', duration_ms: 346000, is_featured: false, album_id: 'al20', primary_artist: 'art1', release_date: D('2006-01-01'), ...live(14_285_682) },
+  { id: 'aoa2', title: 'All Over Again', duration_ms: 351500, is_featured: false, album_id: 'al21', primary_artist: 'art1', release_date: D('2006-01-02'), ...live(14_285_682) },
+
   // "spotlight": aynı title+duration ama FARKLI dashboard bucket'ları -> must NOT merge.
   { id: 'sk1', title: 'Spotlight', duration_ms: 210000, is_featured: false, album_id: 'al12', primary_artist: 'spotify:artist:2dIgFjalVxs4ThymZ67YCE', release_date: D('2018-01-01'), ...live(500) },
   { id: 'gg1', title: 'Spotlight', duration_ms: 210000, is_featured: false, album_id: 'al13', primary_artist: 'spotify:artist:1HY2Jd0NmPuamShAr6KMms', release_date: D('2019-01-01'), ...live(500) },
@@ -104,10 +109,13 @@ test('dedupCanonical groups duplicates and picks the right canonical', async () 
   // cry me a river: frozen copy merges into the live canonical
   assert.equal(a['nnn'], 'mmm', 'frozen copy should merge into canonical');
 
-  // 4 canonical groups (my love, forever, cry me a river, goals), 4 aliases linked
-  // (force overrides are separate). 'goals' is the LISA stale-standard case.
-  assert.equal(canonicalCount, 4);
-  assert.equal(aliasCount, 4);
+  // all over again: exact-playcount copies 5.5s apart merge via the wider tolerance
+  assert.equal(a['aoa2'], 'aoa1', 'exact-playcount copy should merge past 4s tolerance');
+
+  // 5 canonical groups (my love, forever, cry me a river, goals, all over again),
+  // 5 aliases linked (force overrides are separate).
+  assert.equal(canonicalCount, 5);
+  assert.equal(aliasCount, 5);
 });
 
 test('dedupCanonical keeps different-duration same-title tracks separate', async () => {
