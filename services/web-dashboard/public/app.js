@@ -26,6 +26,8 @@ let songChartRange = '30'; // '7' | '30' | 'all'
 let albumChartRange = '30'; // '7' | '30' | 'all'
 let showDetailedAnalysis = false;
 let loadingAlbumHistory = false;
+let currentArtistStats = null; // cached stats for the current artist
+let currentArtistRawStats = null; // cached daily/cumulative stats from /api/stats
 
 // Artists that should only show the Albums view (no Songs tab)
 const ALBUM_ONLY_ARTISTS = new Set([
@@ -255,6 +257,7 @@ async function fetchData() {
       return;
     }
     const statsData = await statsRes.json();
+    currentArtistRawStats = statsData;
     totalStreamsEl.textContent = formatNumber(statsData.total_streams);
     leadStreamsEl.textContent = formatNumber(statsData.lead_streams);
     featStreamsEl.textContent = formatNumber(statsData.feat_streams);
@@ -272,6 +275,7 @@ async function fetchData() {
       const artistStatsRes = await fetch(`/api/artist-stats?artist=${currentArtist}`, { headers });
       if (artistStatsRes.ok) {
         const artistStats = await artistStatsRes.json();
+        currentArtistStats = artistStats;
         const ml = artistStats.latest?.monthly_listeners;
         monthlyListenersEl.textContent = (ml !== null && ml !== undefined) ? formatNumber(ml) : '-';
         setStatDelta(monthlyListenersChangeEl, artistStats.latest?.monthly_listeners_change);
@@ -2785,6 +2789,212 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   // Poll every 10 seconds
   setInterval(checkScraperStatus, 10000);
+})();
+
+// ===== Twitter Post Generator =====
+(function initTwitterPostGenerator() {
+  const twitterPostBtn = document.getElementById('twitter-post-btn');
+  const twitterPostModal = document.getElementById('twitter-post-modal');
+  const closeBtn = document.getElementById('twitter-post-close-btn');
+  const cancelBtn = document.getElementById('twitter-post-cancel-btn');
+  const copyBtn = document.getElementById('tp-copy-btn');
+  const copyBtnText = document.getElementById('tp-copy-btn-text');
+  const postBtn = document.getElementById('tp-post-btn');
+  const previewTextarea = document.getElementById('tp-preview-textarea');
+  const songsSelect = document.getElementById('tp-songs-select');
+  const includeDaily = document.getElementById('tp-include-daily');
+  const includeMl = document.getElementById('tp-include-ml');
+  const includeFol = document.getElementById('tp-include-fol');
+  const includeDate = document.getElementById('tp-include-date');
+  const useEmojis = document.getElementById('tp-use-emojis');
+  const charCounter = document.getElementById('tp-char-counter');
+
+  if (!twitterPostModal) return;
+
+  function generateTwitterPostText() {
+    if (!currentArtistName) return '';
+    
+    const songsLimit = songsSelect.value;
+    const isDailyChecked = includeDaily.checked;
+    const isMlChecked = includeMl.checked;
+    const isFolChecked = includeFol.checked;
+    const isDateChecked = includeDate.checked;
+    const emojisChecked = useEmojis.checked;
+    
+    let lines = [];
+    
+    // Title Header
+    let titleStr = '';
+    if (emojisChecked) {
+      titleStr += '🎵 ';
+    }
+    titleStr += `${currentArtistName} Spotify Stats`;
+    
+    if (isDateChecked && currentArtistRawStats && currentArtistRawStats.last_update) {
+      const d = new Date(currentArtistRawStats.last_update);
+      if (!isNaN(d.getTime())) {
+        const dateFormatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        titleStr += ` (${dateFormatted})`;
+      }
+    }
+    titleStr += ':';
+    lines.push(titleStr);
+    lines.push('');
+    
+    // Songs List (sorted by daily streams / gain descending)
+    if (songsLimit !== 'none' && allSongs && allSongs.length > 0) {
+      const limitNum = parseInt(songsLimit, 10);
+      // Sort copy of songs by daily_gain desc
+      const sortedByDaily = [...allSongs].sort((a, b) => Number(b.daily_gain) - Number(a.daily_gain));
+      const topSongs = sortedByDaily.slice(0, limitNum);
+      
+      if (topSongs.length > 0) {
+        lines.push(emojisChecked ? `🏆 Top Daily Streamed Songs:` : `Top Daily Streamed Songs:`);
+        topSongs.forEach((song, i) => {
+          const title = cleanTrackTitle(song.title);
+          const dailyGain = Number(song.daily_gain);
+          const formattedDaily = dailyGain > 0 ? `+${formatNumber(dailyGain)}` : formatNumber(dailyGain);
+          lines.push(`${i + 1}. ${title}: ${formattedDaily}`);
+        });
+        lines.push('');
+      }
+    }
+    
+    // Stats (Listeners, Followers, Total Daily)
+    if (isDailyChecked && currentArtistRawStats) {
+      const totalDaily = Number(currentArtistRawStats.daily_gain || 0);
+      const formattedTotalDaily = totalDaily > 0 ? `+${formatNumber(totalDaily)}` : formatNumber(totalDaily);
+      lines.push(`${emojisChecked ? '📈 ' : ''}Total Daily Streams: ${formattedTotalDaily}`);
+    }
+    
+    if (isMlChecked && currentArtistStats && currentArtistStats.latest) {
+      const ml = currentArtistStats.latest.monthly_listeners;
+      const mlChange = currentArtistStats.latest.monthly_listeners_change;
+      let mlStr = `${emojisChecked ? '👥 ' : ''}Monthly Listeners: ${ml !== null && ml !== undefined ? formatNumber(ml) : '-'}`;
+      if (mlChange !== null && mlChange !== undefined) {
+        const arrow = mlChange > 0 ? '+' : '';
+        mlStr += ` (${arrow}${formatNumber(mlChange)})`;
+      }
+      lines.push(mlStr);
+    }
+    
+    if (isFolChecked && currentArtistStats && currentArtistStats.latest) {
+      const fol = currentArtistStats.latest.followers;
+      const folChange = currentArtistStats.latest.followers_change;
+      let folStr = `${emojisChecked ? '👥 ' : ''}Followers: ${fol !== null && fol !== undefined ? formatNumber(fol) : '-'}`;
+      if (folChange !== null && folChange !== undefined) {
+        const arrow = folChange > 0 ? '+' : '';
+        folStr += ` (${arrow}${formatNumber(folChange)})`;
+      }
+      lines.push(folStr);
+    }
+    
+    return lines.join('\n').trim();
+  }
+
+  function updatePreview() {
+    const text = generateTwitterPostText();
+    previewTextarea.value = text;
+    updateCharCounter(text.length);
+  }
+
+  function updateCharCounter(len) {
+    charCounter.textContent = `${len} / 280`;
+    if (len > 280) {
+      charCounter.classList.add('exceeded');
+    } else {
+      charCounter.classList.remove('exceeded');
+    }
+  }
+
+  function openTwitterPostModal() {
+    if (!currentArtistRawStats) {
+      alert('Please wait until dashboard data is loaded.');
+      return;
+    }
+    
+    updatePreview();
+    twitterPostModal.classList.remove('hidden');
+    document.body.classList.add('modal-open');
+  }
+
+  function closeTwitterPostModal() {
+    twitterPostModal.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+  }
+
+  async function handleCopy() {
+    const text = previewTextarea.value;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      
+      // Success feedback
+      const origText = copyBtnText.textContent;
+      copyBtnText.textContent = 'Copied! ✓';
+      const origBg = copyBtn.style.background;
+      const origColor = copyBtn.style.color;
+      copyBtn.style.background = 'var(--accent-green)';
+      copyBtn.style.color = '#000000';
+      
+      setTimeout(() => {
+        copyBtnText.textContent = origText;
+        copyBtn.style.background = origBg;
+        copyBtn.style.color = origColor;
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      alert('Failed to copy to clipboard.');
+    }
+  }
+
+  function handlePost() {
+    const text = previewTextarea.value;
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  // Event Listeners
+  if (twitterPostBtn) twitterPostBtn.addEventListener('click', openTwitterPostModal);
+  if (closeBtn) closeBtn.addEventListener('click', closeTwitterPostModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeTwitterPostModal);
+  if (copyBtn) copyBtn.addEventListener('click', handleCopy);
+  if (postBtn) postBtn.addEventListener('click', handlePost);
+
+  // Close on backdrop click
+  twitterPostModal.addEventListener('click', (e) => {
+    if (e.target === twitterPostModal) closeTwitterPostModal();
+  });
+
+  // Close on ESC key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !twitterPostModal.classList.contains('hidden')) {
+      closeTwitterPostModal();
+    }
+  });
+
+  // Option changes trigger regeneration
+  songsSelect.addEventListener('change', updatePreview);
+  includeDaily.addEventListener('change', updatePreview);
+  includeMl.addEventListener('change', updatePreview);
+  includeFol.addEventListener('change', updatePreview);
+  includeDate.addEventListener('change', updatePreview);
+  useEmojis.addEventListener('change', updatePreview);
+
+  // Textarea manual edits update char counter
+  previewTextarea.addEventListener('input', () => {
+    updateCharCounter(previewTextarea.value.length);
+  });
 })();
 
 

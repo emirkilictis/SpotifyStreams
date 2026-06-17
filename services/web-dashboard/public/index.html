@@ -176,6 +176,12 @@
       </div>
       <div class="user-actions">
         <span class="last-update-chip" title="Last updated"><span class="lu-dot"></span><span id="last-update">—</span></span>
+        <button id="twitter-post-btn" class="btn-primary" title="Generate Twitter Post" style="width: auto; padding: 8px 16px; border-radius: 20px; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px var(--accent-green-glow);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+          </svg>
+          <span>Twitter Post</span>
+        </button>
         <button id="back-to-picker-btn" class="btn-secondary" title="Switch Artist">← Artists</button>
         <a href="/logout" class="btn-secondary">Log Out</a>
       </div>
@@ -541,6 +547,93 @@
         <button type="submit" id="feedback-submit" class="btn-primary feedback-submit">Send</button>
         <p class="feedback-status" id="feedback-status" aria-live="polite"></p>
       </form>
+    </div>
+  </div>
+
+  <!-- Twitter Post Generator Modal -->
+  <div class="modal-backdrop hidden" id="twitter-post-modal">
+    <div class="modal-card glass twitter-post-card">
+      <button class="modal-close" id="twitter-post-close-btn">&times;</button>
+      <h2 class="modal-title" style="margin-bottom: 8px; display: flex; align-items: center; gap: 10px;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="color: var(--accent-green);">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+        </svg>
+        Twitter Post Generator
+      </h2>
+      <p class="modal-subtitle" style="margin-bottom: 24px;">Customize and generate a formatted post for Twitter (X)</p>
+      
+      <div class="twitter-post-grid">
+        <!-- Configuration Panel -->
+        <div class="twitter-options-panel">
+          <div class="option-group">
+            <label class="option-label" for="tp-songs-select">Top Daily Songs:</label>
+            <select id="tp-songs-select" class="artist-select-dropdown option-select">
+              <option value="none">None</option>
+              <option value="3">Top 3 Songs</option>
+              <option value="5">Top 5 Songs</option>
+              <option value="10" selected>Top 10 Songs</option>
+            </select>
+          </div>
+          
+          <div class="option-checkbox-group">
+            <label class="checkbox-container">
+              <input type="checkbox" id="tp-include-daily" checked>
+              <span class="checkbox-checkmark"></span>
+              Include Total Daily Streams
+            </label>
+            
+            <label class="checkbox-container">
+              <input type="checkbox" id="tp-include-ml" checked>
+              <span class="checkbox-checkmark"></span>
+              Include Monthly Listeners (+ gain)
+            </label>
+            
+            <label class="checkbox-container">
+              <input type="checkbox" id="tp-include-fol" checked>
+              <span class="checkbox-checkmark"></span>
+              Include Followers (+ gain)
+            </label>
+            
+            <label class="checkbox-container">
+              <input type="checkbox" id="tp-include-date" checked>
+              <span class="checkbox-checkmark"></span>
+              Include Date
+            </label>
+            
+            <label class="checkbox-container">
+              <input type="checkbox" id="tp-use-emojis" checked>
+              <span class="checkbox-checkmark"></span>
+              Use Emojis
+            </label>
+          </div>
+        </div>
+        
+        <!-- Live Preview Panel -->
+        <div class="twitter-preview-panel">
+          <div class="preview-header">
+            <span>Post Preview</span>
+            <span id="tp-char-counter" class="char-counter">0 / 280</span>
+          </div>
+          <textarea id="tp-preview-textarea" class="twitter-textarea" rows="10" placeholder="Generating post..."></textarea>
+        </div>
+      </div>
+      
+      <div class="twitter-modal-actions" style="margin-top: 24px; display: flex; gap: 12px; justify-content: flex-end;">
+        <button id="tp-copy-btn" class="btn-primary" type="button" style="width: auto; padding: 12px 24px; display: inline-flex; align-items: center; gap: 8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <span id="tp-copy-btn-text">Copy Text</span>
+        </button>
+        <button id="tp-post-btn" class="btn-primary" type="button" style="width: auto; background: #ffffff; color: #000000; padding: 12px 24px; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(255, 255, 255, 0.15);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+          </svg>
+          <span>Post to X</span>
+        </button>
+        <button id="tp-cancel-btn" class="btn-secondary" type="button" style="padding: 12px 24px;">Close</button>
+      </div>
     </div>
   </div>
 
