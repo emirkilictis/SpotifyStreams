@@ -651,7 +651,11 @@
       }
       if (b.dataset.del) {
         if (!confirm('Remove this artist from the roster? (songs/streams are untouched)')) return;
-        await api('/api/admin/artists/' + b.dataset.del, { method: 'DELETE' });
+        const res = await api('/api/admin/artists/' + b.dataset.del, { method: 'DELETE' });
+        const d = await res.json().catch(() => ({}));
+        if (d.softDeleted) {
+          alert('This artist still has scraped songs, so it was hidden (set inactive) instead of deleted — removing it entirely would dump its catalogue into Justin Timberlake’s totals. To remove it for good, its songs must be cleared from the database first.');
+        }
         await loadArtists();
       }
     });
