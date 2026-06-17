@@ -1245,6 +1245,76 @@ app.delete('/api/admin/artists/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Admin: health overview — per-artist totals/songs/daily/last-snapshot with
+// anomaly flags, plus orphan detection (artists with songs but no roster row,
+// whose catalogue leaks into JT's catch-all — the Britney class of bug).
+app.get('/api/admin/health', requireAdmin, async (req, res) => {
+  try {
+    const globalMaxRes = await dbQuery(`SELECT MAX(recorded_date)::text AS d FROM stream_stats`);
+    const globalMax = globalMaxRes.rows[0]?.d || null;
+
+    const roster = allArtistsCache;
+    const perArtist = await Promise.all(roster.map(async (a) => {
+      const uri = `spotify:artist:${a.artist_id}`;
+      const r = await dbQuery(
+        `SELECT COALESCE(SUM(dsc.cumulative),0)::bigint AS total,
+                COUNT(*)::int AS songs,
+                COALESCE(SUM(dsc.daily_gain),0)::bigint AS daily,
+                MAX(dsc.recorded_date)::text AS last_update
+         FROM (SELECT DISTINCT ON (canonical_id) canonical_id, cumulative, daily_gain, recorded_date
+               FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC) dsc
+         JOIN songs s ON s.id = dsc.canonical_id
+         JOIN albums alb ON s.album_id = alb.id
+         WHERE ${artistBucketMatchSQL('s', 'alb')} AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})`,
+        [uri]
+      );
+      const row = r.rows[0];
+      const flags = [];
+      const daysStale = (globalMax && row.last_update)
+        ? Math.round((new Date(globalMax) - new Date(row.last_update)) / 86400000) : null;
+      if (a.active && daysStale != null && daysStale >= 2) flags.push('frozen');
+      if (a.active && Number(row.songs) === 0) flags.push('no-songs');
+      return {
+        artist_id: a.artist_id, name: a.name, active: a.active,
+        total: row.total, songs: row.songs, daily: row.daily,
+        last_update: row.last_update, days_stale: daysStale, flags,
+      };
+    }));
+
+    // Orphans: canonical songs whose primary_artist isn't a tracked artist.
+    // JT's catch-all absorbs these. A few low-count ones are normal (genuine JT
+    // collaborators); a high song-count means a removed artist's catalogue is
+    // leaking. We surface counts so the admin can judge / re-add as inactive.
+    const trackedIds = roster.map(a => a.artist_id);
+    const orphanRes = await dbQuery(
+      `SELECT s.primary_artist,
+              COUNT(*)::int AS songs,
+              COALESCE(SUM(ls.cumulative),0)::bigint AS total,
+              (array_agg(s.title ORDER BY ls.cumulative DESC NULLS LAST))[1] AS sample_title
+       FROM songs s
+       JOIN (SELECT DISTINCT ON (canonical_id) canonical_id, cumulative
+             FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC) ls
+         ON ls.canonical_id = s.id
+       WHERE s.canonical_id IS NULL
+         AND s.primary_artist IS NOT NULL
+         AND replace(s.primary_artist,'spotify:artist:','') <> ALL($1::text[])
+       GROUP BY s.primary_artist
+       HAVING COUNT(*) >= 8
+       ORDER BY total DESC`,
+      [trackedIds]
+    );
+    const orphans = orphanRes.rows.map(o => ({
+      artist_id: (o.primary_artist || '').replace('spotify:artist:', ''),
+      songs: o.songs, total: o.total, sample_title: o.sample_title,
+    }));
+
+    res.json({ global_last_update: globalMax, artists: perArtist, orphans });
+  } catch (err) {
+    console.error('Admin health error:', err);
+    res.status(500).json({ error: 'Failed to load health.' });
+  }
+});
+
 // Admin: trigger the scraper process in the background (optionally per-artist).
 app.post('/api/admin/scrape', requireAdmin, async (req, res) => {
   const { spawn } = require('child_process');
@@ -1279,6 +1349,34 @@ app.post('/api/admin/scrape', requireAdmin, async (req, res) => {
 
   console.log(`[scrape-trigger] Spawned scraper with args: ${args.join(' ')} (PID: ${child.pid})`);
   res.json({ success: true, message: 'Scrape started in the background.' });
+});
+
+// Admin: re-run canonical deduplication on demand (when duplicates/inflation
+// appear without waiting for a full scrape). Wrapped in a transaction so a
+// mid-run failure rolls back instead of leaving the catalogue un-deduped.
+const { dedupCanonical } = require('../spotify-scraper/dedup');
+let dedupRunning = false;
+app.post('/api/admin/dedup', requireAdmin, async (req, res) => {
+  if (dedupRunning) return res.status(409).json({ error: 'Dedup is already running.' });
+  dedupRunning = true;
+  res.json({ started: true });
+  (async () => {
+    let client;
+    try {
+      client = await pool.connect();
+      console.log('[admin-dedup] starting (transactional)...');
+      await client.query('BEGIN');
+      const result = await dedupCanonical(client);
+      await client.query('COMMIT');
+      console.log('[admin-dedup] done:', result);
+    } catch (err) {
+      if (client) { try { await client.query('ROLLBACK'); } catch {} }
+      console.error('[admin-dedup] failed (rolled back):', err.message);
+    } finally {
+      if (client) client.release();
+      dedupRunning = false;
+    }
+  })();
 });
 
 // Serve index.html with cache-busting query strings on app.js/style.css so that a new

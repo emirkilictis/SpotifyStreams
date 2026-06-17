@@ -208,6 +208,31 @@
     .st-date.missing { color: var(--faint); font-style: italic; }
     .st-rows { color: var(--muted); }
     .st-inactive { opacity: 0.45; }
+
+    /* Health view */
+    .health-row {
+      display: flex; align-items: center; gap: 12px; background: var(--card);
+      border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
+    }
+    .health-row.inactive { opacity: 0.5; }
+    .health-row.flagged { border-color: rgba(251,191,36,0.45); }
+    .hr-name { flex: 1; min-width: 0; font-weight: 600; }
+    .hr-name .hr-sub { display: block; font-size: 0.72rem; color: var(--faint); font-weight: 400; }
+    .hr-metric { text-align: right; min-width: 86px; }
+    .hr-metric .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .hr-metric .l { display: block; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--faint); }
+    .hr-flag { font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 999px; background: rgba(251,191,36,0.15); color: var(--amber); }
+    @media (max-width: 640px) { .hr-metric.opt { display: none; } }
+
+    .orphan-card {
+      background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.3);
+      border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+    }
+    .orphan-card h3 { margin: 0 0 4px; font-size: 0.95rem; color: var(--red); }
+    .orphan-card p { margin: 0 0 12px; font-size: 0.82rem; color: var(--muted); }
+    .orphan-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap; }
+    .orphan-item .oi-main { flex: 1; min-width: 0; font-size: 0.85rem; }
+    .orphan-item .oi-id { font-family: monospace; font-size: 0.72rem; color: var(--faint); }
   </style>
 </head>
 <body>
@@ -234,8 +259,19 @@
 
     <div class="tabs">
       <button class="tab active" data-view="feedback">Requests</button>
+      <button class="tab" data-view="health">Health</button>
       <button class="tab" data-view="artists">Artists</button>
       <button class="tab" data-view="status">Status</button>
+    </div>
+
+    <!-- Health view -->
+    <div id="health-view" class="hidden">
+      <div class="toolbar">
+        <button id="health-refresh" class="tool-btn" title="Reload">⟳ Refresh</button>
+        <button id="health-dedup" class="tool-btn" style="margin-left:auto;border-color:rgba(251,191,36,0.4);color:var(--amber)">⚒ Re-run dedup</button>
+      </div>
+      <div id="health-orphans"></div>
+      <div id="health-list"></div>
     </div>
 
     <!-- Feedback view -->
@@ -549,9 +585,100 @@
       feedbackView.classList.toggle('hidden', v !== 'feedback');
       artistsView.classList.toggle('hidden', v !== 'artists');
       statusView.classList.toggle('hidden', v !== 'status');
+      document.getElementById('health-view').classList.toggle('hidden', v !== 'health');
       if (v === 'artists' && !artistsLoaded) loadArtists();
       if (v === 'status') loadScraperStatus();
+      if (v === 'health') loadHealth();
     }));
+
+    // ---- Health / overview ----
+    const fmtB = (n) => (Number(n) / 1e9).toFixed(2) + 'B';
+    const fmtM = (n) => {
+      const v = Number(n);
+      return (v >= 0 ? '+' : '') + (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v.toLocaleString());
+    };
+
+    async function loadHealth() {
+      const listEl = document.getElementById('health-list');
+      const orphEl = document.getElementById('health-orphans');
+      listEl.innerHTML = '<div class="loading">Loading…</div>';
+      orphEl.innerHTML = '';
+      try {
+        const res = await api('/api/admin/health');
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error();
+        const d = await res.json();
+        renderHealth(d);
+      } catch {
+        listEl.innerHTML = '<div class="empty">Could not load health.</div>';
+      }
+    }
+
+    function renderHealth(d) {
+      const orphEl = document.getElementById('health-orphans');
+      const listEl = document.getElementById('health-list');
+
+      // Orphans (artists with songs but no roster row → leaking into JT).
+      if (d.orphans && d.orphans.length) {
+        orphEl.innerHTML = `<div class="orphan-card">
+          <h3>⚠ ${d.orphans.length} orphan artist(s) leaking into Justin Timberlake</h3>
+          <p>These have tracked songs but no roster entry, so their streams fall into JT's catch-all. Add as inactive to exclude them.</p>
+          ${d.orphans.map(o => `<div class="orphan-item">
+            <div class="oi-main"><b>${esc(o.sample_title || '(unknown)')}</b> <span class="oi-id">${esc(o.artist_id)}</span><br>${o.songs} songs · ${fmtB(o.total)}</div>
+            <button class="act ok" data-orphan="${esc(o.artist_id)}" data-sample="${esc(o.sample_title || '')}">Add as inactive</button>
+          </div>`).join('')}
+        </div>`;
+      } else {
+        orphEl.innerHTML = '';
+      }
+
+      // Per-artist health rows.
+      listEl.innerHTML = d.artists.map(a => {
+        const flags = (a.flags || []).map(f => `<span class="hr-flag">${f}</span>`).join(' ');
+        const staleClass = a.flags && a.flags.includes('frozen') ? 'flagged' : '';
+        return `<div class="health-row ${a.active ? '' : 'inactive'} ${staleClass}">
+          <div class="hr-name">${esc(a.name)} ${flags}
+            <span class="hr-sub">${a.active ? 'last ' + (a.last_update || '—') + (a.days_stale ? ` · ${a.days_stale}d ago` : '') : 'inactive'}</span>
+          </div>
+          <div class="hr-metric"><span class="v">${fmtB(a.total)}</span><span class="l">streams</span></div>
+          <div class="hr-metric opt"><span class="v">${a.songs}</span><span class="l">songs</span></div>
+          <div class="hr-metric opt"><span class="v">${fmtM(a.daily)}</span><span class="l">daily</span></div>
+        </div>`;
+      }).join('');
+    }
+
+    document.getElementById('health-refresh').addEventListener('click', loadHealth);
+
+    document.getElementById('health-dedup').addEventListener('click', async (e) => {
+      if (!confirm('Re-run deduplication now? Takes ~1–2 min; totals refresh afterwards.')) return;
+      const btn = e.target;
+      btn.disabled = true; btn.textContent = '⚒ Dedup running…';
+      try {
+        const res = await api('/api/admin/dedup', { method: 'POST' });
+        const j = await res.json().catch(() => ({}));
+        if (res.status === 409) { alert('Dedup is already running.'); }
+        else if (res.ok && j.started) { alert('Dedup started. Give it ~1–2 minutes, then hit Refresh to see updated totals.'); }
+        else { alert(j.error || 'Could not start dedup.'); }
+      } catch { alert('Connection error.'); }
+      finally { setTimeout(() => { btn.disabled = false; btn.textContent = '⚒ Re-run dedup'; }, 3000); }
+    });
+
+    // Orphan → add as inactive (stops the JT leak; keeps data).
+    document.getElementById('health-orphans').addEventListener('click', async (e) => {
+      const b = e.target.closest('button[data-orphan]'); if (!b) return;
+      const id = b.dataset.orphan;
+      const name = prompt('Name for this artist (added as hidden/inactive to stop the JT leak):', b.dataset.sample || '');
+      if (name === null) return;
+      b.disabled = true;
+      try {
+        const res = await api('/api/admin/artists', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ artist_id: id, name: name.trim() || id, active: false, sort_order: 999 }),
+        });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); alert(j.error || 'Failed.'); b.disabled = false; return; }
+        await loadHealth();
+      } catch { alert('Connection error.'); b.disabled = false; }
+    });
 
 
     async function loadArtists() {
