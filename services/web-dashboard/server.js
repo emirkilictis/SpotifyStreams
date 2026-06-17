@@ -69,15 +69,25 @@ const FELIX_EXTRA_TRACK_IDS_SQL = FELIX_EXTRA_TRACK_IDS.map(id => `'${id}'`).joi
 // Loaded from tracked_artists table on startup and refreshed on admin updates.
 let activeArtistsCache = ARTIST_ROSTER_FALLBACK;
 
+// EVERY tracked artist (active OR inactive). Used ONLY for JT's catch-all
+// exclusion: JT's bucket is "everything not claimed by a named artist", so a
+// named artist must keep excluding their songs even after they're hidden —
+// otherwise hiding/removing an artist dumps their whole catalogue into JT.
+let allArtistsCache = ARTIST_ROSTER_FALLBACK;
+
 // The per-artist "which songs belong to this artist's dashboard bucket" filter,
 // parameterised by table aliases so it can be reused in subqueries. $1 is the
 // artist URI. MUST stay in sync with the inline copies in /api/songs & /api/stats.
 function artistBucketMatchSQL(s, a) {
-  const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
-  const jtExclusions = nonJtArtists
+  // JT's catch-all must exclude EVERY tracked artist (active or not), so hiding
+  // an artist never leaks their catalogue into JT.
+  const jtExclusions = allArtistsCache
+    .filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7')
     .map(item => `${s}.primary_artist IS DISTINCT FROM 'spotify:artist:${item.artist_id}'`)
     .join(' AND ');
 
+  // Per-artist viewing clauses only apply to currently-active artists.
+  const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
   const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '6qqNVTkY8uBg9cP3Jd7DAH', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W'];
   const normalClauses = nonJtArtists
     .filter(item => !specialIds.includes(item.artist_id))
@@ -96,8 +106,9 @@ function artistBucketMatchSQL(s, a) {
 
 // Dynamically generate the album exclusion clauses for albums query based on active artists.
 function artistAlbumMatchSQL(s) {
-  const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
-  const jtExclusions = nonJtArtists
+  // Same rule as artistBucketMatchSQL: JT excludes every tracked artist.
+  const jtExclusions = allArtistsCache
+    .filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7')
     .map(item => `${s}.primary_artist IS DISTINCT FROM 'spotify:artist:${item.artist_id}'`)
     .join(' AND ');
 
@@ -199,17 +210,19 @@ async function dbQuery(text, params) {
 async function refreshActiveArtistsCache() {
   try {
     const r = await dbQuery(
-      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked
-       FROM tracked_artists WHERE active = true ORDER BY sort_order, name`
+      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked, active
+       FROM tracked_artists ORDER BY sort_order, name`
     );
     if (r.rows.length) {
-      activeArtistsCache = r.rows;
+      allArtistsCache = r.rows;
+      activeArtistsCache = r.rows.filter(a => a.active);
       return;
     }
   } catch (err) {
     console.warn('[cache] tracked_artists table unavailable, using fallback:', err.code || err.message);
   }
   activeArtistsCache = ARTIST_ROSTER_FALLBACK;
+  allArtistsCache = ARTIST_ROSTER_FALLBACK;
 }
 
 // Last-resort guards: log instead of letting a stray async error take the site down.
@@ -1205,13 +1218,27 @@ app.patch('/api/admin/artists/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// Admin: remove an artist from the roster (does not touch songs/streams).
+// Admin: remove an artist from the roster.
+// If the artist still has scraped songs, a hard delete would dump their whole
+// catalogue into JT's catch-all bucket (JT = "everything not claimed by a named
+// artist"). So we SOFT-delete (active=false) those — keeping them excluded from
+// JT and hidden from the site. Only artists with no songs are truly removed.
 app.delete('/api/admin/artists/:id', requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id).replace('spotify:artist:', '');
-    await dbQuery(`DELETE FROM tracked_artists WHERE artist_id = $1`, [id]);
+    const songCheck = await dbQuery(
+      `SELECT 1 FROM songs WHERE primary_artist = $1 LIMIT 1`,
+      [`spotify:artist:${id}`]
+    );
+    let softDeleted = false;
+    if (songCheck.rows.length) {
+      await dbQuery(`UPDATE tracked_artists SET active = false WHERE artist_id = $1`, [id]);
+      softDeleted = true;
+    } else {
+      await dbQuery(`DELETE FROM tracked_artists WHERE artist_id = $1`, [id]);
+    }
     await refreshActiveArtistsCache();
-    res.json({ success: true });
+    res.json({ success: true, softDeleted });
   } catch (err) {
     console.error('Admin artist delete error:', err);
     res.status(500).json({ error: 'Failed to delete artist.' });
