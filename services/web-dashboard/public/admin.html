@@ -261,7 +261,19 @@
       <button class="tab active" data-view="feedback">Requests</button>
       <button class="tab" data-view="health">Health</button>
       <button class="tab" data-view="artists">Artists</button>
+      <button class="tab" data-view="songs">Songs</button>
       <button class="tab" data-view="status">Status</button>
+    </div>
+
+    <!-- Songs view (hide/unhide tracks) -->
+    <div id="songs-view" class="hidden">
+      <div class="toolbar">
+        <input id="song-hide-search" class="search" type="search" placeholder="Search a song by title to hide…" autocomplete="off">
+        <button id="hidden-refresh" class="tool-btn" title="Reload hidden list">⟳ Hidden</button>
+      </div>
+      <div id="song-results"></div>
+      <h3 style="font-size:0.9rem;color:var(--muted);margin:18px 0 10px;">Currently hidden</h3>
+      <div id="hidden-songs-list"></div>
     </div>
 
     <!-- Health view -->
@@ -586,10 +598,89 @@
       artistsView.classList.toggle('hidden', v !== 'artists');
       statusView.classList.toggle('hidden', v !== 'status');
       document.getElementById('health-view').classList.toggle('hidden', v !== 'health');
+      document.getElementById('songs-view').classList.toggle('hidden', v !== 'songs');
       if (v === 'artists' && !artistsLoaded) loadArtists();
       if (v === 'status') loadScraperStatus();
       if (v === 'health') loadHealth();
+      if (v === 'songs') loadHiddenSongs();
     }));
+
+    // ---- Songs: hide / unhide tracks ----
+    const songSearchEl = document.getElementById('song-hide-search');
+    const songResultsEl = document.getElementById('song-results');
+    const hiddenListEl = document.getElementById('hidden-songs-list');
+    const artistName = (pa) => ARTIST_NAMES[(pa || '').replace('spotify:artist:', '')] || '';
+
+    let songSearchTimer;
+    songSearchEl.addEventListener('input', () => {
+      clearTimeout(songSearchTimer);
+      const q = songSearchEl.value.trim();
+      if (q.length < 2) { songResultsEl.innerHTML = ''; return; }
+      songSearchTimer = setTimeout(() => searchSongs(q), 220);
+    });
+
+    async function searchSongs(q) {
+      songResultsEl.innerHTML = '<div class="loading">Searching…</div>';
+      try {
+        const res = await api('/api/admin/song-search?q=' + encodeURIComponent(q));
+        if (!res.ok) throw new Error();
+        const rows = await res.json();
+        if (!rows.length) { songResultsEl.innerHTML = '<div class="empty">No matches.</div>'; return; }
+        songResultsEl.innerHTML = rows.map(s => `
+          <div class="artist-row">
+            <div class="ar-main">
+              <div class="ar-name">${esc(s.title)} ${s.hidden ? '<span class="ar-tag locked">hidden</span>' : ''}</div>
+              <div class="ar-id">${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.album || '')} · ${s.streams ? (Number(s.streams)/1e6).toFixed(1)+'M' : '—'} · ${esc(s.id)}</div>
+            </div>
+            <div class="ar-actions">
+              ${s.hidden
+                ? `<button class="act ok" data-unhide="${esc(s.id)}">Un-hide</button>`
+                : `<button class="act del" data-hide="${esc(s.id)}">Hide</button>`}
+            </div>
+          </div>`).join('');
+      } catch { songResultsEl.innerHTML = '<div class="empty">Search failed.</div>'; }
+    }
+
+    async function loadHiddenSongs() {
+      hiddenListEl.innerHTML = '<div class="loading">Loading…</div>';
+      try {
+        const res = await api('/api/admin/hidden-songs');
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error();
+        const rows = await res.json();
+        if (!rows.length) { hiddenListEl.innerHTML = '<div class="empty">No hidden songs.</div>'; return; }
+        hiddenListEl.innerHTML = rows.map(s => `
+          <div class="artist-row">
+            <div class="ar-main">
+              <div class="ar-name">${esc(s.title || '(unknown track)')}</div>
+              <div class="ar-id">${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.song_id)}${s.reason ? ' · ' + esc(s.reason) : ''}</div>
+            </div>
+            <div class="ar-actions"><button class="act ok" data-unhide="${esc(s.song_id)}">Un-hide</button></div>
+          </div>`).join('');
+      } catch { hiddenListEl.innerHTML = '<div class="empty">Could not load (migration 014 applied?).</div>'; }
+    }
+
+    document.getElementById('hidden-refresh').addEventListener('click', loadHiddenSongs);
+
+    document.getElementById('songs-view').addEventListener('click', async (e) => {
+      const hideBtn = e.target.closest('button[data-hide]');
+      const unhideBtn = e.target.closest('button[data-unhide]');
+      if (hideBtn) {
+        const reason = prompt('Optional reason for hiding this track:', '') ?? '';
+        hideBtn.disabled = true;
+        await api('/api/admin/hidden-songs', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song_id: hideBtn.dataset.hide, reason }),
+        });
+        if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
+        await loadHiddenSongs();
+      } else if (unhideBtn) {
+        unhideBtn.disabled = true;
+        await api('/api/admin/hidden-songs/' + unhideBtn.dataset.unhide, { method: 'DELETE' });
+        if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
+        await loadHiddenSongs();
+      }
+    });
 
     // ---- Health / overview ----
     const fmtB = (n) => (Number(n) / 1e9).toFixed(2) + 'B';

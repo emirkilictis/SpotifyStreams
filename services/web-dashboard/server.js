@@ -51,7 +51,15 @@ const lastSubmitAt = new Map();
 // Tracks hidden from EVERY listing (songs list, album tracklist, milestones).
 // Dead duplicates whose live copy is tracked under a different id.
 const HIDDEN_TRACK_IDS = ['6233Z1W8t9Wn1f1gZqHhQ5']; // Suit & Tie - Radio Edit (frozen 2026-05-26; live = 4mQVHEjrnuUd7G5IVhSYTk)
-const HIDDEN_TRACK_IDS_SQL = HIDDEN_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
+// Admin-hidden song ids (hidden_songs table, migration 014), loaded into this
+// cache on startup + after every change. The static HIDDEN_TRACK_IDS above are
+// always merged in, so if the table is missing/empty behaviour is unchanged.
+let hiddenSongsCache = [];
+function hiddenTrackIdsSql() {
+  const ids = [...new Set([...HIDDEN_TRACK_IDS, ...hiddenSongsCache])];
+  return ids.map(id => `'${id}'`).join(', ');
+}
 
 // Felix is credited (sub-unit / featured) on these Stray Kids tracks, so kworb
 // lists them on Felix's artist page. Their primary_artist is Stray Kids, so they
@@ -225,6 +233,18 @@ async function refreshActiveArtistsCache() {
   allArtistsCache = ARTIST_ROSTER_FALLBACK;
 }
 
+// Load admin-hidden song ids from the hidden_songs table into the cache.
+// Falls back to an empty list (→ only the static HIDDEN_TRACK_IDS apply).
+async function refreshHiddenSongsCache() {
+  try {
+    const r = await dbQuery(`SELECT song_id FROM hidden_songs`);
+    hiddenSongsCache = r.rows.map(x => x.song_id);
+  } catch (err) {
+    console.warn('[cache] hidden_songs table unavailable:', err.code || err.message);
+    hiddenSongsCache = [];
+  }
+}
+
 // Last-resort guards: log instead of letting a stray async error take the site down.
 process.on('unhandledRejection', (err) => {
   console.error('[fatal-guard] Unhandled rejection:', err);
@@ -360,7 +380,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         ORDER BY canonical_id, recorded_date DESC
       ) dsc ON s.id = dsc.canonical_id
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
-      AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
+      AND s.id NOT IN (${hiddenTrackIdsSql()})
       AND ${FSLS_REMIX_EXCLUSION_SQL}
       ORDER BY cumulative DESC;
     `;
@@ -396,7 +416,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
             JOIN songs s2 ON s2.id = d2.canonical_id
             JOIN albums a2 ON s2.album_id = a2.id
             WHERE ${artistBucketMatchSQL('s2', 'a2')}
-              AND s2.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
+              AND s2.id NOT IN (${hiddenTrackIdsSql()})
             GROUP BY d2.recorded_date
             ORDER BY d2.recorded_date DESC
             LIMIT 7
@@ -416,7 +436,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
       JOIN songs s ON s.id = dsc.canonical_id
       JOIN albums a ON s.album_id = a.id
       WHERE ${artistBucketMatchSQL('s', 'a')}
-      AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL});
+      AND s.id NOT IN (${hiddenTrackIdsSql()});
     `;
     const result = await dbQuery(query, [artistUri]);
     res.json(result.rows[0]);
@@ -550,7 +570,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
         JOIN songs s ON s.id = dsc.canonical_id
         JOIN albums a ON s.album_id = a.id
         WHERE ${artistBucketMatchSQL('s', 'a')}
-        AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})
+        AND s.id NOT IN (${hiddenTrackIdsSql()})
       ),
       song_crossings AS (
         SELECT
@@ -1265,7 +1285,7 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
                FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC) dsc
          JOIN songs s ON s.id = dsc.canonical_id
          JOIN albums alb ON s.album_id = alb.id
-         WHERE ${artistBucketMatchSQL('s', 'alb')} AND s.id NOT IN (${HIDDEN_TRACK_IDS_SQL})`,
+         WHERE ${artistBucketMatchSQL('s', 'alb')} AND s.id NOT IN (${hiddenTrackIdsSql()})`,
         [uri]
       );
       const row = r.rows[0];
@@ -1379,6 +1399,74 @@ app.post('/api/admin/dedup', requireAdmin, async (req, res) => {
   })();
 });
 
+// Admin: search songs by title (to find one to hide). Canonical tracks only.
+app.get('/api/admin/song-search', requireAdmin, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json([]);
+    const r = await dbQuery(
+      `SELECT s.id, s.title, s.primary_artist, a.title AS album,
+              (SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id) AS streams
+       FROM songs s LEFT JOIN albums a ON a.id = s.album_id
+       WHERE s.canonical_id IS NULL AND s.title ILIKE $1
+       ORDER BY streams DESC NULLS LAST LIMIT 40`,
+      [`%${q}%`]
+    );
+    // Mark hidden from the cache (no hard dependency on the hidden_songs table).
+    const hidden = new Set(hiddenSongsCache);
+    res.json(r.rows.map(row => ({ ...row, hidden: hidden.has(row.id) })));
+  } catch (err) {
+    console.error('Admin song-search error:', err);
+    res.status(500).json({ error: 'Search failed.' });
+  }
+});
+
+// Admin: list hidden songs (with titles).
+app.get('/api/admin/hidden-songs', requireAdmin, async (req, res) => {
+  try {
+    const r = await dbQuery(
+      `SELECT h.song_id, h.reason, h.created_at, s.title, s.primary_artist
+       FROM hidden_songs h LEFT JOIN songs s ON s.id = h.song_id
+       ORDER BY h.created_at DESC`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Admin hidden-songs list error:', err);
+    res.status(500).json({ error: 'Failed to load (is migration 014 applied?).' });
+  }
+});
+
+// Admin: hide a song from every dashboard listing.
+app.post('/api/admin/hidden-songs', requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.body.song_id || '').replace('spotify:track:', '').trim();
+    if (!/^[A-Za-z0-9]{22}$/.test(id)) return res.status(400).json({ error: 'Invalid track id.' });
+    await dbQuery(
+      `INSERT INTO hidden_songs (song_id, reason) VALUES ($1, $2)
+       ON CONFLICT (song_id) DO UPDATE SET reason = $2`,
+      [id, String(req.body.reason || '').slice(0, 300) || null]
+    );
+    await refreshHiddenSongsCache();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Admin hide-song error:', err);
+    res.status(500).json({ error: 'Failed to hide song.' });
+  }
+});
+
+// Admin: un-hide a song.
+app.delete('/api/admin/hidden-songs/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.params.id).replace('spotify:track:', '');
+    await dbQuery(`DELETE FROM hidden_songs WHERE song_id = $1`, [id]);
+    await refreshHiddenSongsCache();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Admin unhide-song error:', err);
+    res.status(500).json({ error: 'Failed to un-hide song.' });
+  }
+});
+
 // Serve index.html with cache-busting query strings on app.js/style.css so that a new
 // deploy is always picked up — even by aggressive mobile caches (iOS Safari bfcache).
 // The version token is derived from the asset mtimes, so it changes only on real updates.
@@ -1443,5 +1531,5 @@ app.get('*', requireAuth, (req, res) => {
 
 app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
-  await refreshActiveArtistsCache();
+  await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache()]);
 });
