@@ -75,6 +75,7 @@ const FORCE_CANONICAL = {
   '2iWljCivLjWnLkwItPZdRV': '13X42np3KJr0o2LkK1MG76', // My Love (Single Version) → My Love (Main Version)
   '24CBAWq81pQNTftNAxVLYk': '0Gasl1wiqhENYa8RskLpPw', // (Another Song) All Over Again FSLS standard → deluxe
   '2odDiXqmvqGNKzHUoEGTHB': '3hdGyxmW0eNskNwTwmXOIQ', // LISA Goals (FIFA WC 2026 standard, frozen) → Opening Ceremony Edition canonical
+  '5GP8vMD6WaOffDeJfbit0m': '6ic8OlLUNEATToEFU3xmaH', // Gimme More ("Kimme More" Remix) (feat. Lil' Kim) → Gimme More (original)
 };
 
 /**

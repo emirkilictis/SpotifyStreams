@@ -37,7 +37,7 @@ const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
 
 // Admin passcode for reading visitor feedback/requests. Set ADMIN_PASSCODE in the
 // environment (Render dashboard); falls back to a dev default so local runs work.
-const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || 'jtadmin';
+const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || 'pairofwings';
 const isAdmin = (passcode) => typeof passcode === 'string' && passcode.length > 0 && passcode === ADMIN_PASSCODE;
 
 // Salt for hashing submitter IPs (abuse tracking without storing raw IPs).
