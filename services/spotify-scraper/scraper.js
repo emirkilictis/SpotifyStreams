@@ -444,19 +444,34 @@ async function run() {
       const stats  = { tracksProcessed: 0, streamsUpdated: 0 };
 
       const artistFilterArg = process.argv.find(arg => arg.startsWith('--artists='));
-      let artistsToRun = [
-        { id: '31TPClRtHm23RisEBtV3X7', name: 'Justin Timberlake' },
-        { id: '5L1lO4eRHmJ7a0Q6csE5cT', name: 'LISA' },
-        { id: '1HY2Jd0NmPuamShAr6KMms', name: 'Lady Gaga' },
-        { id: '6qqNVTkY8uBg9cP3Jd7DAH', name: 'Billie Eilish' },
-        { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande' },
-        { id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC' },
-        { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez' },
-        { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' },
-        { id: '2dIgFjalVxs4ThymZ67YCE', name: 'Stray Kids' },
-        { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix' },
-        { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' }
-      ];
+      let artistsToRun = [];
+      try {
+        const dbRes = await client.query(
+          'SELECT artist_id as id, name FROM tracked_artists WHERE active = true ORDER BY sort_order, name'
+        );
+        if (dbRes.rows.length) {
+          artistsToRun = dbRes.rows;
+          console.log(`[scraper] Loaded ${artistsToRun.length} active artists from database.`);
+        }
+      } catch (err) {
+        console.warn(`[scraper] Failed to load active artists from database: ${err.message}. Using fallback.`);
+      }
+
+      if (!artistsToRun.length) {
+        artistsToRun = [
+          { id: '31TPClRtHm23RisEBtV3X7', name: 'Justin Timberlake' },
+          { id: '5L1lO4eRHmJ7a0Q6csE5cT', name: 'LISA' },
+          { id: '1HY2Jd0NmPuamShAr6KMms', name: 'Lady Gaga' },
+          { id: '6qqNVTkY8uBg9cP3Jd7DAH', name: 'Billie Eilish' },
+          { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande' },
+          { id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC' },
+          { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez' },
+          { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' },
+          { id: '2dIgFjalVxs4ThymZ67YCE', name: 'Stray Kids' },
+          { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix' },
+          { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' }
+        ];
+      }
 
       if (artistFilterArg) {
         const allowedIds = artistFilterArg.split('=')[1].split(',');

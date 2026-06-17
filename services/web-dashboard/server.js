@@ -11,20 +11,7 @@ const PORT = process.env.PORT || 3000;
 // Behind Render's proxy — trust X-Forwarded-* so req.protocol is https (used for absolute OG urls).
 app.set('trust proxy', true);
 
-// Per-artist link preview (Open Graph / Twitter Card) metadata.
-// img = absolute Spotify CDN url, or a local path (made absolute at request time).
-const ARTIST_OG = {
-  '31TPClRtHm23RisEBtV3X7': { name: 'Justin Timberlake', img: '/images/jt.jpg' },
-  '5L1lO4eRHmJ7a0Q6csE5cT': { name: 'LISA',           img: 'https://i.scdn.co/image/ab6761610000e5eb5cd3b3af8b72e32be78571ec' },
-  '1HY2Jd0NmPuamShAr6KMms': { name: 'Lady Gaga',       img: 'https://i.scdn.co/image/ab6761610000e5ebaadc18cac8d48124357c38e6' },
-  '6qqNVTkY8uBg9cP3Jd7DAH': { name: 'Billie Eilish',   img: 'https://i.scdn.co/image/ab6761610000e5eb4a21b4760d2ecb7b0dcdc8da' },
-  '66CXWjxzNUsdJxJ2JdwvnR': { name: 'Ariana Grande',   img: 'https://i.scdn.co/image/ab6761610000e5eb766397ec42a573a53eb5fb87' },
-  '6Ff53KvcvAj5U7Z1vojB5o': { name: '*NSYNC',          img: 'https://i.scdn.co/image/ab6761610000e5eb9414ef07d0ca697726912df1' },
-  '3LHYvj5ZejV1NLqncEObSJ': { name: 'Vaelis',          img: 'https://i.scdn.co/image/ab6761610000e5eb05e2f96f53a2810f5dcdd6c1' },
-  '2dIgFjalVxs4ThymZ67YCE': { name: 'Stray Kids',      img: 'https://i.scdn.co/image/ab6761610000e5ebf9887d2c9288f0e50a3fd69f' },
-  '4UIOuc84ExWojcUzFGtb8W': { name: 'Felix',           img: 'https://i.scdn.co/image/ab6761610000e5eb51e1a166ae0cc73d8ec19909' },
-  '2W8yFh0Ga6Yf3jiayVxwkE': { name: 'Dove Cameron',    img: 'https://i.scdn.co/image/ab6761610000e5eb0c5fcd837c1420d97f500ef9' },
-};
+
 
 // Roster fallback — mirrors the tracked_artists seed (migration 013). Used by
 // GET /api/artists whenever the table is missing/empty (e.g. before the
@@ -78,22 +65,45 @@ const FELIX_EXTRA_TRACK_IDS = [
 ];
 const FELIX_EXTRA_TRACK_IDS_SQL = FELIX_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
 
+// In-memory cache of active artists, initialized with the fallback list.
+// Loaded from tracked_artists table on startup and refreshed on admin updates.
+let activeArtistsCache = ARTIST_ROSTER_FALLBACK;
+
 // The per-artist "which songs belong to this artist's dashboard bucket" filter,
 // parameterised by table aliases so it can be reused in subqueries. $1 is the
 // artist URI. MUST stay in sync with the inline copies in /api/songs & /api/stats.
 function artistBucketMatchSQL(s, a) {
+  const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
+  const jtExclusions = nonJtArtists
+    .map(item => `${s}.primary_artist IS DISTINCT FROM 'spotify:artist:${item.artist_id}'`)
+    .join(' AND ');
+
+  const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '6qqNVTkY8uBg9cP3Jd7DAH', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W'];
+  const normalClauses = nonJtArtists
+    .filter(item => !specialIds.includes(item.artist_id))
+    .map(item => `OR ($1 = 'spotify:artist:${item.artist_id}' AND ${s}.primary_artist = 'spotify:artist:${item.artist_id}')`)
+    .join('\n    ');
+
   return `(
-    ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (${s}.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND ${s}.primary_artist IS DISTINCT FROM 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE'))
-    OR ($1 = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND ${s}.primary_artist = 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT')
-    OR ($1 = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND ${s}.primary_artist = 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o')
-    OR ($1 = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND ${s}.primary_artist = 'spotify:artist:3p3U04w2DaiBzuYMZnYr00')
-    OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND ${s}.primary_artist = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ')
-    OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND ${s}.primary_artist = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
+    ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7'${jtExclusions ? ' AND (' + jtExclusions + ')' : ''})
+    ${normalClauses}
     OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR ${s}.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE' AND ${s}.primary_artist = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE')
     OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))
     OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (${a}.title ILIKE 'HIT ME HARD AND SOFT%' OR ${a}.title ILIKE 'Happier Than Ever%' OR ${a}.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%' OR ${a}.title ILIKE 'dont smile at me%' OR ${a}.title ILIKE 'don''t smile at me%' OR ${a}.title ILIKE 'Guitar Songs%'))
     OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))
+  )`;
+}
+
+// Dynamically generate the album exclusion clauses for albums query based on active artists.
+function artistAlbumMatchSQL(s) {
+  const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
+  const jtExclusions = nonJtArtists
+    .map(item => `${s}.primary_artist IS DISTINCT FROM 'spotify:artist:${item.artist_id}'`)
+    .join(' AND ');
+
+  return `(
+    ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7'${jtExclusions ? ' AND (' + jtExclusions + ')' : ''})
+    OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND ${s}.primary_artist = $1)
   )`;
 }
 
@@ -183,6 +193,23 @@ async function dbQuery(text, params) {
       await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
     }
   }
+}
+
+// Reload active artists cache from tracked_artists table, falling back to static roster.
+async function refreshActiveArtistsCache() {
+  try {
+    const r = await dbQuery(
+      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked
+       FROM tracked_artists WHERE active = true ORDER BY sort_order, name`
+    );
+    if (r.rows.length) {
+      activeArtistsCache = r.rows;
+      return;
+    }
+  } catch (err) {
+    console.warn('[cache] tracked_artists table unavailable, using fallback:', err.code || err.message);
+  }
+  activeArtistsCache = ARTIST_ROSTER_FALLBACK;
 }
 
 // Last-resort guards: log instead of letting a stray async error take the site down.
@@ -547,10 +574,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
         COALESCE(s.canonical_id, s.id) AS canonical_song_id
         FROM songs s
         JOIN albums a ON s.album_id = a.id
-        WHERE (
-          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE'))
-          OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
-        )
+        WHERE ${artistAlbumMatchSQL('s')}
         AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
         AND ${FSLS_REMIX_EXCLUSION_SQL}
       ),
@@ -686,10 +710,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           FROM daily_streams_canonical
           ORDER BY canonical_id, recorded_date DESC
         ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
-        WHERE (
-          ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND (s.primary_artist IS DISTINCT FROM 'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3p3U04w2DaiBzuYMZnYr00' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2dIgFjalVxs4ThymZ67YCE' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND s.primary_artist IS DISTINCT FROM 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE'))
-          OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND s.primary_artist = $1)
-        )
+        WHERE ${artistAlbumMatchSQL('s')}
         AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
         AND ${FSLS_REMIX_EXCLUSION_SQL}
       ),
@@ -1155,6 +1176,7 @@ app.post('/api/admin/artists', requireAdmin, async (req, res) => {
        Number.isFinite(+b.sort_order) ? +b.sort_order : 100,
        !!b.album_only, !!b.locked, b.active === undefined ? true : !!b.active]
     );
+    await refreshActiveArtistsCache();
     res.json({ success: true, artist_id: artistId });
   } catch (err) {
     console.error('Admin artist create error:', err);
@@ -1175,6 +1197,7 @@ app.patch('/api/admin/artists/:id', requireAdmin, async (req, res) => {
     vals.push(id);
     const r = await dbQuery(`UPDATE tracked_artists SET ${sets.join(', ')} WHERE artist_id = $${vals.length}`, vals);
     if (!r.rowCount) return res.status(404).json({ error: 'Artist not found.' });
+    await refreshActiveArtistsCache();
     res.json({ success: true });
   } catch (err) {
     console.error('Admin artist update error:', err);
@@ -1187,6 +1210,7 @@ app.delete('/api/admin/artists/:id', requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id).replace('spotify:artist:', '');
     await dbQuery(`DELETE FROM tracked_artists WHERE artist_id = $1`, [id]);
+    await refreshActiveArtistsCache();
     res.json({ success: true });
   } catch (err) {
     console.error('Admin artist delete error:', err);
@@ -1213,12 +1237,12 @@ app.get(['/', '/index.html'], requireAuth, (req, res) => {
   // Build link-preview (Open Graph / Twitter) tags — per-artist when ?artist= is set.
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const aId = String(req.query.artist || '').replace('spotify:artist:', '');
-  const og = ARTIST_OG[aId];
+  const og = activeArtistsCache.find(item => item.artist_id === aId);
   const title = og ? `${og.name} — Spotify Streams` : 'Spotify Streams — Fan Dashboard';
   const desc = og
     ? `${og.name}'s live Spotify stream counts, daily gains, and milestones — updated daily.`
     : 'Live Spotify stream counts, daily gains, and milestones for your favorite artists — updated daily.';
-  let img = og ? og.img : '/images/jt.jpg';
+  let img = (og && og.image_url) ? og.image_url : '/images/jt.jpg';
   if (img.startsWith('/')) img = baseUrl + img;
   const pageUrl = baseUrl + req.originalUrl;
   const ogEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1256,6 +1280,7 @@ app.get('*', requireAuth, (req, res) => {
   res.redirect('/');
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
+  await refreshActiveArtistsCache();
 });
