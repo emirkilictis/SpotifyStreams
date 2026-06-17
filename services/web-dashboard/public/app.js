@@ -2437,6 +2437,68 @@ if (backToPickerBtn) {
   backToPickerBtn.addEventListener('click', showPicker);
 }
 
+// ---- Apply the admin-managed roster (/api/artists) over the static picker,
+// dropdown and themes. Progressive enhancement: the page already works with the
+// hardcoded markup; this just patches names / images / accents / order /
+// album-only to match what's been edited in the admin panel. Locked artists (JC)
+// are left untouched so the lock isn't bypassed. Fails silently on any error, so
+// the hardcoded values always remain as a fallback.
+(async function applyRoster() {
+  let roster;
+  try {
+    const res = await fetch('/api/artists');
+    if (!res.ok) return;
+    roster = await res.json();
+  } catch { return; }
+  if (!Array.isArray(roster) || !roster.length) return;
+
+  const byId = {};
+  roster.forEach(a => { byId[a.artist_id] = a; });
+  const order = (id) => (byId[id]?.sort_order ?? 999);
+
+  // Rebuild the album-only set so admin toggles take effect.
+  ALBUM_ONLY_ARTISTS.clear();
+  roster.forEach(a => { if (a.album_only) ALBUM_ONLY_ARTISTS.add(a.artist_id); });
+
+  // Patch hero theme image/accent for artists we already theme.
+  roster.forEach(a => {
+    const th = ARTIST_THEMES[a.artist_id];
+    if (!th) return;
+    if (a.image_url) th.img = a.image_url;
+    if (a.accent) th.accent = a.accent;
+  });
+
+  // Patch picker cards (skip locked — keep the lock placeholder intact).
+  document.querySelectorAll('.picker-card').forEach(card => {
+    const a = byId[card.dataset.artist];
+    if (!a || a.locked) return;
+    card.dataset.name = a.name;
+    const h3 = card.querySelector('.picker-card-info h3');
+    if (h3) h3.textContent = a.name;
+    const img = card.querySelector('.picker-card-img');
+    if (img && a.image_url) img.src = a.image_url;
+  });
+
+  // Reorder picker cards by sort_order (unknown/locked fall to the end).
+  const grid = document.querySelector('.picker-grid');
+  if (grid) {
+    Array.from(grid.querySelectorAll('.picker-card'))
+      .sort((x, y) => order(x.dataset.artist) - order(y.dataset.artist))
+      .forEach(card => grid.appendChild(card));
+  }
+
+  // Patch + reorder the dropdown (JC is added separately on unlock).
+  if (artistSelector) {
+    Array.from(artistSelector.options).forEach(o => {
+      const a = byId[o.value];
+      if (a && !a.locked) o.text = a.name;
+    });
+    Array.from(artistSelector.options)
+      .sort((x, y) => order(x.value) - order(y.value))
+      .forEach(o => artistSelector.appendChild(o));
+  }
+})();
+
 // Do NOT auto-load — wait for picker selection
 
 function showMobileImageOverlay(imageUrl, albumTitle) {
