@@ -23,6 +23,7 @@ function makeFakeClient(rows) {
       if (/SELECT MAX\(recorded_date\) AS max_d/i.test(t)) {
         return { rows: [{ max_d: TODAY }] };
       }
+      if (/FROM manual_merges/i.test(t)) return { rows: [] }; // no admin rules in fixtures
       if (/^SELECT/i.test(t)) return { rows };
       if (/UPDATE songs SET canonical_id = NULL/i.test(t)) return { rowCount: 0 };
       if (/UPDATE songs SET canonical_id = \$1 WHERE id = \$2/i.test(t)) {

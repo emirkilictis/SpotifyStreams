@@ -167,6 +167,26 @@
     .ar-actions { display: flex; gap: 6px; flex-shrink: 0; }
     .ar-order { font-size: 0.8rem; color: var(--faint); min-width: 22px; text-align: center; }
 
+    /* Songs view: duplicate finder + manual merge rules */
+    .songs-section { margin-top: 26px; }
+    .songs-h { font-size: 0.9rem; color: var(--muted); margin: 0; }
+    .songs-hint { font-size: 0.78rem; color: var(--faint); margin: 4px 0 12px; line-height: 1.45; }
+    .dup-group {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    .dup-head { font-weight: 700; font-size: 0.82rem; color: #38bdf8; margin-bottom: 10px; }
+    .dup-song {
+      display: flex; align-items: flex-start; gap: 10px; padding: 7px 8px;
+      border-radius: 8px; cursor: pointer;
+    }
+    .dup-song:hover { background: var(--card-2); }
+    .dup-song input { margin-top: 3px; flex-shrink: 0; accent-color: var(--green); }
+    .dup-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .dup-info b { font-weight: 600; }
+    .dup-sub { font-size: 0.72rem; color: var(--faint); font-family: monospace; word-break: break-all; }
+    .dup-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+
     /* Scraper Status view */
     .status-global-card {
       display: flex; align-items: center; gap: 14px;
@@ -272,7 +292,23 @@
         <button id="hidden-refresh" class="tool-btn" title="Reload hidden list">⟳ Hidden</button>
       </div>
       <div id="song-results"></div>
-      <h3 style="font-size:0.9rem;color:var(--muted);margin:18px 0 10px;">Currently hidden</h3>
+
+      <div class="songs-section">
+        <div class="toolbar">
+          <h3 class="songs-h">Duplicate finder — same stream count</h3>
+          <button id="dup-scan" class="tool-btn" style="margin-left:auto;border-color:rgba(56,189,248,0.4);color:#38bdf8">⌕ Scan</button>
+        </div>
+        <p class="songs-hint">Groups of songs with the exact same peak stream count that aren’t merged yet — the strongest sign of a copy the deduper missed. Pick the version to keep, then merge the rest into it.</p>
+        <div id="dup-results"></div>
+      </div>
+
+      <div class="songs-section">
+        <h3 class="songs-h">Manual merge rules</h3>
+        <p class="songs-hint">These survive every re-scrape. Remove a rule to let the automatic deduper decide again.</p>
+        <div id="manual-merges-list"></div>
+      </div>
+
+      <h3 class="songs-h" style="margin-top:22px;">Currently hidden</h3>
       <div id="hidden-songs-list"></div>
     </div>
 
@@ -602,7 +638,7 @@
       if (v === 'artists' && !artistsLoaded) loadArtists();
       if (v === 'status') loadScraperStatus();
       if (v === 'health') loadHealth();
-      if (v === 'songs') loadHiddenSongs();
+      if (v === 'songs') { loadHiddenSongs(); loadManualMerges(); }
     }));
 
     // ---- Songs: hide / unhide tracks ----
@@ -680,6 +716,102 @@
         if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
         await loadHiddenSongs();
       }
+    });
+
+    // ---- Songs: duplicate finder + manual merge rules ----
+    const dupResultsEl = document.getElementById('dup-results');
+    const manualListEl = document.getElementById('manual-merges-list');
+    const fmtDur = (ms) => { const s = Math.round((ms || 0) / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+    const fmtStreams = (n) => Number(n || 0).toLocaleString('en-US');
+    let dupGroups = [];
+
+    async function loadDups() {
+      dupResultsEl.innerHTML = '<div class="loading">Scanning…</div>';
+      try {
+        const res = await api('/api/admin/same-stream-dups');
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error();
+        dupGroups = await res.json();
+        if (!dupGroups.length) { dupResultsEl.innerHTML = '<div class="empty">No unmerged duplicates found. 🎉</div>'; return; }
+        dupResultsEl.innerHTML = dupGroups.map((g, gi) => {
+          // Default canonical: an already-canonical, non-featured copy if present.
+          let def = g.songs.findIndex(s => !s.merged && !s.is_featured);
+          if (def < 0) def = g.songs.findIndex(s => !s.merged);
+          if (def < 0) def = 0;
+          const rows = g.songs.map((s, si) => `
+            <label class="dup-song">
+              <input type="radio" name="dupcanon-${gi}" value="${esc(s.id)}" ${si === def ? 'checked' : ''}>
+              <span class="dup-info">
+                <b>${esc(s.title)}</b>${s.is_featured ? ' <span class="ar-tag">feat</span>' : ''}${s.merged ? ' <span class="ar-tag locked">merged</span>' : ''}
+                <span class="dup-sub">${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.album || '—')} · ${fmtDur(s.duration_ms)} · ${esc(s.id)}</span>
+              </span>
+            </label>`).join('');
+          return `
+            <div class="dup-group">
+              <div class="dup-head">${fmtStreams(g.streams)} streams · ${g.songs.length} copies</div>
+              ${rows}
+              <div class="dup-actions">
+                <button class="act ok" data-merge-group="${gi}">Merge others into selected</button>
+              </div>
+            </div>`;
+        }).join('');
+      } catch { dupResultsEl.innerHTML = '<div class="empty">Scan failed (migration 016 applied?).</div>'; }
+    }
+
+    async function loadManualMerges() {
+      manualListEl.innerHTML = '<div class="loading">Loading…</div>';
+      try {
+        const res = await api('/api/admin/manual-merges');
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error();
+        const rows = await res.json();
+        if (!rows.length) { manualListEl.innerHTML = '<div class="empty">No manual rules.</div>'; return; }
+        manualListEl.innerHTML = rows.map(r => `
+          <div class="artist-row">
+            <div class="ar-main">
+              <div class="ar-name">${esc(r.alias_title || '(unknown)')} ${r.canonical_id
+                ? '→ ' + esc(r.canonical_title || r.canonical_id)
+                : '<span class="ar-tag locked">keep separate</span>'}</div>
+              <div class="ar-id">${esc(r.alias_id)}${r.canonical_id ? ' → ' + esc(r.canonical_id) : ''}${r.reason ? ' · ' + esc(r.reason) : ''}</div>
+            </div>
+            <div class="ar-actions"><button class="act del" data-remove-rule="${esc(r.alias_id)}">Remove</button></div>
+          </div>`).join('');
+      } catch { manualListEl.innerHTML = '<div class="empty">Could not load (migration 016 applied?).</div>'; }
+    }
+
+    document.getElementById('dup-scan').addEventListener('click', loadDups);
+
+    dupResultsEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-merge-group]');
+      if (!btn) return;
+      const gi = Number(btn.dataset.mergeGroup);
+      const group = dupGroups[gi];
+      const sel = dupResultsEl.querySelector(`input[name="dupcanon-${gi}"]:checked`);
+      if (!group || !sel) return;
+      const canonical = sel.value;
+      const aliases = group.songs.map(s => s.id).filter(id => id !== canonical);
+      if (!aliases.length) return;
+      if (!confirm(`Merge ${aliases.length} cop${aliases.length === 1 ? 'y' : 'ies'} into the selected version? This sticks across re-scrapes.`)) return;
+      btn.disabled = true; btn.textContent = 'Merging…';
+      try {
+        for (const alias_id of aliases) {
+          await api('/api/admin/manual-merges', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alias_id, canonical_id: canonical, reason: 'admin: same stream count' }),
+          });
+        }
+        await loadDups();
+        await loadManualMerges();
+      } catch { btn.disabled = false; btn.textContent = 'Merge others into selected'; }
+    });
+
+    manualListEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-remove-rule]');
+      if (!btn) return;
+      if (!confirm('Remove this rule? The deduper decides this song automatically again.')) return;
+      btn.disabled = true;
+      await api('/api/admin/manual-merges/' + btn.dataset.removeRule, { method: 'DELETE' });
+      await loadManualMerges();
     });
 
     // ---- Health / overview ----

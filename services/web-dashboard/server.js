@@ -1467,6 +1467,126 @@ app.delete('/api/admin/hidden-songs/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Admin: find candidate duplicates — songs that share the EXACT same peak stream
+// count but resolve to different canonicals (i.e. not yet merged together). This is
+// the strongest signal of a linked Spotify copy the deduper missed. Returns groups.
+app.get('/api/admin/same-stream-dups', requireAdmin, async (req, res) => {
+  try {
+    const r = await dbQuery(
+      `SELECT s.id, s.title, s.duration_ms, s.primary_artist, s.canonical_id, s.is_featured,
+              a.title AS album,
+              COALESCE((SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id), 0)::bigint AS streams
+       FROM songs s LEFT JOIN albums a ON a.id = s.album_id
+       WHERE s.duration_ms IS NOT NULL`
+    );
+    // Group by exact stream count; keep only groups that span 2+ distinct canonicals.
+    const byStreams = new Map();
+    for (const row of r.rows) {
+      const streams = Number(row.streams);
+      if (streams <= 0) continue;
+      if (!byStreams.has(streams)) byStreams.set(streams, []);
+      byStreams.get(streams).push(row);
+    }
+    const groups = [];
+    for (const [streams, songs] of byStreams) {
+      if (songs.length < 2) continue;
+      const canonicals = new Set(songs.map(s => s.canonical_id || s.id));
+      if (canonicals.size < 2) continue; // already all merged together
+      groups.push({
+        streams,
+        songs: songs.map(s => ({
+          id: s.id,
+          title: s.title,
+          album: s.album,
+          duration_ms: s.duration_ms,
+          primary_artist: s.primary_artist,
+          is_featured: s.is_featured,
+          merged: s.canonical_id != null,
+          canonical_id: s.canonical_id,
+        })),
+      });
+    }
+    groups.sort((a, b) => b.streams - a.streams);
+    res.json(groups);
+  } catch (err) {
+    console.error('Admin same-stream-dups error:', err);
+    res.status(500).json({ error: 'Failed to scan duplicates.' });
+  }
+});
+
+// Admin: list manual merge / split rules (with titles).
+app.get('/api/admin/manual-merges', requireAdmin, async (req, res) => {
+  try {
+    const r = await dbQuery(
+      `SELECT m.alias_id, m.canonical_id, m.reason, m.created_at,
+              sa.title AS alias_title, sc.title AS canonical_title
+       FROM manual_merges m
+       LEFT JOIN songs sa ON sa.id = m.alias_id
+       LEFT JOIN songs sc ON sc.id = m.canonical_id
+       ORDER BY m.created_at DESC`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Admin manual-merges list error:', err);
+    res.status(500).json({ error: 'Failed to load (is migration 016 applied?).' });
+  }
+});
+
+// Admin: add a manual merge (alias_id -> canonical_id) or split (canonical_id null),
+// and apply it immediately so the dashboard reflects it without a full dedup run.
+app.post('/api/admin/manual-merges', requireAdmin, async (req, res) => {
+  const clean = (v) => String(v || '').replace('spotify:track:', '').trim();
+  try {
+    const alias = clean(req.body.alias_id);
+    let canonical = clean(req.body.canonical_id) || null;
+    if (!/^[A-Za-z0-9]{22}$/.test(alias)) return res.status(400).json({ error: 'Invalid alias id.' });
+    if (canonical && !/^[A-Za-z0-9]{22}$/.test(canonical)) return res.status(400).json({ error: 'Invalid canonical id.' });
+    if (canonical && canonical === alias) return res.status(400).json({ error: 'A song cannot be its own canonical.' });
+
+    // Resolve the chosen canonical to its own root (in case it is itself an alias).
+    if (canonical) {
+      const root = await dbQuery(`SELECT canonical_id FROM songs WHERE id = $1`, [canonical]);
+      if (root.rows[0]?.canonical_id) canonical = root.rows[0].canonical_id;
+      if (canonical === alias) return res.status(400).json({ error: 'Would create a merge loop.' });
+    }
+
+    await dbQuery(
+      `INSERT INTO manual_merges (alias_id, canonical_id, reason) VALUES ($1, $2, $3)
+       ON CONFLICT (alias_id) DO UPDATE SET canonical_id = $2, reason = $3, created_at = NOW()`,
+      [alias, canonical, String(req.body.reason || '').slice(0, 300) || null]
+    );
+    // Apply now: merge sets canonical, split detaches the song to stand alone.
+    if (canonical) {
+      await dbQuery(`UPDATE songs SET canonical_id = $1 WHERE id = $2`, [canonical, alias]);
+      // Re-point anything that was pointing at the alias to the new canonical.
+      await dbQuery(`UPDATE songs SET canonical_id = $1 WHERE canonical_id = $2`, [canonical, alias]);
+    } else {
+      await dbQuery(`UPDATE songs SET canonical_id = NULL WHERE id = $1`, [alias]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Admin manual-merge add error:', err);
+    res.status(500).json({ error: 'Failed to save rule (is migration 016 applied?).' });
+  }
+});
+
+// Admin: remove a manual rule. If it was a merge, detach the alias now (immediate
+// unmerge); the next full dedup re-clusters it on the automatic rules.
+app.delete('/api/admin/manual-merges/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.params.id).replace('spotify:track:', '');
+    const prev = await dbQuery(`SELECT canonical_id FROM manual_merges WHERE alias_id = $1`, [id]);
+    await dbQuery(`DELETE FROM manual_merges WHERE alias_id = $1`, [id]);
+    if (prev.rows[0]?.canonical_id) {
+      await dbQuery(`UPDATE songs SET canonical_id = NULL WHERE id = $1`, [id]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Admin manual-merge delete error:', err);
+    res.status(500).json({ error: 'Failed to remove rule.' });
+  }
+});
+
 // Serve index.html with cache-busting query strings on app.js/style.css so that a new
 // deploy is always picked up — even by aggressive mobile caches (iOS Safari bfcache).
 // The version token is derived from the asset mtimes, so it changes only on real updates.

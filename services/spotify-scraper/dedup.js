@@ -161,6 +161,21 @@ async function dedupCanonical(client) {
   const reset = await client.query(`UPDATE songs SET canonical_id = NULL WHERE canonical_id IS NOT NULL`);
   resetCount = reset.rowCount;
 
+  // Admin paneli kuralları (migration 016). Merge kuralı alias→canonical bağını
+  // nightly reset'ten sonra tekrar uygular; split kuralı bir track'i bağımsız
+  // sabitler (NEVER_MERGE gibi). Tablo yoksa sessizce atla.
+  const manualMerge = {};        // aliasId -> canonicalId
+  const manualSplit = new Set(); // bağımsız kalacak id'ler
+  try {
+    const mm = await client.query(`SELECT alias_id, canonical_id FROM manual_merges`);
+    for (const row of mm.rows) {
+      if (row.canonical_id) manualMerge[row.alias_id] = row.canonical_id;
+      else manualSplit.add(row.alias_id);
+    }
+  } catch (e) {
+    console.warn('[dedup] manual_merges tablosu yok/okunamadı:', e.code || e.message);
+  }
+
 function shouldKeepSeparate(title) {
   const lower = title.toLowerCase();
   return lower.includes('live') || 
@@ -180,7 +195,7 @@ function shouldKeepSeparate(title) {
     const clusters = [];
     for (const item of items) {
       // Skip tracks that must remain independent
-      if (NEVER_MERGE.has(item.id)) continue;
+      if (NEVER_MERGE.has(item.id) || manualSplit.has(item.id)) continue;
       let placed = false;
       for (const cluster of clusters) {
         const ref = cluster[0];
@@ -274,7 +289,17 @@ function shouldKeepSeparate(title) {
       [canonId, trackId]
     );
   }
-  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced.`);
+  // Apply admin manual merge rules last (override the deduper + FORCE_CANONICAL).
+  let manualCount = 0;
+  for (const [trackId, canonId] of Object.entries(manualMerge)) {
+    if (trackId === canonId) continue;
+    const r = await client.query(
+      `UPDATE songs SET canonical_id = $1 WHERE id = $2 AND canonical_id IS DISTINCT FROM $1`,
+      [canonId, trackId]
+    );
+    manualCount += r.rowCount;
+  }
+  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced, ${manualCount} manual merge, ${manualSplit.size} manual split.`);
   return { canonicalCount, aliasCount };
 }
 
