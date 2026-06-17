@@ -2397,9 +2397,12 @@ function unlockJcChasezUI() {
 let jcUnlocked = false;
 let jcPasscode = '';
 
-// Picker card click handlers
-document.querySelectorAll('.picker-card').forEach(card => {
-  card.addEventListener('click', async () => {
+// Picker card click handlers using event delegation
+const pickerGridContainer = document.querySelector('.picker-grid');
+if (pickerGridContainer) {
+  pickerGridContainer.addEventListener('click', async (e) => {
+    const card = e.target.closest('.picker-card');
+    if (!card) return;
     const artistId = card.dataset.artist;
     const artistName = card.dataset.name;
     
@@ -2434,7 +2437,7 @@ document.querySelectorAll('.picker-card').forEach(card => {
       enterDashboard(artistId, artistName);
     }
   });
-});
+}
 
 // Back to picker button
 if (backToPickerBtn) {
@@ -2496,13 +2499,22 @@ function deriveThemeFromAccent(hex) {
 
   // Rebuild the album-only set so admin toggles take effect.
   ALBUM_ONLY_ARTISTS.clear();
-  roster.forEach(a => { if (a.album_only) ALBUM_ONLY_ARTISTS.add(a.artist_id); });
-
-  // Patch hero theme — derive full palette from accent so hover/glow/gradient
-  // always stay in sync when the admin only changes the accent hex.
   roster.forEach(a => {
+    if (a.album_only) ALBUM_ONLY_ARTISTS.add(a.artist_id);
+
+    // Dynamic theme initialization if it doesn't exist.
+    if (!ARTIST_THEMES[a.artist_id]) {
+      ARTIST_THEMES[a.artist_id] = {
+        accent: '#1ed760',
+        accentHover: '#1db954',
+        accentGlow: 'rgba(30, 215, 96, 0.4)',
+        borderGlow: 'rgba(30, 215, 96, 0.3)',
+        bgGradient: 'radial-gradient(circle at 50% 0%, #111a2e 0%, #080c14 100%)',
+        img: a.image_url || '/images/default.jpg'
+      };
+    }
+
     const th = ARTIST_THEMES[a.artist_id];
-    if (!th) return;
     if (a.image_url) th.img = a.image_url;
     if (a.accent) {
       const derived = deriveThemeFromAccent(a.accent);
@@ -2514,34 +2526,65 @@ function deriveThemeFromAccent(hex) {
     }
   });
 
-  // Patch picker cards (skip locked — keep the lock placeholder intact).
-  document.querySelectorAll('.picker-card').forEach(card => {
-    const a = byId[card.dataset.artist];
-    if (!a || a.locked) return;
-    card.dataset.name = a.name;
-    const h3 = card.querySelector('.picker-card-info h3');
-    if (h3) h3.textContent = a.name;
-    const img = card.querySelector('.picker-card-img');
-    if (img && a.image_url) img.src = a.image_url;
-  });
-
-  // Reorder picker cards by sort_order (unknown/locked fall to the end).
+  // Rebuild picker cards dynamically based on roster.
   const grid = document.querySelector('.picker-grid');
   if (grid) {
-    Array.from(grid.querySelectorAll('.picker-card'))
-      .sort((x, y) => order(x.dataset.artist) - order(y.dataset.artist))
-      .forEach(card => grid.appendChild(card));
+    grid.innerHTML = '';
+    roster.forEach(a => {
+      const isJc = a.artist_id === '3p3U04w2DaiBzuYMZnYr00';
+      const isLocked = a.locked && (!isJc || !jcUnlocked);
+
+      const card = document.createElement('button');
+      card.className = isLocked ? 'picker-card locked-card' : 'picker-card';
+      card.dataset.artist = a.artist_id;
+      card.dataset.name = isLocked ? 'Locked Artist' : a.name;
+      if (isJc) card.id = 'jc-card';
+
+      if (isLocked) {
+        card.innerHTML = `
+          <div class="picker-card-img-wrap locked-img-wrap"${isJc ? ' id="jc-img-wrap"' : ''}>
+            <div class="lock-placeholder">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lock-svg">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </div>
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3${isJc ? ' id="jc-card-title"' : ''}>Locked Artist</h3>
+          </div>
+        `;
+      } else {
+        card.innerHTML = `
+          <div class="picker-card-img-wrap">
+            <img src="${a.image_url || '/images/default.jpg'}" alt="${a.name}" class="picker-card-img" loading="eager" crossorigin="anonymous">
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3>${a.name}</h3>
+          </div>
+        `;
+      }
+      grid.appendChild(card);
+    });
   }
 
-  // Patch + reorder the dropdown (JC is added separately on unlock).
+  // Rebuild dropdown dynamically based on roster (skip locked unless unlocked).
   if (artistSelector) {
-    Array.from(artistSelector.options).forEach(o => {
-      const a = byId[o.value];
-      if (a && !a.locked) o.text = a.name;
+    artistSelector.innerHTML = '';
+    roster.forEach(a => {
+      const isJc = a.artist_id === '3p3U04w2DaiBzuYMZnYr00';
+      if (!a.locked || (isJc && jcUnlocked)) {
+        const option = document.createElement('option');
+        option.value = a.artist_id;
+        option.text = a.name;
+        artistSelector.appendChild(option);
+      }
     });
-    Array.from(artistSelector.options)
-      .sort((x, y) => order(x.value) - order(y.value))
-      .forEach(o => artistSelector.appendChild(o));
+    if (currentArtist) {
+      artistSelector.value = currentArtist;
+    }
   }
 
   // ---- Adım 4: OG meta tag patch ----
