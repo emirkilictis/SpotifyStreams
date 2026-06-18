@@ -62,7 +62,6 @@ const NAMED_ARTISTS = new Set([
   'spotify:artist:2dIgFjalVxs4ThymZ67YCE', // Stray Kids
   'spotify:artist:4UIOuc84ExWojcUzFGtb8W', // Felix
   'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE', // Dove Cameron
-  'spotify:artist:23zg3TcAtWQy7J6upgbUnj', // Usher
 ]);
 // Adlı sanatçı değilse JT/collab havuzu — kendi içinde merge serbest.
 const artistBucket = (pa) => (NAMED_ARTISTS.has(pa) ? pa : 'collab');

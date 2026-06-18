@@ -59,8 +59,7 @@ const ARTIST_SEARCH_NAMES = {
   '3LHYvj5ZejV1NLqncEObSJ': ['vaelis'],
   '2dIgFjalVxs4ThymZ67YCE': ['stray kids'],
   '4UIOuc84ExWojcUzFGtb8W': ['felix'],
-  '2W8yFh0Ga6Yf3jiayVxwkE': ['dove cameron', 'dove'],
-  '23zg3TcAtWQy7J6upgbUnj': ['usher']
+  '2W8yFh0Ga6Yf3jiayVxwkE': ['dove cameron', 'dove']
 };
 
 function isCoverOrTribute(title) {
@@ -470,8 +469,7 @@ async function run() {
           { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' },
           { id: '2dIgFjalVxs4ThymZ67YCE', name: 'Stray Kids' },
           { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix' },
-          { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' },
-          { id: '23zg3TcAtWQy7J6upgbUnj', name: 'Usher' }
+          { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' }
         ];
       }
 
