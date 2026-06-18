@@ -150,6 +150,13 @@
     .af-checks label { color: var(--muted); font-size: 0.85rem; display: flex; align-items: center; gap: 5px; cursor: pointer; }
     .af-spacer { flex: 1; }
     .af-err { text-align: left; margin: 4px 0 0; }
+    .af-danger {
+      display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px;
+      border: 1px solid rgba(248,113,113,0.35); border-radius: 10px; background: rgba(248,113,113,0.06);
+    }
+    .af-danger.hidden { display: none; }
+    .af-danger-text { flex: 1; min-width: 0; font-size: 0.78rem; color: var(--muted); line-height: 1.45; }
+    .af-danger #af-purge { flex-shrink: 0; }
 
     .artist-row {
       display: flex; align-items: center; gap: 14px; background: var(--card);
@@ -380,6 +387,10 @@
           <button type="submit" id="af-save" class="btn-primary" style="width:auto;padding:8px 18px">Save</button>
         </div>
         <p class="af-err gate-err" id="af-err"></p>
+        <div id="af-danger" class="af-danger hidden">
+          <span class="af-danger-text">Permanently delete this artist and <b>all</b> their songs/streams from the database. Use this to fully remove a mistakenly-added artist. Cannot be undone.</span>
+          <button type="button" id="af-purge" class="act del">Purge catalog</button>
+        </div>
       </form>
       <div id="artists-list"></div>
     </div>
@@ -1013,12 +1024,38 @@
       af.albumonly.checked = artist ? !!artist.album_only : false;
       af.locked.checked = artist ? !!artist.locked : false;
       af.active.checked = artist ? !!artist.active : true;
+      // Purge is only offered when editing an existing, non-JT artist.
+      const danger = document.getElementById('af-danger');
+      danger.classList.toggle('hidden', !artist || artist.artist_id === '31TPClRtHm23RisEBtV3X7');
       artistForm.classList.remove('hidden');
       af.name.focus();
     }
 
     document.getElementById('artist-add-btn').addEventListener('click', () => showForm(null));
     document.getElementById('af-cancel').addEventListener('click', () => artistForm.classList.add('hidden'));
+
+    document.getElementById('af-purge').addEventListener('click', async () => {
+      const id = af.id.value.trim().replace('spotify:artist:', '');
+      const a = artists.find(x => x.artist_id === id);
+      const name = a ? a.name : id;
+      const typed = prompt(`This PERMANENTLY deletes “${name}” and ALL their songs, streams and albums from the database. This cannot be undone.\n\nType the artist's name exactly to confirm:`);
+      if (typed == null) return;
+      if (typed.trim() !== name) { alert('Name did not match — purge aborted.'); return; }
+      const btn = document.getElementById('af-purge');
+      btn.disabled = true; btn.textContent = 'Purging…';
+      try {
+        const res = await api(`/api/admin/artists/${id}/purge`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm: id }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { alert(d.error || 'Purge failed.'); return; }
+        alert(`Purged “${name}”: ${d.songs_deleted} songs and ${d.albums_deleted} albums removed.`);
+        artistForm.classList.add('hidden');
+        await loadArtists();
+      } catch { alert('Connection error during purge.'); }
+      finally { btn.disabled = false; btn.textContent = 'Purge catalog'; }
+    });
     document.getElementById('artists-refresh').addEventListener('click', loadArtists);
 
     artistForm.addEventListener('submit', async (e) => {

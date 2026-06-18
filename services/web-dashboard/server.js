@@ -1267,6 +1267,84 @@ app.delete('/api/admin/artists/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Admin: PURGE an artist's entire catalogue from the DB. Normal delete only
+// soft-deletes (to protect data + keep songs out of JT's catch-all); this is the
+// hard option that actually removes everything: songs (+ stream_stats via cascade),
+// any orphaned albums, artist_stats, the roster row, and admin rules referencing
+// the songs. Guarded: JT is blocked (its bucket IS the catch-all) and the body
+// must echo the id back. Transactional — any failure rolls the whole thing back.
+const JT_ARTIST_ID = '31TPClRtHm23RisEBtV3X7';
+app.post('/api/admin/artists/:id/purge', requireAdmin, async (req, res) => {
+  const id = String(req.params.id).replace('spotify:artist:', '').trim();
+  if (!/^[A-Za-z0-9]{22}$/.test(id)) return res.status(400).json({ error: 'Invalid artist id.' });
+  if (id === JT_ARTIST_ID) {
+    return res.status(403).json({ error: 'Justin Timberlake is the catch-all bucket and cannot be purged.' });
+  }
+  if (String(req.body?.confirm || '') !== id) {
+    return res.status(400).json({ error: 'Confirmation mismatch — purge aborted.' });
+  }
+
+  const uri = `spotify:artist:${id}`;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Albums that currently hold this artist's songs — candidates for cleanup
+    // once their songs are gone (shared/collab albums are spared by the check).
+    const albRes = await client.query(
+      `SELECT DISTINCT album_id FROM songs WHERE primary_artist = $1 AND album_id IS NOT NULL`, [uri]);
+    const albumIds = albRes.rows.map(r => r.album_id);
+
+    // Detach any canonical link pointing at these songs (internal aliases AND any
+    // cross-artist reference) so the FK doesn't block deletion.
+    await client.query(
+      `UPDATE songs SET canonical_id = NULL
+       WHERE canonical_id IN (SELECT id FROM songs WHERE primary_artist = $1)`, [uri]);
+
+    // Tidy admin rules that referenced these songs (tables are optional — guard).
+    const exists = async (t) => (await client.query(`SELECT to_regclass($1) AS t`, [t])).rows[0].t != null;
+    if (await exists('public.hidden_songs')) {
+      await client.query(
+        `DELETE FROM hidden_songs WHERE song_id IN (SELECT id FROM songs WHERE primary_artist = $1)`, [uri]);
+    }
+    if (await exists('public.manual_merges')) {
+      await client.query(
+        `DELETE FROM manual_merges
+         WHERE alias_id IN (SELECT id FROM songs WHERE primary_artist = $1)
+            OR canonical_id IN (SELECT id FROM songs WHERE primary_artist = $1)`, [uri]);
+    }
+
+    // Songs (stream_stats cascade-delete via FK).
+    const songRes = await client.query(`DELETE FROM songs WHERE primary_artist = $1`, [uri]);
+
+    // Remove albums that no longer have any songs.
+    let albumsDeleted = 0;
+    if (albumIds.length) {
+      const delAlb = await client.query(
+        `DELETE FROM albums WHERE id = ANY($1::text[])
+           AND NOT EXISTS (SELECT 1 FROM songs WHERE album_id = albums.id)`, [albumIds]);
+      albumsDeleted = delAlb.rowCount;
+    }
+
+    if (await exists('public.artist_stats')) {
+      await client.query(`DELETE FROM artist_stats WHERE artist_id = $1`, [id]);
+    }
+    await client.query(`DELETE FROM tracked_artists WHERE artist_id = $1`, [id]);
+
+    await client.query('COMMIT');
+    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache()]);
+    console.log(`[purge] ${uri}: ${songRes.rowCount} songs, ${albumsDeleted} albums removed.`);
+    res.json({ success: true, songs_deleted: songRes.rowCount, albums_deleted: albumsDeleted });
+  } catch (err) {
+    if (client) { try { await client.query('ROLLBACK'); } catch {} }
+    console.error('Admin purge error:', err);
+    res.status(500).json({ error: 'Purge failed — rolled back, nothing was deleted.' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 // Admin: health overview — per-artist totals/songs/daily/last-snapshot with
 // anomaly flags, plus orphan detection (artists with songs but no roster row,
 // whose catalogue leaks into JT's catch-all — the Britney class of bug).
