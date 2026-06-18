@@ -3286,65 +3286,57 @@ body.modal-open {
   }
 }
 
-/* ---- Scraper Status Overlay ---- */
-.scraper-overlay {
+/* ---- Scraper Status banner (non-blocking) ---- */
+.sync-banner {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(4, 6, 10, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
   display: flex;
-  justify-content: center;
   align-items: center;
-  z-index: 2000;
-  opacity: 1;
-  transition: opacity 0.5s ease;
+  gap: 10px;
+  max-width: 92vw;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(10, 14, 20, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.4s ease, transform 0.4s ease;
 }
 
-.scraper-overlay.hidden {
+.sync-banner.hidden {
   opacity: 0;
   pointer-events: none;
+  transform: translateX(-50%) translateY(-14px);
 }
 
-.scraper-overlay-content {
-  text-align: center;
-  max-width: 480px;
-  padding: 40px;
-  border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
-  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.8), 0 0 50px rgba(30, 215, 96, 0.05);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
+.sync-banner.fresh {
+  border-color: rgba(30, 215, 96, 0.35);
 }
 
-.spinner-glow {
-  width: 50px;
-  height: 50px;
-  border: 3px solid rgba(255, 255, 255, 0.05);
-  border-top: 3px solid var(--accent-green, #1ed760);
+.sync-banner #sync-banner-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sync-banner .check { color: var(--accent-green, #1ed760); font-weight: 800; }
+
+.sync-spinner {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top: 2px solid var(--accent-green, #1ed760);
   border-radius: 50%;
   animation: spinner 1s linear infinite;
-  box-shadow: 0 0 20px rgba(30, 215, 96, 0.2);
 }
-
-.scraper-overlay h2 {
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.scraper-overlay p {
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  margin: 0;
+.sync-banner.fresh .sync-spinner {
+  border-top-color: rgba(255, 255, 255, 0.55);
 }
 
 /* ===== Twitter Post Generator Modal ===== */

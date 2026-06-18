@@ -2733,55 +2733,86 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
 // ---- Scraper Status Polling & Overlay ----
 (function initScraperStatus() {
-  const overlay = document.getElementById('scraper-overlay');
-  const title = document.getElementById('scraper-overlay-title');
-  const desc = document.getElementById('scraper-overlay-desc');
-  if (!overlay) return;
+  const banner = document.getElementById('sync-banner');
+  const bannerText = document.getElementById('sync-banner-text');
+  if (!banner) return;
 
   let lastStatus = 'idle';
+  let lastSelectedDate = null; // last seen snapshot date for the viewed artist
 
   async function checkScraperStatus() {
     try {
       const res = await fetch('/api/scraper-status');
-      if (!res.ok) {
-        updateOverlay('idle');
-        return;
-      }
-      const data = await res.json();
-      updateOverlay(data.status || 'idle');
+      if (!res.ok) { await updateSync({ status: 'idle', artists: [] }); return; }
+      await updateSync(await res.json());
     } catch (err) {
       console.error('Failed to fetch scraper status:', err);
-      updateOverlay('idle');
+      await updateSync({ status: 'idle', artists: [] });
     }
   }
 
-  async function updateOverlay(status) {
-    if (status === 'scraping') {
-      if (title) title.textContent = 'Syncing Spotify playcounts...';
-      if (desc) desc.textContent = 'We are currently fetching the latest playcounts from Spotify. The dashboard is temporarily locked to prevent displaying inconsistent streams.';
-      overlay.classList.remove('hidden');
-    } else if (status === 'deduping') {
-      if (title) title.textContent = 'Optimizing database & merging duplicates...';
-      if (desc) desc.textContent = 'We are clean-up deduplicating streams and preparing daily stats. The dashboard will load automatically in a few moments.';
-      overlay.classList.remove('hidden');
-    } else {
-      const wasActive = (lastStatus === 'scraping' || lastStatus === 'deduping');
-      overlay.classList.add('hidden');
-      if (wasActive && status === 'idle') {
-        console.log('Scraper finished. Reloading data...');
-        if (currentArtist) {
-          setDashboardLoading(true);
-          try {
-            await Promise.all([fetchData(), fetchAlbumsData()]);
-          } catch (err) {
-            console.error('Failed to reload data:', err);
-          } finally {
-            setDashboardLoading(false);
-          }
-        }
-      }
+  const dayOf = (d) => (d ? String(d).slice(0, 10) : null);
+
+  // Work out, from the per-artist snapshot dates, whether the artist the user is
+  // currently looking at is already up to date for this run. The scrape updates
+  // artists one by one, so the "leading edge" is the newest snapshot date across
+  // the roster; an artist already at that date is done and safe to view.
+  function selectedInfo(data) {
+    const arts = Array.isArray(data.artists) ? data.artists : [];
+    let maxDate = null;
+    for (const a of arts) {
+      const d = dayOf(a.last_date);
+      if (d && (!maxDate || d > maxDate)) maxDate = d;
     }
+    const sel = arts.find(a => a.artist_id === currentArtist) || null;
+    const selDate = sel ? dayOf(sel.last_date) : null;
+    return { maxDate, sel, selDate, selectedFresh: !!(selDate && maxDate && selDate >= maxDate) };
+  }
+
+  async function reloadCurrent() {
+    if (!currentArtist) return;
+    setDashboardLoading(true);
+    try { await Promise.all([fetchData(), fetchAlbumsData()]); }
+    catch (err) { console.error('Failed to reload data:', err); }
+    finally { setDashboardLoading(false); }
+  }
+
+  async function updateSync(data) {
+    const status = data.status || 'idle';
+    const active = status === 'scraping' || status === 'deduping';
+    const { sel, selDate, selectedFresh } = selectedInfo(data);
+
+    if (active) {
+      let msg, fresh = false;
+      if (status === 'deduping') {
+        msg = 'Merging duplicates & finalizing — refreshing shortly…';
+      } else if (sel && selectedFresh) {
+        msg = `<span class="check">✓</span> ${(currentArtistName || 'This artist')} is up to date — syncing other artists…`;
+        fresh = true;
+      } else if (sel) {
+        msg = `Syncing ${(currentArtistName || 'this artist')}’s latest playcounts…`;
+      } else {
+        msg = 'Syncing Spotify playcounts…';
+      }
+      bannerText.innerHTML = msg;
+      banner.classList.toggle('fresh', fresh);
+      banner.classList.remove('hidden');
+    } else {
+      banner.classList.add('hidden');
+    }
+
+    // Refresh the dashboard the moment the *viewed* artist's data lands — either
+    // when the whole run finishes, or mid-run when this artist's snapshot date
+    // advances (so a ready artist shows immediately without waiting for the rest).
+    const finishedRun = (lastStatus === 'scraping' || lastStatus === 'deduping') && status === 'idle';
+    const becameFresh = currentArtist && selDate && lastSelectedDate && selDate > lastSelectedDate;
+    if (currentArtist && (finishedRun || becameFresh)) {
+      console.log('[sync] viewed artist data updated, reloading…');
+      await reloadCurrent();
+    }
+
     lastStatus = status;
+    if (selDate) lastSelectedDate = selDate;
   }
 
   // Check immediately on load

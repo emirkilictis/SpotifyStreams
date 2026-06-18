@@ -637,13 +637,12 @@
     </div>
   </div>
 
-  <!-- Scraper Status Overlay -->
-  <div id="scraper-overlay" class="scraper-overlay glass hidden">
-    <div class="scraper-overlay-content">
-      <div class="spinner-glow"></div>
-      <h2 id="scraper-overlay-title">Updating Playcounts...</h2>
-      <p id="scraper-overlay-desc">We are currently fetching the latest playcounts from Spotify and merging duplicates. Please wait a moment.</p>
-    </div>
+  <!-- Scraper Status banner (non-blocking; the dashboard stays usable while
+       a sync runs. Artist-aware: tells you if the artist you're viewing is
+       already up to date vs still updating.) -->
+  <div id="sync-banner" class="sync-banner hidden">
+    <span class="sync-spinner"></span>
+    <span id="sync-banner-text">Syncing Spotify playcounts…</span>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
