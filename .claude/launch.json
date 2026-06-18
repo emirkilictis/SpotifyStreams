@@ -8,6 +8,14 @@
       "cwd": "services/web-dashboard",
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "admin-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8123"],
+      "cwd": "services/web-dashboard/public",
+      "port": 8123,
+      "autoPort": true
     }
   ]
 }

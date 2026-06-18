@@ -14,7 +14,7 @@ const STALE_2D    = new Date('2026-06-11');        // 2 gün geride — default 
 const STALE_5D    = new Date('2026-06-08');        // 5 gün geride — default + SKZ default için frozen, SKZ override için DEĞİL
 const SKZ_ARTIST  = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE';
 
-function makeFakeClient(rows) {
+function makeFakeClient(rows, manualMerges = []) {
   const assignments = {}; // aliasId -> canonicalId
   const client = {
     assignments,
@@ -23,7 +23,7 @@ function makeFakeClient(rows) {
       if (/SELECT MAX\(recorded_date\) AS max_d/i.test(t)) {
         return { rows: [{ max_d: TODAY }] };
       }
-      if (/FROM manual_merges/i.test(t)) return { rows: [] }; // no admin rules in fixtures
+      if (/FROM manual_merges/i.test(t)) return { rows: manualMerges };
       if (/^SELECT/i.test(t)) return { rows };
       if (/UPDATE songs SET canonical_id = NULL/i.test(t)) return { rowCount: 0 };
       if (/UPDATE songs SET canonical_id = \$1 WHERE id = \$2/i.test(t)) {
@@ -185,4 +185,20 @@ test('dedupCanonical handles an empty catalog without error', async () => {
   const { canonicalCount, aliasCount } = await dedupCanonical(client);
   assert.equal(canonicalCount, 0);
   assert.equal(aliasCount, 0);
+});
+
+// --- Admin manual merge / split rules (migration 016) ----------------------
+test('manual merge rule forces a link the deduper would not make (22s apart)', async () => {
+  // ccc/ddd are 22s apart -> auto-dedup keeps them separate. An admin merge
+  // rule must override that and alias ddd -> ccc.
+  const client = makeFakeClient(ROWS, [{ alias_id: 'ddd', canonical_id: 'ccc' }]);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['ddd'], 'ccc', 'manual merge should force the alias link');
+});
+
+test('manual split rule keeps an otherwise-merging pair separate', async () => {
+  // aaa/bbb normally merge (bbb -> aaa). A split rule on bbb pins it independent.
+  const client = makeFakeClient(ROWS, [{ alias_id: 'bbb', canonical_id: null }]);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['bbb'], undefined, 'split rule must keep the song unmerged');
 });

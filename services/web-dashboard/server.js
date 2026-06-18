@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
 const { Pool } = require('pg');
+const { groupSameStreamDuplicates } = require('./lib/dups');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const app = express();
@@ -1328,7 +1329,42 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
       songs: o.songs, total: o.total, sample_title: o.sample_title,
     }));
 
-    res.json({ global_last_update: globalMax, artists: perArtist, orphans });
+    // Scraper run state + overall alert summary, so the panel can surface
+    // problems (stale data / frozen catalogues / unmerged dups) at a glance.
+    let scraper = { status: 'unknown', started_at: null, updated_at: null };
+    try {
+      const sr = await dbQuery(
+        `SELECT status, started_at::text, updated_at::text FROM scraper_status WHERE id = 1`
+      );
+      if (sr.rows[0]) scraper = sr.rows[0];
+    } catch (e) {
+      console.warn('[health] scraper_status unavailable:', e.code || e.message);
+    }
+
+    let dupGroups = 0;
+    try {
+      dupGroups = (await scanSameStreamDuplicates()).length;
+    } catch (e) {
+      console.warn('[health] dup scan failed:', e.code || e.message);
+    }
+
+    const daysSinceUpdate = globalMax
+      ? Math.round((Date.now() - new Date(globalMax + 'T00:00:00Z')) / 86400000) : null;
+    const summary = {
+      global_last_update: globalMax,
+      days_since_update: daysSinceUpdate,
+      scraper_status: scraper.status,
+      scraper_started_at: scraper.started_at,
+      scraper_updated_at: scraper.updated_at,
+      active_artists: perArtist.filter(a => a.active).length,
+      frozen_artists: perArtist.filter(a => a.flags.includes('frozen')).length,
+      no_song_artists: perArtist.filter(a => a.flags.includes('no-songs')).length,
+      orphan_groups: orphans.length,
+      duplicate_groups: dupGroups,
+      stale: daysSinceUpdate != null && daysSinceUpdate >= 2,
+    };
+
+    res.json({ global_last_update: globalMax, summary, artists: perArtist, orphans });
   } catch (err) {
     console.error('Admin health error:', err);
     res.status(500).json({ error: 'Failed to load health.' });
@@ -1470,44 +1506,20 @@ app.delete('/api/admin/hidden-songs/:id', requireAdmin, async (req, res) => {
 // Admin: find candidate duplicates — songs that share the EXACT same peak stream
 // count but resolve to different canonicals (i.e. not yet merged together). This is
 // the strongest signal of a linked Spotify copy the deduper missed. Returns groups.
+async function scanSameStreamDuplicates() {
+  const r = await dbQuery(
+    `SELECT s.id, s.title, s.duration_ms, s.primary_artist, s.canonical_id, s.is_featured,
+            a.title AS album,
+            COALESCE((SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id), 0)::bigint AS streams
+     FROM songs s LEFT JOIN albums a ON a.id = s.album_id
+     WHERE s.duration_ms IS NOT NULL`
+  );
+  return groupSameStreamDuplicates(r.rows);
+}
+
 app.get('/api/admin/same-stream-dups', requireAdmin, async (req, res) => {
   try {
-    const r = await dbQuery(
-      `SELECT s.id, s.title, s.duration_ms, s.primary_artist, s.canonical_id, s.is_featured,
-              a.title AS album,
-              COALESCE((SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id), 0)::bigint AS streams
-       FROM songs s LEFT JOIN albums a ON a.id = s.album_id
-       WHERE s.duration_ms IS NOT NULL`
-    );
-    // Group by exact stream count; keep only groups that span 2+ distinct canonicals.
-    const byStreams = new Map();
-    for (const row of r.rows) {
-      const streams = Number(row.streams);
-      if (streams <= 0) continue;
-      if (!byStreams.has(streams)) byStreams.set(streams, []);
-      byStreams.get(streams).push(row);
-    }
-    const groups = [];
-    for (const [streams, songs] of byStreams) {
-      if (songs.length < 2) continue;
-      const canonicals = new Set(songs.map(s => s.canonical_id || s.id));
-      if (canonicals.size < 2) continue; // already all merged together
-      groups.push({
-        streams,
-        songs: songs.map(s => ({
-          id: s.id,
-          title: s.title,
-          album: s.album,
-          duration_ms: s.duration_ms,
-          primary_artist: s.primary_artist,
-          is_featured: s.is_featured,
-          merged: s.canonical_id != null,
-          canonical_id: s.canonical_id,
-        })),
-      });
-    }
-    groups.sort((a, b) => b.streams - a.streams);
-    res.json(groups);
+    res.json(await scanSameStreamDuplicates());
   } catch (err) {
     console.error('Admin same-stream-dups error:', err);
     res.status(500).json({ error: 'Failed to scan duplicates.' });

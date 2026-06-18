@@ -230,6 +230,26 @@
     .st-inactive { opacity: 0.45; }
 
     /* Health view */
+    .hsum {
+      border: 1px solid var(--border); border-radius: 12px;
+      padding: 14px 16px; margin-bottom: 16px; background: var(--card);
+    }
+    .hsum.ok { border-color: rgba(74,222,128,0.4); }
+    .hsum.warn { border-color: rgba(251,191,36,0.5); }
+    .hsum-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .hsum-head b { font-size: 0.98rem; }
+    .hsum-sub { font-size: 0.74rem; color: var(--muted); margin-left: auto; }
+    .hsum-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 12px; }
+    .hchip {
+      font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+      background: var(--card-2); color: var(--muted); font-variant-numeric: tabular-nums;
+    }
+    .hchip.bad { background: rgba(251,191,36,0.16); color: var(--amber); }
+    .hsum-alerts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+    .halert {
+      font-size: 0.72rem; font-weight: 600; padding: 4px 10px; border-radius: 8px;
+      background: rgba(248,113,113,0.14); color: var(--red);
+    }
     .health-row {
       display: flex; align-items: center; gap: 12px; background: var(--card);
       border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
@@ -318,6 +338,7 @@
         <button id="health-refresh" class="tool-btn" title="Reload">⟳ Refresh</button>
         <button id="health-dedup" class="tool-btn" style="margin-left:auto;border-color:rgba(251,191,36,0.4);color:var(--amber)">⚒ Re-run dedup</button>
       </div>
+      <div id="health-summary"></div>
       <div id="health-orphans"></div>
       <div id="health-list"></div>
     </div>
@@ -838,8 +859,45 @@
     }
 
     function renderHealth(d) {
+      const sumEl = document.getElementById('health-summary');
       const orphEl = document.getElementById('health-orphans');
       const listEl = document.getElementById('health-list');
+
+      // Top-of-panel monitoring summary: data freshness, scraper state, and
+      // counts of things that need attention.
+      const s = d.summary;
+      if (s) {
+        const alerts = [];
+        if (s.stale) alerts.push(`Data is ${s.days_since_update}d old`);
+        if (s.scraper_status === 'error') alerts.push('Scraper errored');
+        if (s.frozen_artists) alerts.push(`${s.frozen_artists} frozen artist(s)`);
+        if (s.orphan_groups) alerts.push(`${s.orphan_groups} orphan leak(s)`);
+        if (s.duplicate_groups) alerts.push(`${s.duplicate_groups} unmerged dup(s)`);
+        const ok = alerts.length === 0;
+        const dot = s.scraper_status === 'error' ? 'error'
+          : (s.scraper_status === 'scraping' || s.scraper_status === 'deduping') ? 'active' : 'idle';
+        const fresh = s.days_since_update == null ? 'unknown'
+          : s.days_since_update <= 0 ? 'today'
+          : s.days_since_update === 1 ? 'yesterday'
+          : `${s.days_since_update}d ago`;
+        sumEl.innerHTML = `<div class="hsum ${ok ? 'ok' : 'warn'}">
+          <div class="hsum-head">
+            <span class="sg-dot ${dot}"></span>
+            <b>${ok ? 'All healthy' : '⚠ ' + alerts.length + ' issue' + (alerts.length > 1 ? 's' : '')}</b>
+            <span class="hsum-sub">scraper: ${esc(s.scraper_status || '—')} · data ${fresh}${s.global_last_update ? ' (' + esc(s.global_last_update) + ')' : ''}</span>
+          </div>
+          <div class="hsum-chips">
+            <span class="hchip">${s.active_artists} active</span>
+            <span class="hchip ${s.frozen_artists ? 'bad' : ''}">${s.frozen_artists} frozen</span>
+            <span class="hchip ${s.no_song_artists ? 'bad' : ''}">${s.no_song_artists} no-songs</span>
+            <span class="hchip ${s.orphan_groups ? 'bad' : ''}">${s.orphan_groups} orphans</span>
+            <span class="hchip ${s.duplicate_groups ? 'bad' : ''}">${s.duplicate_groups} dups</span>
+          </div>
+          ${alerts.length ? `<div class="hsum-alerts">${alerts.map(a => `<span class="halert">${esc(a)}</span>`).join('')}</div>` : ''}
+        </div>`;
+      } else {
+        sumEl.innerHTML = '';
+      }
 
       // Orphans (artists with songs but no roster row → leaking into JT).
       if (d.orphans && d.orphans.length) {
