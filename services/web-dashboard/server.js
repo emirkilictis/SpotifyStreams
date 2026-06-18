@@ -369,7 +369,11 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         END AS release_date,
         dsc.recorded_date,
         COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
-        COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain
+        COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain,
+        -- 7-day trailing average daily gain — smooths Spotify's weekly cadence
+        -- (weekend spikes / Monday drops) so ETA estimates aren't whipsawed by
+        -- which single day the latest snapshot happens to land on.
+        COALESCE(avg7.daily_avg_7d, 0)::bigint AS daily_avg_7d
       FROM songs s
       LEFT JOIN albums a ON s.album_id = a.id
       LEFT JOIN (
@@ -381,6 +385,15 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         FROM daily_streams_canonical
         ORDER BY canonical_id, recorded_date DESC
       ) dsc ON s.id = dsc.canonical_id
+      LEFT JOIN (
+        SELECT canonical_id, ROUND(AVG(daily_gain))::bigint AS daily_avg_7d
+        FROM (
+          SELECT canonical_id, daily_gain,
+                 ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
+          FROM daily_streams_canonical
+        ) z WHERE rn <= 7
+        GROUP BY canonical_id
+      ) avg7 ON s.id = avg7.canonical_id
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()})
       AND ${FSLS_REMIX_EXCLUSION_SQL}
@@ -734,7 +747,8 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
         END AS album_id,
         COALESCE(s.canonical_id, s.id) AS canonical_song_id,
         COALESCE(dsc.cumulative, 0) AS cumulative,
-        COALESCE(dsc.daily_gain, 0) AS daily_gain
+        COALESCE(dsc.daily_gain, 0) AS daily_gain,
+        COALESCE(avg7.daily_avg_7d, 0) AS daily_avg_7d
         FROM songs s
         JOIN albums a ON s.album_id = a.id
         LEFT JOIN (
@@ -745,6 +759,15 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           FROM daily_streams_canonical
           ORDER BY canonical_id, recorded_date DESC
         ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
+        LEFT JOIN (
+          SELECT canonical_id, ROUND(AVG(daily_gain))::bigint AS daily_avg_7d
+          FROM (
+            SELECT canonical_id, daily_gain,
+                   ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
+            FROM daily_streams_canonical
+          ) z WHERE rn <= 7
+          GROUP BY canonical_id
+        ) avg7 ON COALESCE(s.canonical_id, s.id) = avg7.canonical_id
         WHERE ${artistAlbumMatchSQL('s')}
         AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
         AND ${FSLS_REMIX_EXCLUSION_SQL}
@@ -857,7 +880,8 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
         ua.image_url,
         COUNT(acs.canonical_song_id)::int AS track_count,
         COALESCE(SUM(acs.cumulative), 0)::bigint AS total_streams,
-        COALESCE(SUM(acs.daily_gain), 0)::bigint AS daily_gain
+        COALESCE(SUM(acs.daily_gain), 0)::bigint AS daily_gain,
+        COALESCE(SUM(acs.daily_avg_7d), 0)::bigint AS daily_avg_7d
       FROM unique_albums ua
       JOIN album_canonical_songs acs ON ua.album_id = acs.album_id
       GROUP BY ua.album_id, ua.album_title, ua.release_date, ua.image_url

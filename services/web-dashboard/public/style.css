@@ -2950,6 +2950,7 @@ select.tc-input { cursor: pointer; }
 .tc-detail strong { color: var(--text-primary); }
 .tc-warn { font-size: 0.85rem; color: #fbbf24; }
 .tc-done { font-size: 0.9rem; color: var(--accent-green); }
+.tc-rate-note { opacity: 0.6; font-weight: 400; }
 
 /* Milestone Type Badges */
 .milestone-type-badge {

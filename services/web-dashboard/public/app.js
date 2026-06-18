@@ -1732,6 +1732,18 @@ function formatMilestoneName(val) {
   return val.toString();
 }
 
+// Use the smoothed 7-day average rate when available. Spotify's daily updates
+// swing hard across the week (weekend up, Monday down — sometimes 200k apart for
+// JT), so a single day's gain makes ETAs jump around. A 7-day window contains one
+// of each weekday, so it's seasonally complete. Falls back to the latest daily
+// gain when no average exists yet (e.g. a freshly tracked song).
+function effectiveDailyRate(obj) {
+  if (!obj) return 0;
+  const avg = Number(obj.daily_avg_7d);
+  if (Number.isFinite(avg) && avg > 0) return avg;
+  return Number(obj.daily_gain) || 0;
+}
+
 function renderMilestones() {
   // Keep the target calculator's picker in sync with the current artist's data.
   populateTargetCalc();
@@ -1750,7 +1762,7 @@ function renderMilestones() {
       .filter(song => Number(song.cumulative) > 0)
       .map(song => {
         const cumulative = Number(song.cumulative);
-        const dailyGain = Number(song.daily_gain);
+        const dailyGain = effectiveDailyRate(song);
         const nextMilestone = getNextMilestone(cumulative);
         const percent = (cumulative / nextMilestone) * 100;
         const dailyAvg = dailyGain > 0 ? dailyGain : 1;
@@ -1775,7 +1787,7 @@ function renderMilestones() {
       .filter(album => Number(album.total_streams) > 0)
       .map(album => {
         const cumulative = Number(album.total_streams);
-        const dailyGain = Number(album.daily_gain);
+        const dailyGain = effectiveDailyRate(album);
         const nextMilestone = getNextMilestone(cumulative);
         const percent = (cumulative / nextMilestone) * 100;
         const dailyAvg = dailyGain > 0 ? dailyGain : 1;
@@ -1902,10 +1914,10 @@ function computeTargetEta() {
   let cumulative = 0, dailyGain = 0, name = '';
   if (type === 'song') {
     const s = (allSongs || []).find(x => x.id === id);
-    if (s) { cumulative = Number(s.cumulative); dailyGain = Number(s.daily_gain); name = s.title; }
+    if (s) { cumulative = Number(s.cumulative); dailyGain = effectiveDailyRate(s); name = s.title; }
   } else {
     const a = (allAlbums || []).find(x => x.album_id === id);
-    if (a) { cumulative = Number(a.total_streams); dailyGain = Number(a.daily_gain); name = a.album_title; }
+    if (a) { cumulative = Number(a.total_streams); dailyGain = effectiveDailyRate(a); name = a.album_title; }
   }
 
   const target = parseTargetInput(tcValueEl.value);
@@ -1922,7 +1934,7 @@ function computeTargetEta() {
 
   const remaining = target - cumulative;
   if (!(dailyGain > 0)) {
-    tcResultEl.innerHTML = `<span class="tc-warn">Needs <strong>${formatNumber(remaining)}</strong> more, but there’s no recent daily growth to estimate from.</span>`;
+    tcResultEl.innerHTML = `<span class="tc-warn">Needs <strong>${formatNumber(remaining)}</strong> more, but there’s no recent growth to estimate from.</span>`;
     return;
   }
 
@@ -1938,7 +1950,7 @@ function computeTargetEta() {
     <div class="tc-eta"><span class="tc-eta-num">${etaText}</span> <span class="tc-eta-label">to reach ${formatShortNumber(target)}</span></div>
     <div class="tc-detail">
       <span>Reaches on <strong>${dateStr}</strong></span>
-      <span>Needs <strong>${formatNumber(remaining)}</strong> more · at <strong>+${formatShortNumber(dailyGain)}/day</strong></span>
+      <span>Needs <strong>${formatNumber(remaining)}</strong> more · at <strong>+${formatShortNumber(dailyGain)}/day</strong> <span class="tc-rate-note">(7-day avg)</span></span>
     </div>`;
 }
 
