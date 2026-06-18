@@ -2888,6 +2888,69 @@ body.modal-open {
   box-shadow: 0 0 10px rgba(30, 215, 96, 0.15);
 }
 
+/* Target Calculator */
+.target-calc {
+  padding: 18px 20px;
+  border-radius: 16px;
+  margin-bottom: 8px;
+}
+.target-calc .section-title { margin: 0 0 4px; }
+.target-calc-hint {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+.target-calc-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tc-input {
+  flex: 1;
+  min-width: 200px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.9rem;
+  padding: 11px 14px;
+  outline: none;
+  transition: var(--transition-smooth);
+}
+.tc-input:focus {
+  border-color: rgba(30, 215, 96, 0.5);
+  box-shadow: 0 0 0 3px rgba(30, 215, 96, 0.12);
+}
+select.tc-input { cursor: pointer; }
+.tc-result { margin-top: 14px; min-height: 1px; }
+.tc-eta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tc-eta-num {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--accent-green);
+  font-variant-numeric: tabular-nums;
+}
+.tc-eta-label { font-size: 0.9rem; color: var(--text-secondary); }
+.tc-detail {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.tc-detail strong { color: var(--text-primary); }
+.tc-warn { font-size: 0.85rem; color: #fbbf24; }
+.tc-done { font-size: 0.9rem; color: var(--accent-green); }
+
 /* Milestone Type Badges */
 .milestone-type-badge {
   font-size: 0.65rem;

@@ -1733,6 +1733,8 @@ function formatMilestoneName(val) {
 }
 
 function renderMilestones() {
+  // Keep the target calculator's picker in sync with the current artist's data.
+  populateTargetCalc();
   // Visibility is controlled by the view switcher (Milestones tab); here we
   // only populate the grid, falling back to an empty state when there's nothing.
   if ((!allSongs || allSongs.length === 0) && (!allAlbums || allAlbums.length === 0)) {
@@ -1849,6 +1851,99 @@ function renderMilestones() {
     `;
   }).join('');
 }
+
+// ===== Target Calculator: days-to-go for a custom stream goal =====
+const tcItemEl = document.getElementById('tc-item');
+const tcValueEl = document.getElementById('tc-value');
+const tcResultEl = document.getElementById('tc-result');
+
+// Parse "500M", "1.5b", "750,000,000", "750000000" -> number (or NaN).
+function parseTargetInput(raw) {
+  if (!raw) return NaN;
+  const s = String(raw).trim().toLowerCase().replace(/,/g, '').replace(/\s+/g, '');
+  const m = s.match(/^([0-9]*\.?[0-9]+)\s*([kmb])?$/);
+  if (!m) return NaN;
+  const n = parseFloat(m[1]);
+  const mult = m[2] === 'b' ? 1e9 : m[2] === 'm' ? 1e6 : m[2] === 'k' ? 1e3 : 1;
+  return n * mult;
+}
+
+// Build the song/album picker from the in-memory data, preserving selection.
+function populateTargetCalc() {
+  if (!tcItemEl) return;
+  const prev = tcItemEl.value;
+  const opt = (val, label) => `<option value="${val}">${label.replace(/</g, '&lt;')}</option>`;
+  let html = '';
+  const songs = (allSongs || []).filter(s => Number(s.cumulative) > 0)
+    .sort((a, b) => Number(b.cumulative) - Number(a.cumulative));
+  const albums = (allAlbums || []).filter(a => Number(a.total_streams) > 0)
+    .sort((a, b) => Number(b.total_streams) - Number(a.total_streams));
+  if (songs.length) {
+    html += `<optgroup label="🎵 Songs">` +
+      songs.map(s => opt(`song:${s.id}`, `${s.title} (${formatShortNumber(s.cumulative)})`)).join('') +
+      `</optgroup>`;
+  }
+  if (albums.length) {
+    html += `<optgroup label="💿 Albums">` +
+      albums.map(a => opt(`album:${a.album_id}`, `${a.album_title} (${formatShortNumber(a.total_streams)})`)).join('') +
+      `</optgroup>`;
+  }
+  tcItemEl.innerHTML = html || `<option value="">No data yet</option>`;
+  if (prev && tcItemEl.querySelector(`option[value="${CSS.escape(prev)}"]`)) tcItemEl.value = prev;
+  computeTargetEta();
+}
+
+function computeTargetEta() {
+  if (!tcResultEl) return;
+  const sel = tcItemEl && tcItemEl.value;
+  if (!sel) { tcResultEl.innerHTML = ''; return; }
+  const [type, id] = sel.split(/:(.+)/);
+
+  let cumulative = 0, dailyGain = 0, name = '';
+  if (type === 'song') {
+    const s = (allSongs || []).find(x => x.id === id);
+    if (s) { cumulative = Number(s.cumulative); dailyGain = Number(s.daily_gain); name = s.title; }
+  } else {
+    const a = (allAlbums || []).find(x => x.album_id === id);
+    if (a) { cumulative = Number(a.total_streams); dailyGain = Number(a.daily_gain); name = a.album_title; }
+  }
+
+  const target = parseTargetInput(tcValueEl.value);
+  if (!tcValueEl.value.trim()) { tcResultEl.innerHTML = ''; return; }
+  if (!Number.isFinite(target) || target <= 0) {
+    tcResultEl.innerHTML = `<span class="tc-warn">Enter a number like 500M, 1.5B or 750000000.</span>`;
+    return;
+  }
+
+  if (target <= cumulative) {
+    tcResultEl.innerHTML = `<span class="tc-done">✓ Already past it — currently at <strong>${formatNumber(cumulative)}</strong>.</span>`;
+    return;
+  }
+
+  const remaining = target - cumulative;
+  if (!(dailyGain > 0)) {
+    tcResultEl.innerHTML = `<span class="tc-warn">Needs <strong>${formatNumber(remaining)}</strong> more, but there’s no recent daily growth to estimate from.</span>`;
+    return;
+  }
+
+  const days = Math.ceil(remaining / dailyGain);
+  const reachDate = new Date();
+  reachDate.setDate(reachDate.getDate() + days);
+  const dateStr = reachDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  let etaText = `${formatNumber(days)} days`;
+  if (days > 365) etaText = `${(days / 365).toFixed(1)} years (${formatNumber(days)} days)`;
+  else if (days === 1) etaText = `1 day`;
+
+  tcResultEl.innerHTML = `
+    <div class="tc-eta"><span class="tc-eta-num">${etaText}</span> <span class="tc-eta-label">to reach ${formatShortNumber(target)}</span></div>
+    <div class="tc-detail">
+      <span>Reaches on <strong>${dateStr}</strong></span>
+      <span>Needs <strong>${formatNumber(remaining)}</strong> more · at <strong>+${formatShortNumber(dailyGain)}/day</strong></span>
+    </div>`;
+}
+
+if (tcItemEl) tcItemEl.addEventListener('change', computeTargetEta);
+if (tcValueEl) tcValueEl.addEventListener('input', computeTargetEta);
 
 // ===== Achieved Milestones (separate collapsible log) =====
 async function fetchAchievedMilestones(headers) {

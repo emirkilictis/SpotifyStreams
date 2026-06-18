@@ -338,6 +338,18 @@
         </div>
       </section>
 
+      <!-- Custom target ETA calculator -->
+      <section class="target-calc glass">
+        <h2 class="section-title">🎯 Target Calculator</h2>
+        <p class="target-calc-hint">Pick a song or album and enter a target stream count to see how long it’ll take at the current daily pace.</p>
+        <div class="target-calc-row">
+          <select id="tc-item" class="tc-input" aria-label="Song or album"></select>
+          <input id="tc-value" class="tc-input" type="text" inputmode="numeric" autocomplete="off"
+                 placeholder="Target — e.g. 500M, 1.5B, 750000000">
+        </div>
+        <div id="tc-result" class="tc-result"></div>
+      </section>
+
       <!-- Achieved Milestones (collapsible, hidden until data exists) -->
       <section id="achieved-milestones-section" class="achieved-milestones-section glass hidden">
         <button id="achieved-toggle-btn" class="achieved-toggle" type="button" aria-expanded="false">
