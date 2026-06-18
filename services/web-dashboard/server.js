@@ -30,6 +30,7 @@ const ARTIST_ROSTER_FALLBACK = [
   { artist_id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC',            image_url: 'https://i.scdn.co/image/ab6761610000e5eb9414ef07d0ca697726912df1', accent: '#3498db', sort_order: 9,  album_only: false, locked: false },
   { artist_id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis',            image_url: 'https://i.scdn.co/image/ab6761610000e5eb05e2f96f53a2810f5dcdd6c1', accent: '#8b5cf6', sort_order: 10, album_only: false, locked: false },
   { artist_id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez',         image_url: 'https://i.scdn.co/image/ab6761610000e5eb784d1c3b5bb30c5db83c8fe2', accent: '#e74c3c', sort_order: 11, album_only: false, locked: true  },
+  { artist_id: '4qwGe91Bz9K2T8jXTZ815W', name: 'Janet Jackson',     image_url: 'https://i.scdn.co/image/ab6761610000e5eb1d258169600a7b4559b3bb87', accent: '#d81b60', sort_order: 14, album_only: false, locked: false },
 ];
 
 // Accepted access codes for the locked artist (JC Chasez). Both unlock the same content.

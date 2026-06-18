@@ -59,7 +59,8 @@ const ARTIST_SEARCH_NAMES = {
   '3LHYvj5ZejV1NLqncEObSJ': ['vaelis'],
   '2dIgFjalVxs4ThymZ67YCE': ['stray kids'],
   '4UIOuc84ExWojcUzFGtb8W': ['felix'],
-  '2W8yFh0Ga6Yf3jiayVxwkE': ['dove cameron', 'dove']
+  '2W8yFh0Ga6Yf3jiayVxwkE': ['dove cameron', 'dove'],
+  '4qwGe91Bz9K2T8jXTZ815W': ['janet jackson', 'janet']
 };
 
 function isCoverOrTribute(title) {
@@ -469,7 +470,8 @@ async function run() {
           { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' },
           { id: '2dIgFjalVxs4ThymZ67YCE', name: 'Stray Kids' },
           { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix' },
-          { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' }
+          { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' },
+          { id: '4qwGe91Bz9K2T8jXTZ815W', name: 'Janet Jackson' }
         ];
       }
 
