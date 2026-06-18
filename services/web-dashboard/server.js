@@ -1372,20 +1372,37 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
   }
 });
 
-// Admin: trigger the scraper process in the background (optionally per-artist).
+// The real scraper (Puppeteer + Spotify cookie) only runs in GitHub Actions —
+// Render has neither Chrome nor the SP_DC secret, so we trigger the workflow via
+// the GitHub API instead of spawning a local process that would silently crash.
+const GH_REPO = process.env.GH_REPO || 'emirkilictis/SpotifyStreams';
+const GH_WORKFLOW_FILE = process.env.GH_WORKFLOW_FILE || 'daily-scrape.yml';
+const GH_REF = process.env.GH_REF || 'main';
+const GH_DISPATCH_TOKEN =
+  process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_DISPATCH_TOKEN ||
+  process.env.GH_TOKEN || process.env.GITHUB_TOKEN || null;
+
+// Admin: trigger a scrape by dispatching the GitHub Actions workflow
+// (optionally scoped to a single artist).
 app.post('/api/admin/scrape', requireAdmin, async (req, res) => {
-  const { spawn } = require('child_process');
   const { artist_id } = req.body || {};
-  
-  let args = ['scraper.js', '--force'];
+
+  let artists = '';
   if (artist_id) {
     const cleanId = String(artist_id).replace('spotify:artist:', '').trim();
     if (!/^[A-Za-z0-9]{22}$/.test(cleanId)) {
       return res.status(400).json({ error: 'Invalid artist ID.' });
     }
-    args.push(`--artists=${cleanId}`);
+    artists = cleanId;
   }
 
+  if (!GH_DISPATCH_TOKEN) {
+    return res.status(503).json({
+      error: 'Scrape trigger not configured: set the GH_DISPATCH_TOKEN env var (a GitHub token with Actions: write) on the server.',
+    });
+  }
+
+  // Don't pile on if a run is already mid-flight.
   try {
     const statusRes = await dbQuery("SELECT status FROM scraper_status WHERE id = 1");
     const currentStatus = statusRes.rows[0]?.status || 'idle';
@@ -1396,16 +1413,43 @@ app.post('/api/admin/scrape', requireAdmin, async (req, res) => {
     console.warn('[scrape-trigger] Failed to check scraper status, proceeding anyway:', err.message);
   }
 
-  const child = spawn('node', args, {
-    cwd: path.join(__dirname, '../spotify-scraper'),
-    detached: true,
-    stdio: 'ignore'
-  });
+  try {
+    const url = `https://api.github.com/repos/${GH_REPO}/actions/workflows/${GH_WORKFLOW_FILE}/dispatches`;
+    const ghRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GH_DISPATCH_TOKEN}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'spotify-streams-dashboard',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ref: GH_REF, inputs: { force: 'true', artists } }),
+    });
 
-  child.unref();
+    if (ghRes.status === 204) {
+      console.log(`[scrape-trigger] Dispatched workflow (artists='${artists || 'ALL'}').`);
+      return res.json({
+        success: true,
+        message: artists
+          ? 'Scrape queued on GitHub Actions for this artist. Songs appear in a couple of minutes.'
+          : 'Full scrape queued on GitHub Actions. This takes several minutes.',
+      });
+    }
 
-  console.log(`[scrape-trigger] Spawned scraper with args: ${args.join(' ')} (PID: ${child.pid})`);
-  res.json({ success: true, message: 'Scrape started in the background.' });
+    const detail = await ghRes.text().catch(() => '');
+    console.error(`[scrape-trigger] GitHub dispatch failed (${ghRes.status}): ${detail}`);
+    if (ghRes.status === 401 || ghRes.status === 403) {
+      return res.status(502).json({ error: 'GitHub rejected the token (check it has Actions: write on the repo and is not expired).' });
+    }
+    if (ghRes.status === 404) {
+      return res.status(502).json({ error: `Workflow not found (${GH_REPO} / ${GH_WORKFLOW_FILE}). Check GH_REPO / GH_WORKFLOW_FILE.` });
+    }
+    return res.status(502).json({ error: `GitHub dispatch failed (HTTP ${ghRes.status}).` });
+  } catch (err) {
+    console.error('[scrape-trigger] dispatch error:', err.message);
+    return res.status(502).json({ error: 'Could not reach GitHub to trigger the scrape.' });
+  }
 });
 
 // Admin: re-run canonical deduplication on demand (when duplicates/inflation

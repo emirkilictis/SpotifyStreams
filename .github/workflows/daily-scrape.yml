@@ -9,6 +9,10 @@ on:
         description: 'Force a full scrape + dedup even if today is already captured'
         type: boolean
         default: false
+      artists:
+        description: 'Comma-separated artist IDs to scrape (empty = full roster). Used by the admin panel per-artist sync.'
+        type: string
+        default: ''
 
 jobs:
   scrape:
@@ -38,7 +42,12 @@ jobs:
           SP_KEY:       ${{ secrets.SP_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FORCE_SCRAPE: ${{ inputs.force }}
-        run: node scraper.js
+          SCRAPE_ARTISTS: ${{ inputs.artists }}
+        run: |
+          ARGS=""
+          if [ -n "$SCRAPE_ARTISTS" ]; then ARGS="--artists=$SCRAPE_ARTISTS"; fi
+          echo "Running: node scraper.js $ARGS (force=$FORCE_SCRAPE)"
+          node scraper.js $ARGS
 
       - name: Notify on failure
         if: failure()
