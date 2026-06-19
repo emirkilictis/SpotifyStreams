@@ -1144,7 +1144,8 @@
       af.name.value = artist ? artist.name : '';
       af.image.value = artist ? (artist.image_url || '') : '';
       af.accent.value = artist ? (artist.accent || '') : '';
-      af.order.value = artist ? artist.sort_order : (artists.length + 1);
+      af.order.value = artist ? artist.sort_order
+        : (artists.reduce((m, a) => Math.max(m, Number(a.sort_order) || 0), 0) + 1);
       af.albumonly.checked = artist ? !!artist.album_only : false;
       af.locked.checked = artist ? !!artist.locked : false;
       af.active.checked = artist ? !!artist.active : true;
