@@ -1555,6 +1555,91 @@ app.post('/api/admin/scrape', requireAdmin, async (req, res) => {
   }
 });
 
+// Admin: recent GitHub Actions runs of the scrape workflow, so the panel can show
+// whether scrapes are actually succeeding (the spawn-on-Render past gave no signal).
+app.get('/api/admin/workflow-runs', requireAdmin, async (req, res) => {
+  if (!GH_DISPATCH_TOKEN) {
+    return res.status(503).json({ error: 'Not configured: set GH_DISPATCH_TOKEN to view runs.' });
+  }
+  try {
+    const url = `https://api.github.com/repos/${GH_REPO}/actions/workflows/${GH_WORKFLOW_FILE}/runs?per_page=12`;
+    const ghRes = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${GH_DISPATCH_TOKEN}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'spotify-streams-dashboard',
+      },
+    });
+    if (!ghRes.ok) {
+      const detail = await ghRes.text().catch(() => '');
+      console.error(`[workflow-runs] GitHub ${ghRes.status}: ${detail}`);
+      return res.status(502).json({ error: `GitHub returned HTTP ${ghRes.status}.` });
+    }
+    const data = await ghRes.json();
+    const runs = (data.workflow_runs || []).map(r => ({
+      id: r.id,
+      status: r.status,            // queued | in_progress | completed
+      conclusion: r.conclusion,    // success | failure | cancelled | null
+      event: r.event,              // workflow_dispatch | schedule | …
+      title: r.display_title,
+      created_at: r.created_at,
+      run_started_at: r.run_started_at,
+      updated_at: r.updated_at,
+      html_url: r.html_url,
+    }));
+    res.json(runs);
+  } catch (err) {
+    console.error('[workflow-runs] error:', err.message);
+    res.status(502).json({ error: 'Could not reach GitHub.' });
+  }
+});
+
+// Admin: inspect a song's raw stream_stats snapshots (the song + any merged
+// aliases), with day-over-day deltas so bad rows — duplicate days, drops,
+// partial-scrape phantoms — stand out. song_id = a canonical song id.
+app.get('/api/admin/song-snapshots', requireAdmin, async (req, res) => {
+  try {
+    const id = String(req.query.song_id || '').replace('spotify:track:', '').trim();
+    if (!/^[A-Za-z0-9]{22}$/.test(id)) return res.status(400).json({ error: 'Invalid song id.' });
+    const r = await dbQuery(
+      `SELECT ss.id, ss.song_id, ss.recorded_date::text AS recorded_date, ss.stream_count::bigint AS stream_count,
+              (ss.stream_count - LAG(ss.stream_count) OVER (PARTITION BY ss.song_id ORDER BY ss.recorded_date))::bigint AS delta,
+              s.title
+       FROM stream_stats ss
+       JOIN songs s ON s.id = ss.song_id
+       WHERE ss.song_id IN (SELECT id FROM songs WHERE id = $1 OR canonical_id = $1)
+       ORDER BY ss.recorded_date DESC, ss.song_id
+       LIMIT 60`,
+      [id]
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Admin song-snapshots error:', err);
+    res.status(500).json({ error: 'Failed to load snapshots.' });
+  }
+});
+
+// Admin: delete a single bad snapshot row by its stream_stats id. The
+// daily_streams_canonical view recomputes automatically; the next scrape
+// re-adds today's row if it was today's. Guarded by an id echo in the body.
+app.delete('/api/admin/snapshots/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid snapshot id.' });
+    if (String(req.body?.confirm || '') !== String(id)) {
+      return res.status(400).json({ error: 'Confirmation mismatch.' });
+    }
+    const r = await dbQuery(`DELETE FROM stream_stats WHERE id = $1`, [id]);
+    if (!r.rowCount) return res.status(404).json({ error: 'Snapshot not found (already gone?).' });
+    console.log(`[snapshot] deleted stream_stats id ${id}.`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Admin snapshot-delete error:', err);
+    res.status(500).json({ error: 'Failed to delete snapshot.' });
+  }
+});
+
 // Admin: re-run canonical deduplication on demand (when duplicates/inflation
 // appear without waiting for a full scrape). Wrapped in a transaction so a
 // mid-run failure rolls back instead of leaving the catalogue un-deduped.

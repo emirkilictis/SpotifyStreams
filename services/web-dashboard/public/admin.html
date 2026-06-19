@@ -194,6 +194,25 @@
     .dup-sub { font-size: 0.72rem; color: var(--faint); font-family: monospace; word-break: break-all; }
     .dup-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
 
+    /* Snapshot inspector */
+    .snap-bad td { background: rgba(248,113,113,0.07); }
+    .snap-bad-delta { color: var(--red); font-weight: 700; }
+    .snap-sid { font-family: monospace; font-size: 0.72rem; color: var(--faint); }
+
+    /* Recent scrape runs (Status tab) */
+    .runs-h { font-size: 0.9rem; color: var(--muted); margin: 22px 0 10px; }
+    .runs-sub { font-weight: 400; color: var(--faint); font-size: 0.78rem; }
+    .run-row {
+      display: flex; align-items: center; gap: 12px; background: var(--card);
+      border: 1px solid var(--border); border-radius: 10px; padding: 9px 14px; margin-bottom: 8px;
+    }
+    .run-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .run-concl { font-weight: 700; font-size: 0.85rem; text-transform: capitalize; }
+    .run-concl.idle { color: var(--green); }
+    .run-concl.error { color: var(--red); }
+    .run-concl.active { color: var(--amber); }
+    .run-meta { font-size: 0.72rem; color: var(--faint); }
+
     /* Scraper Status view */
     .status-global-card {
       display: flex; align-items: center; gap: 14px;
@@ -319,6 +338,7 @@
         <button id="hidden-refresh" class="tool-btn" title="Reload hidden list">⟳ Hidden</button>
       </div>
       <div id="song-results"></div>
+      <div id="snapshot-panel"></div>
 
       <div class="songs-section">
         <div class="toolbar">
@@ -411,6 +431,10 @@
       </div>
       <!-- Per-artist table -->
       <div id="status-list"></div>
+
+      <!-- Recent GitHub Actions scrape runs -->
+      <h3 class="runs-h">Recent scrape runs <span class="runs-sub">(GitHub Actions)</span></h3>
+      <div id="runs-list"></div>
     </div>
   </div>
 
@@ -701,6 +725,7 @@
               <div class="ar-id">${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.album || '')} · ${s.streams ? (Number(s.streams)/1e6).toFixed(1)+'M' : '—'} · ${esc(s.id)}</div>
             </div>
             <div class="ar-actions">
+              <button class="act" data-snapshots="${esc(s.id)}" data-title="${esc(s.title)}">📈 Snapshots</button>
               ${s.hidden
                 ? `<button class="act ok" data-unhide="${esc(s.id)}">Un-hide</button>`
                 : `<button class="act del" data-hide="${esc(s.id)}">Hide</button>`}
@@ -733,6 +758,26 @@
     document.getElementById('songs-view').addEventListener('click', async (e) => {
       const hideBtn = e.target.closest('button[data-hide]');
       const unhideBtn = e.target.closest('button[data-unhide]');
+      const snapBtn = e.target.closest('button[data-snapshots]');
+      const delSnap = e.target.closest('button[data-del-snap]');
+      if (snapBtn) {
+        await loadSnapshots(snapBtn.dataset.snapshots, snapBtn.dataset.title || '');
+        document.getElementById('snapshot-panel').scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (delSnap) {
+        const id = delSnap.dataset.delSnap;
+        if (!confirm(`Delete this snapshot row (id ${id})? The daily totals recompute right after; the next scrape re-adds today's row if it was today's.`)) return;
+        delSnap.disabled = true;
+        const res = await api('/api/admin/snapshots/' + id, {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm: id }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { alert(d.error || 'Delete failed.'); delSnap.disabled = false; return; }
+        await loadSnapshots(snapInspectId, snapInspectTitle);
+        return;
+      }
       if (hideBtn) {
         const reason = prompt('Optional reason for hiding this track:', '') ?? '';
         hideBtn.disabled = true;
@@ -749,6 +794,45 @@
         await loadHiddenSongs();
       }
     });
+
+    // ---- Songs: snapshot inspector (find & delete bad daily rows) ----
+    let snapInspectId = '', snapInspectTitle = '';
+    async function loadSnapshots(songId, title) {
+      snapInspectId = songId; snapInspectTitle = title;
+      const el = document.getElementById('snapshot-panel');
+      el.innerHTML = '<div class="loading">Loading snapshots…</div>';
+      try {
+        const res = await api('/api/admin/song-snapshots?song_id=' + encodeURIComponent(songId));
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error();
+        const rows = await res.json();
+        const multiSong = new Set(rows.map(r => r.song_id)).size > 1;
+        const body = rows.map(r => {
+          const d = r.delta == null ? null : Number(r.delta);
+          // Flag rows that didn't grow (duplicate day) or went backwards (bad data).
+          const bad = d != null && d <= 0;
+          const deltaTxt = d == null ? '—' : (d >= 0 ? '+' : '') + Number(d).toLocaleString();
+          return `<tr class="${bad ? 'snap-bad' : ''}">
+            <td>${esc(r.recorded_date)}</td>
+            <td style="text-align:right">${Number(r.stream_count).toLocaleString()}</td>
+            <td style="text-align:right" class="${bad ? 'snap-bad-delta' : ''}">${deltaTxt}${bad ? ' ⚠' : ''}</td>
+            ${multiSong ? `<td class="snap-sid">${esc(r.song_id)}</td>` : ''}
+            <td style="text-align:right;padding-right:12px"><button class="act del" data-del-snap="${esc(r.id)}">Delete</button></td>
+          </tr>`;
+        }).join('');
+        el.innerHTML = `
+          <div class="songs-section">
+            <div class="toolbar">
+              <h3 class="songs-h">Snapshots — ${esc(title || songId)}</h3>
+              <button class="tool-btn" data-snapshots="${esc(songId)}" data-title="${esc(title)}" style="margin-left:auto">⟳ Reload</button>
+            </div>
+            <p class="songs-hint">Raw daily rows${multiSong ? ' (incl. merged aliases)' : ''}. ⚠ marks days that didn’t grow or went backwards — likely a duplicate snapshot or partial scrape. Delete only rows you’re sure are bad.</p>
+            ${rows.length ? `<table class="status-table"><thead><tr>
+              <th>Date</th><th style="text-align:right">Streams</th><th style="text-align:right">Δ vs prev</th>${multiSong ? '<th>Song id</th>' : ''}<th></th>
+            </tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">No snapshots.</div>'}
+          </div>`;
+      } catch { el.innerHTML = '<div class="empty">Could not load snapshots.</div>'; }
+    }
 
     // ---- Songs: duplicate finder + manual merge rules ----
     const dupResultsEl = document.getElementById('dup-results');
@@ -1130,7 +1214,38 @@
       return (new Date() - new Date(isoDate)) > 2 * 86400000; // > 2 days
     }
 
+    async function loadWorkflowRuns() {
+      const el = document.getElementById('runs-list');
+      if (!el) return;
+      el.innerHTML = '<div class="loading">Loading runs…</div>';
+      try {
+        const res = await api('/api/admin/workflow-runs');
+        if (res.status === 503) { el.innerHTML = '<div class="empty">Set GH_DISPATCH_TOKEN on the server to see scrape runs.</div>'; return; }
+        if (!res.ok) throw new Error();
+        const runs = await res.json();
+        if (!runs.length) { el.innerHTML = '<div class="empty">No runs yet.</div>'; return; }
+        el.innerHTML = runs.map(r => {
+          const state = r.status !== 'completed' ? 'active' : (r.conclusion === 'success' ? 'idle' : 'error');
+          const label = r.status !== 'completed' ? (r.status || '').replace('_', ' ') : (r.conclusion || 'done');
+          let durText = '';
+          if (r.status === 'completed' && r.run_started_at && r.updated_at) {
+            const secs = Math.max(0, Math.round((new Date(r.updated_at) - new Date(r.run_started_at)) / 1000));
+            durText = ` · ${Math.floor(secs / 60)}m ${secs % 60}s`;
+          }
+          return `<div class="run-row">
+            <span class="sg-dot ${state}"></span>
+            <div class="run-main">
+              <span class="run-concl ${state}">${esc(label)}</span>
+              <span class="run-meta">${esc(r.event || '')} · ${fmtDate(r.created_at) || ''}${durText}</span>
+            </div>
+            <a class="act" href="${esc(r.html_url)}" target="_blank" rel="noopener">Logs ↗</a>
+          </div>`;
+        }).join('');
+      } catch { el.innerHTML = '<div class="empty">Could not load runs.</div>'; }
+    }
+
     async function loadScraperStatus() {
+      loadWorkflowRuns();
       sgDot.className = 'sg-dot';
       sgLabel.textContent = 'Loading…';
       sgTime.textContent = '';
