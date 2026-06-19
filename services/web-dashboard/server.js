@@ -872,8 +872,34 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           ))
           OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
           OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W')
-          OR ($1 = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE')
-          OR ($1 = 'spotify:artist:4qwGe91Bz9K2T8jXTZ815W')
+          -- Generic fallback for any OTHER artist (incl. ones added later from the
+          -- admin panel — Dove, Janet, etc.): show their albums automatically so
+          -- there's no missing-tab bug, but skip compilations / "featured on"
+          -- various-artists albums (Hits of 2024, Party Hits, …) by requiring the
+          -- album to hold at least one of the artist's OWN lead (non-featured)
+          -- canonical songs. The 10 explicitly-branched artists above are excluded
+          -- from this clause, so their lists stay byte-for-byte unchanged.
+          OR (
+            $1 <> ALL(ARRAY[
+              'spotify:artist:31TPClRtHm23RisEBtV3X7',
+              'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT',
+              'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o',
+              'spotify:artist:3p3U04w2DaiBzuYMZnYr00',
+              'spotify:artist:3LHYvj5ZejV1NLqncEObSJ',
+              'spotify:artist:1HY2Jd0NmPuamShAr6KMms',
+              'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH',
+              'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR',
+              'spotify:artist:2dIgFjalVxs4ThymZ67YCE',
+              'spotify:artist:4UIOuc84ExWojcUzFGtb8W'
+            ])
+            AND EXISTS (
+              SELECT 1 FROM songs hs
+              WHERE hs.album_id = albums.id
+                AND hs.primary_artist = $1
+                AND hs.canonical_id IS NULL
+                AND hs.is_featured IS NOT TRUE
+            )
+          )
       )
       SELECT
         ua.album_id,
