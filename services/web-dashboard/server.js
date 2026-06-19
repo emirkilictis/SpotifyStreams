@@ -873,6 +873,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
           OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W')
           OR ($1 = 'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE')
+          OR ($1 = 'spotify:artist:4qwGe91Bz9K2T8jXTZ815W')
       )
       SELECT
         ua.album_id,
