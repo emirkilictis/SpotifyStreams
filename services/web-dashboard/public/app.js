@@ -87,6 +87,12 @@ const songsShowAllBtn = document.getElementById('songs-showall-btn');
 const breakdownToggle = document.getElementById('breakdown-toggle');
 const streamsBreakdown = document.getElementById('streams-breakdown');
 
+// Daily Streams breakdown (Lead / Featured) toggle
+const dailyBreakdownToggle = document.getElementById('daily-breakdown-toggle');
+const dailyStreamsBreakdown = document.getElementById('daily-streams-breakdown');
+const leadDailyStreamsEl = document.getElementById('lead-daily-streams');
+const featDailyStreamsEl = document.getElementById('feat-daily-streams');
+
 // Modal Elements
 const albumModal = document.getElementById('album-modal');
 const modalCloseBtn = document.getElementById('modal-close-btn');
@@ -266,6 +272,16 @@ async function fetchData() {
     // Bind daily streams. Show the raw daily streams (daily gain).
     const dailyGain = Number(statsData.daily_gain);
     dailyStreamsEl.textContent = (dailyGain > 0 ? '+' : '') + formatNumber(dailyGain);
+
+    // Lead / Featured split of the daily gain (mirrors the Total Streams breakdown).
+    if (leadDailyStreamsEl) {
+      const leadDaily = Number(statsData.lead_daily_gain);
+      leadDailyStreamsEl.textContent = (leadDaily > 0 ? '+' : '') + formatNumber(leadDaily);
+    }
+    if (featDailyStreamsEl) {
+      const featDaily = Number(statsData.feat_daily_gain);
+      featDailyStreamsEl.textContent = (featDaily > 0 ? '+' : '') + formatNumber(featDaily);
+    }
     
     totalSongsEl.textContent = statsData.total_songs;
     lastUpdateEl.textContent = formatDate(statsData.last_update);
@@ -1617,6 +1633,16 @@ if (breakdownToggle && streamsBreakdown) {
     const collapsed = streamsBreakdown.classList.toggle('collapsed');
     breakdownToggle.setAttribute('aria-expanded', String(!collapsed));
     const chevron = breakdownToggle.querySelector('.chevron-icon');
+    if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+  });
+}
+
+// Daily Streams breakdown (Lead / Featured) toggle
+if (dailyBreakdownToggle && dailyStreamsBreakdown) {
+  dailyBreakdownToggle.addEventListener('click', () => {
+    const collapsed = dailyStreamsBreakdown.classList.toggle('collapsed');
+    dailyBreakdownToggle.setAttribute('aria-expanded', String(!collapsed));
+    const chevron = dailyBreakdownToggle.querySelector('.chevron-icon');
     if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
   });
 }

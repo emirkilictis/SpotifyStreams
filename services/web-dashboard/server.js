@@ -436,6 +436,8 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_featured), 0)::bigint AS feat_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_solo), 0)::bigint AS solo_streams,
         COALESCE(SUM(dsc.daily_gain), 0)::bigint AS daily_gain,
+        COALESCE(SUM(dsc.daily_gain) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_daily_gain,
+        COALESCE(SUM(dsc.daily_gain) FILTER (WHERE s.is_featured), 0)::bigint AS feat_daily_gain,
         -- 7-day trailing average of the artist's total daily gain. Smooths out
         -- Spotify's irregular update cadence (some days post 0, the next ~2x),
         -- which otherwise makes the headline daily number bounce wildly.
