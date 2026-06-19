@@ -525,11 +525,21 @@ async function run() {
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
     } finally {
       try {
-        console.log('[scraper] Running database deduplication step...');
+        console.log('[scraper] Running database deduplication step (transactional)...');
         await setScraperStatus(client, 'deduping');
+        // Wrap in a transaction so the canonical_id reset + re-merge swap atomically.
+        // Without this, dedup's first step (UPDATE songs SET canonical_id = NULL) is
+        // autocommitted and visible to the dashboard mid-run → every duplicate counts
+        // separately → JT briefly shows ~60B. Inside a transaction, readers see the old
+        // clean mappings until COMMIT, then the new ones — 18.24B → 18.25B, never 60B.
+        // A crash now ROLLBACKs to the last clean state instead of leaving a half-merged
+        // catalog committed. Mirrors the admin dedup path (server.js).
+        await client.query('BEGIN');
         await dedupCanonical(client);
+        await client.query('COMMIT');
       } catch (dedupErr) {
-        console.error('[scraper] Deduplication step failed:', dedupErr.message);
+        try { await client.query('ROLLBACK'); } catch {}
+        console.error('[scraper] Deduplication step failed (rolled back):', dedupErr.message);
       }
       try {
         await setScraperStatus(client, 'idle');
