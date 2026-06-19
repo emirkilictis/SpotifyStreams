@@ -134,10 +134,15 @@
     .hl { background: rgba(30,215,96,0.25); border-radius: 3px; color: #fff; }
 
     /* Tabs */
-    .tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+    .tabs {
+      display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--border);
+      overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
     .tab {
       background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
       padding: 8px 14px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-bottom: -1px;
+      white-space: nowrap; flex-shrink: 0;
     }
     .tab:hover { color: var(--text); }
     .tab.active { color: var(--green); border-bottom-color: var(--green); }
@@ -299,6 +304,40 @@
     .orphan-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap; }
     .orphan-item .oi-main { flex: 1; min-width: 0; font-size: 0.85rem; }
     .orphan-item .oi-id { font-family: monospace; font-size: 0.72rem; color: var(--faint); }
+
+    /* ---- Mobile (≤560px) ---- */
+    @media (max-width: 560px) {
+      .wrap { padding: 16px 12px 64px; }
+      header.top { margin-bottom: 18px; }
+      header.top h1 { font-size: 1.2rem; }
+
+      /* iOS auto-zooms inputs with font-size < 16px on focus — pin to 16px. */
+      .search, .gate input, input[type="number"], textarea { font-size: 16px; }
+
+      /* Bigger tap targets (≥40px) for thumbs. */
+      .tab { padding: 11px 14px; }
+      .act, .tool-btn, .filter-btn, .logout-btn {
+        padding: 10px 14px; min-height: 40px; display: inline-flex;
+        align-items: center; justify-content: center;
+      }
+
+      /* Tables scroll sideways instead of overflowing the screen. */
+      .status-table {
+        display: block; overflow-x: auto; white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+      }
+      .status-table th, .status-table td { padding: 9px 10px; }
+
+      /* Forms / toolbars stack full-width. */
+      .af-row .search, .toolbar .search { min-width: 0; width: 100%; }
+      .af-row #af-order { max-width: 100% !important; width: 100%; }
+      .toolbar h3, .songs-h { width: 100%; }
+
+      /* Cards a touch tighter. */
+      .item { padding: 14px 14px; }
+      .health-row, .artist-row { padding: 10px 12px; gap: 10px; }
+      .item-meta { margin-left: 0; text-align: left; width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -685,6 +724,7 @@
     document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
+      t.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
       const v = t.dataset.view;
       feedbackView.classList.toggle('hidden', v !== 'feedback');
       artistsView.classList.toggle('hidden', v !== 'artists');
