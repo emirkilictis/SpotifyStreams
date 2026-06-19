@@ -857,6 +857,18 @@ tbody tr.featured-row:hover {
   color: var(--text-muted);
 }
 
+/* Genuine last-day playcount drop (un-clamped). Only rendered when negative,
+   so it flags streams that were pulled / a bad snapshot — sits under the
+   normal (running-max) daily gain. */
+.real-drop {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent-red);
+  white-space: nowrap;
+}
+
 .stat-delta {
   display: inline-block;
   margin-top: 4px;

@@ -506,6 +506,14 @@ function renderSongs() {
       gainHtml = `<span class="gain-cell" style="color: var(--accent-red);">${formatNumber(dailyGain)}</span>`;
     }
 
+    // Raw last-day change. The daily_gain above comes from the running-max view
+    // so it never goes negative; this surfaces a genuine playcount DROP (pulled
+    // streams / bad snapshot) — shown ONLY when it's actually negative.
+    const realChange = Number(song.real_daily_change);
+    if (realChange < 0) {
+      gainHtml += `<span class="real-drop" title="Gerçek son-gün değişimi (running-max kalkanı olmadan) — bu şarkıda stream düşüşü tespit edildi">▼ ${formatNumber(Math.abs(realChange))}</span>`;
+    }
+
     const albumEscaped = song.album_title ? song.album_title.replace(/'/g, "\\'") : '';
     const dateFormatted = song.release_date || '';
 

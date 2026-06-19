@@ -373,7 +373,13 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         -- 7-day trailing average daily gain — smooths Spotify's weekly cadence
         -- (weekend spikes / Monday drops) so ETA estimates aren't whipsawed by
         -- which single day the latest snapshot happens to land on.
-        COALESCE(avg7.daily_avg_7d, 0)::bigint AS daily_avg_7d
+        COALESCE(avg7.daily_avg_7d, 0)::bigint AS daily_avg_7d,
+        -- Raw (un-clamped) latest-day change. daily_gain above uses the
+        -- running-max view so it can NEVER go negative; this one reads the
+        -- raw canonical_streams so a genuine playcount DROP (deleted/pulled
+        -- streams, bad snapshot) surfaces as a negative. Frontend only shows
+        -- it when it's actually negative.
+        COALESCE(rawd.real_change, 0)::bigint AS real_daily_change
       FROM songs s
       LEFT JOIN albums a ON s.album_id = a.id
       LEFT JOIN (
@@ -394,6 +400,18 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         ) z WHERE rn <= 7
         GROUP BY canonical_id
       ) avg7 ON s.id = avg7.canonical_id
+      LEFT JOIN (
+        SELECT canonical_id, real_change FROM (
+          SELECT song_id AS canonical_id,
+                 (stream_count - LAG(stream_count) OVER (
+                   PARTITION BY song_id ORDER BY recorded_date
+                 ))::bigint AS real_change,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY song_id ORDER BY recorded_date DESC
+                 ) AS rn
+          FROM canonical_streams
+        ) z WHERE rn = 1
+      ) rawd ON s.id = rawd.canonical_id
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()})
       AND ${FSLS_REMIX_EXCLUSION_SQL}
