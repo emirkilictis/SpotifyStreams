@@ -2593,7 +2593,7 @@ function renderPickerRoster() {
       } else {
         card.innerHTML = `
           <div class="picker-card-img-wrap">
-            <img src="${a.image_url || '/images/default.jpg'}" alt="${a.name}" class="picker-card-img" loading="eager" crossorigin="anonymous">
+            <img src="${a.image_url || '/images/default.jpg'}" alt="${a.name}" class="picker-card-img" loading="eager">
             <div class="picker-card-overlay"></div>
           </div>
           <div class="picker-card-info">
