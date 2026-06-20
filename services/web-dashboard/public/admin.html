@@ -213,6 +213,27 @@
     .dup-post b { color: var(--green); }
     .dup-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
 
+    /* Duplicate finder: per-artist accordion */
+    .dup-artist {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; margin-bottom: 10px; overflow: hidden;
+    }
+    .dup-artist-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; cursor: pointer; user-select: none;
+    }
+    .dup-artist-head:hover { background: var(--card-2); }
+    .dup-artist-caret {
+      color: var(--faint); font-size: 0.8rem; display: inline-block;
+      transition: transform 0.15s ease; flex-shrink: 0;
+    }
+    .dup-artist.open .dup-artist-caret { transform: rotate(90deg); }
+    .dup-artist-name { font-weight: 700; font-size: 0.92rem; color: var(--text); }
+    .dup-artist-meta { font-size: 0.74rem; color: var(--faint); }
+    .dup-mergeall { margin-left: auto; flex-shrink: 0; }
+    .dup-artist-body { padding: 2px 14px 12px; }
+    .dup-artist-body .dup-group { background: var(--card-2); }
+
     /* Snapshot inspector */
     .snap-bad td { background: rgba(248,113,113,0.07); }
     .snap-bad-delta { color: var(--red); font-weight: 700; }
@@ -953,6 +974,47 @@
     const fmtStreams = (n) => Number(n || 0).toLocaleString('en-US');
     let dupGroups = [];
 
+    // Render a single duplicate group card (gi = its index in dupGroups).
+    function renderDupGroup(g, gi) {
+      // Default canonical: an already-canonical, non-featured copy if present.
+      let def = g.songs.findIndex(s => !s.merged && !s.is_featured);
+      if (def < 0) def = g.songs.findIndex(s => !s.merged);
+      if (def < 0) def = 0;
+      const rows = g.songs.map((s, si) => `
+        <label class="dup-song">
+          <input type="radio" name="dupcanon-${gi}" value="${esc(s.id)}" ${si === def ? 'checked' : ''}>
+          <span class="dup-info">
+            <b>${esc(s.title)}</b>${s.is_featured ? ' <span class="ar-tag">feat</span>' : ''}${s.merged ? ' <span class="ar-tag locked">merged</span>' : ''}
+            <span class="dup-sub"><span class="dup-streams">${fmtStreams(g.streams)}</span> streams · ${esc(s.album || '—')} · ${fmtDur(s.duration_ms)} · ${esc(s.id)}</span>
+          </span>
+        </label>`).join('');
+      return `
+        <div class="dup-group">
+          <div class="dup-head">${fmtStreams(g.streams)} streams · ${g.songs.length} copies</div>
+          ${rows}
+          <div class="dup-post">After merge → kept as <b>${fmtStreams(g.streams)} streams</b> on the selected copy. All ${g.songs.length} copies share this exact count, so the artist total stays the same.</div>
+          <div class="dup-actions">
+            <button class="act ok" data-merge-group="${gi}">Merge others into selected</button>
+          </div>
+        </div>`;
+    }
+
+    // Merge one group's non-selected copies into its selected canonical.
+    async function mergeDupGroup(gi) {
+      const group = dupGroups[gi];
+      const sel = dupResultsEl.querySelector(`input[name="dupcanon-${gi}"]:checked`);
+      if (!group || !sel) return 0;
+      const canonical = sel.value;
+      const aliases = group.songs.map(s => s.id).filter(id => id !== canonical);
+      for (const alias_id of aliases) {
+        await api('/api/admin/manual-merges', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alias_id, canonical_id: canonical, reason: 'admin: same stream count' }),
+        });
+      }
+      return aliases.length;
+    }
+
     async function loadDups() {
       dupResultsEl.innerHTML = '<div class="loading">Scanning…</div>';
       try {
@@ -961,27 +1023,37 @@
         if (!res.ok) throw new Error();
         dupGroups = await res.json();
         if (!dupGroups.length) { dupResultsEl.innerHTML = '<div class="empty">No unmerged duplicates found. 🎉</div>'; return; }
-        dupResultsEl.innerHTML = dupGroups.map((g, gi) => {
-          // Default canonical: an already-canonical, non-featured copy if present.
-          let def = g.songs.findIndex(s => !s.merged && !s.is_featured);
-          if (def < 0) def = g.songs.findIndex(s => !s.merged);
-          if (def < 0) def = 0;
-          const rows = g.songs.map((s, si) => `
-            <label class="dup-song">
-              <input type="radio" name="dupcanon-${gi}" value="${esc(s.id)}" ${si === def ? 'checked' : ''}>
-              <span class="dup-info">
-                <b>${esc(s.title)}</b>${s.is_featured ? ' <span class="ar-tag">feat</span>' : ''}${s.merged ? ' <span class="ar-tag locked">merged</span>' : ''}
-                <span class="dup-sub"><span class="dup-streams">${fmtStreams(g.streams)}</span> streams · ${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.album || '—')} · ${fmtDur(s.duration_ms)} · ${esc(s.id)}</span>
-              </span>
-            </label>`).join('');
+
+        // Group the dup groups by artist bucket (derived from each group's songs)
+        // so the user can expand one artist at a time and bulk-merge it.
+        const byArtist = new Map(); // key -> { name, indices: [] }
+        dupGroups.forEach((g, gi) => {
+          const pa = g.songs[0] && g.songs[0].primary_artist;
+          const nm = artistName(pa);
+          const key = nm ? pa : '__collab__';
+          if (!byArtist.has(key)) byArtist.set(key, { name: nm || 'Other / Collabs', indices: [] });
+          byArtist.get(key).indices.push(gi);
+        });
+        // Named artists alphabetically; "Other / Collabs" last.
+        const sections = [...byArtist.entries()].sort((a, b) => {
+          if (a[0] === '__collab__') return 1;
+          if (b[0] === '__collab__') return -1;
+          return a[1].name.localeCompare(b[1].name);
+        });
+
+        dupResultsEl.innerHTML = sections.map(([key, sec]) => {
+          const copies = sec.indices.reduce((n, gi) => n + dupGroups[gi].songs.length, 0);
+          const body = sec.indices.map(gi => renderDupGroup(dupGroups[gi], gi)).join('');
+          const gLabel = sec.indices.length === 1 ? 'group' : 'groups';
           return `
-            <div class="dup-group">
-              <div class="dup-head">${fmtStreams(g.streams)} streams · ${g.songs.length} copies</div>
-              ${rows}
-              <div class="dup-post">After merge → kept as <b>${fmtStreams(g.streams)} streams</b> on the selected copy. All ${g.songs.length} copies already share this exact count, so the artist total stays the same — these duplicates were never double-counted.</div>
-              <div class="dup-actions">
-                <button class="act ok" data-merge-group="${gi}">Merge others into selected</button>
+            <div class="dup-artist" data-artist="${esc(key)}">
+              <div class="dup-artist-head" data-toggle>
+                <span class="dup-artist-caret">▸</span>
+                <span class="dup-artist-name">${esc(sec.name)}</span>
+                <span class="dup-artist-meta">${sec.indices.length} ${gLabel} · ${copies} copies</span>
+                <button class="act ok dup-mergeall" data-mergeall>Merge all</button>
               </div>
+              <div class="dup-artist-body" hidden>${body}</div>
             </div>`;
         }).join('');
       } catch { dupResultsEl.innerHTML = '<div class="empty">Scan failed (migration 016 applied?).</div>'; }
@@ -1011,24 +1083,48 @@
     document.getElementById('dup-scan').addEventListener('click', loadDups);
 
     dupResultsEl.addEventListener('click', async (e) => {
+      // 1) Bulk-merge every group for one artist (each group keeps its selected copy).
+      const allBtn = e.target.closest('button[data-mergeall]');
+      if (allBtn) {
+        const art = allBtn.closest('.dup-artist');
+        const indices = [...art.querySelectorAll('button[data-merge-group]')].map(b => Number(b.dataset.mergeGroup));
+        if (!indices.length) return;
+        const totalAliases = indices.reduce((n, gi) => n + Math.max(0, dupGroups[gi].songs.length - 1), 0);
+        const name = art.querySelector('.dup-artist-name')?.textContent || 'this artist';
+        if (!confirm(`Merge ALL ${indices.length} duplicate group${indices.length === 1 ? '' : 's'} for ${name} (${totalAliases} cop${totalAliases === 1 ? 'y' : 'ies'})? Each group keeps its selected version. This sticks across re-scrapes.`)) return;
+        allBtn.disabled = true; allBtn.textContent = 'Merging…';
+        try {
+          for (const gi of indices) await mergeDupGroup(gi);
+          await loadDups();
+          await loadManualMerges();
+        } catch { allBtn.disabled = false; allBtn.textContent = 'Merge all'; }
+        return;
+      }
+
+      // 2) Toggle an artist section open/closed (clicks on the header, not its button).
+      const head = e.target.closest('.dup-artist-head');
+      if (head) {
+        const art = head.closest('.dup-artist');
+        const body = art.querySelector('.dup-artist-body');
+        const opening = body.hasAttribute('hidden');
+        if (opening) body.removeAttribute('hidden'); else body.setAttribute('hidden', '');
+        art.classList.toggle('open', opening);
+        return;
+      }
+
+      // 3) Merge a single group into its selected copy.
       const btn = e.target.closest('button[data-merge-group]');
       if (!btn) return;
       const gi = Number(btn.dataset.mergeGroup);
       const group = dupGroups[gi];
       const sel = dupResultsEl.querySelector(`input[name="dupcanon-${gi}"]:checked`);
       if (!group || !sel) return;
-      const canonical = sel.value;
-      const aliases = group.songs.map(s => s.id).filter(id => id !== canonical);
-      if (!aliases.length) return;
-      if (!confirm(`Merge ${aliases.length} cop${aliases.length === 1 ? 'y' : 'ies'} into the selected version? This sticks across re-scrapes.`)) return;
+      const aliasCount = group.songs.filter(s => s.id !== sel.value).length;
+      if (!aliasCount) return;
+      if (!confirm(`Merge ${aliasCount} cop${aliasCount === 1 ? 'y' : 'ies'} into the selected version? This sticks across re-scrapes.`)) return;
       btn.disabled = true; btn.textContent = 'Merging…';
       try {
-        for (const alias_id of aliases) {
-          await api('/api/admin/manual-merges', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ alias_id, canonical_id: canonical, reason: 'admin: same stream count' }),
-          });
-        }
+        await mergeDupGroup(gi);
         await loadDups();
         await loadManualMerges();
       } catch { btn.disabled = false; btn.textContent = 'Merge others into selected'; }
