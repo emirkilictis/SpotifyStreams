@@ -48,10 +48,19 @@ const ARTIST_FROZEN_AFTER_MS = {
 };
 const frozenThresholdFor = (pa) => ARTIST_FROZEN_AFTER_MS[pa] ?? DEFAULT_FROZEN_AFTER_MS;
 
-// Dashboard artist bucket'ları (server.js'teki filtrelerle aynı liste).
+// JT, catch-all bucket'tır ("adlı hiçbir sanatçıya ait olmayan her şey").
+// Named-artist setinden DIŞLANIR ki diğer 'collab' parçalarıyla aynı havuzda
+// merge edebilsin. server.js'teki JT_ARTIST_ID ile aynı olmalı.
+const JT_ARTIST_ID = '31TPClRtHm23RisEBtV3X7';
+
+// Dashboard artist bucket'ları. KAYNAK = tracked_artists tablosu (server.js
+// allArtistsCache ile aynı). Aşağıdaki liste yalnızca tablo okunamazsa devreye
+// giren FALLBACK'tir; gerçek set runtime'da `loadNamedArtists()` ile DB'den
+// yüklenir. Böylece panelden eklenen yeni sanatçı (Britney gibi) otomatik kendi
+// bucket'ını alır ve catch-all'a sızıp aşırı-merge olmaz.
 // Farklı bucket'lardaki şarkılar asla merge edilmez — jenerik isimli
 // (Intro, Forever...) şarkıların sanatçılar arası yapışmasını önler.
-const NAMED_ARTISTS = new Set([
+const NAMED_ARTISTS_FALLBACK = new Set([
   'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT', // LISA
   'spotify:artist:1HY2Jd0NmPuamShAr6KMms', // Lady Gaga
   'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH', // Billie Eilish
@@ -64,8 +73,29 @@ const NAMED_ARTISTS = new Set([
   'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE', // Dove Cameron
   'spotify:artist:4qwGe91Bz9K2T8jXTZ815W', // Janet Jackson
 ]);
+
+// tracked_artists'ten named-artist setini yükle (JT hariç). Tablo yoksa
+// fallback'e düşer — davranış birebir eski hardcoded liste gibi olur.
+async function loadNamedArtists(client) {
+  try {
+    const { rows } = await client.query(
+      `SELECT artist_id FROM tracked_artists WHERE artist_id <> $1`,
+      [JT_ARTIST_ID]
+    );
+    if (rows.length) {
+      const set = new Set(rows.map(r => `spotify:artist:${r.artist_id}`));
+      // Fallback'teki sanatçıları da union'la — tablo eksikse bile korunsunlar.
+      for (const uri of NAMED_ARTISTS_FALLBACK) set.add(uri);
+      return set;
+    }
+  } catch (e) {
+    console.warn('[dedup] tracked_artists okunamadı, fallback named-artist seti:', e.code || e.message);
+  }
+  return new Set(NAMED_ARTISTS_FALLBACK);
+}
+
 // Adlı sanatçı değilse JT/collab havuzu — kendi içinde merge serbest.
-const artistBucket = (pa) => (NAMED_ARTISTS.has(pa) ? pa : 'collab');
+const bucketOfWith = (namedArtists, pa) => (namedArtists.has(pa) ? pa : 'collab');
 
 // Track IDs that must always remain independent — never merge into another canonical
 const NEVER_MERGE = new Set([
@@ -131,6 +161,11 @@ function scoreCanonical(song) {
 
 async function dedupCanonical(client) {
   console.log('[dedup] Canonical eşleştirme başlıyor...');
+
+  // Named-artist seti = tracked_artists (JT hariç). Panelden eklenen sanatçılar
+  // (Britney gibi) burada kendi bucket'larını alır → catch-all'a sızıp aşırı
+  // merge olmazlar.
+  const namedArtists = await loadNamedArtists(client);
 
   const maxDateRes = await client.query(`SELECT MAX(recorded_date) AS max_d FROM stream_stats`);
   const maxDate = maxDateRes.rows[0]?.max_d ? new Date(maxDateRes.rows[0].max_d).getTime() : 0;
@@ -202,7 +237,7 @@ function shouldKeepSeparate(title) {
         const ref = cluster[0];
 
         // Farklı dashboard bucket'larındaki şarkılar asla birleşmez
-        if (artistBucket(item.primary_artist) !== artistBucket(ref.primary_artist)) continue;
+        if (bucketOfWith(namedArtists, item.primary_artist) !== bucketOfWith(namedArtists, ref.primary_artist)) continue;
 
         // Prevent merging different versions (live, instrumental, etc.) for all artists
         const isRefSpecial = shouldKeepSeparate(ref.title);

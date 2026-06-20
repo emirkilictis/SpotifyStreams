@@ -2500,47 +2500,23 @@ function showPicker() {
 }
 
 // Function to dynamically add JC Chasez to the dropdown selector
-function addJcToDropdown() {
-  const artistSelector = document.getElementById('artist-selector');
-  if (artistSelector) {
-    const exists = Array.from(artistSelector.options).some(opt => opt.value === '3p3U04w2DaiBzuYMZnYr00');
-    if (!exists) {
-      const option = document.createElement('option');
-      option.value = '3p3U04w2DaiBzuYMZnYr00';
-      option.text = 'JC Chasez';
-      artistSelector.appendChild(option);
-    }
-  }
-}
+// (The old JC-specific addJcToDropdown / unlockJcChasezUI helpers were removed:
+// locking is now generic — renderPickerRoster() rebuilds the cards + dropdown
+// for any artist after unlock, driven by the admin `locked` flag.)
 
-// Function to unlock JC Chasez UI elements
-function unlockJcChasezUI() {
-  const jcCard = document.getElementById('jc-card');
-  const jcImgWrap = document.getElementById('jc-img-wrap');
-  const jcCardTitle = document.getElementById('jc-card-title');
-  
-  if (jcCard) {
-    jcCard.classList.remove('locked-card');
-    jcCard.dataset.name = 'JC Chasez';
-  }
-  
-  if (jcImgWrap) {
-    jcImgWrap.classList.remove('locked-img-wrap');
-    jcImgWrap.innerHTML = `
-      <img src="https://i.scdn.co/image/ab6761610000e5eb784d1c3b5bb30c5db83c8fe2" alt="JC Chasez" class="picker-card-img" loading="eager" crossorigin="anonymous">
-      <div class="picker-card-overlay"></div>
-    `;
-  }
-  
-  if (jcCardTitle) {
-    jcCardTitle.textContent = 'JC Chasez';
-  }
-  
-  addJcToDropdown();
-}
-
-let jcUnlocked = false;
+// Lock state is driven by the admin roster `locked` flag (not a hardcoded id),
+// so locking/unlocking ANY artist in the panel takes effect. `unlockedArtists`
+// holds the ids the user has unlocked this session with the access code.
+let currentRoster = [];
+const unlockedArtists = new Set();
+// Sent as the X-JC-Passcode header on authed API calls so the server serves
+// locked-artist data after the user enters a valid access code.
 let jcPasscode = '';
+const rosterEntry = (id) => currentRoster.find(a => a.artist_id === id);
+const isArtistLocked = (id) => {
+  const a = rosterEntry(id);
+  return !!(a && a.locked) && !unlockedArtists.has(id);
+};
 
 // Picker card click handlers using event delegation
 const pickerGridContainer = document.querySelector('.picker-grid');
@@ -2549,39 +2525,98 @@ if (pickerGridContainer) {
     const card = e.target.closest('.picker-card');
     if (!card) return;
     const artistId = card.dataset.artist;
-    const artistName = card.dataset.name;
-    
-    if (artistId === '3p3U04w2DaiBzuYMZnYr00') {
-      if (jcUnlocked) {
-        enterDashboard(artistId, 'JC Chasez');
+    // The visible name is masked to "Locked Artist" while locked; the real one
+    // is kept in data-real-name so we can pass it through after unlocking.
+    const realName = card.dataset.realName || card.dataset.name;
+
+    if (!isArtistLocked(artistId)) {
+      enterDashboard(artistId, realName);
+      return;
+    }
+
+    const code = prompt("Enter the access code to unlock this artist:");
+    if (!code) return;
+    try {
+      const res = await fetch('/api/verify-jc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode: code })
+      });
+      const data = await res.json();
+      if (data.success) {
+        jcPasscode = code;             // carry the code on subsequent authed API calls
+        unlockedArtists.add(artistId);
+        renderPickerRoster();          // reveal the card + add it to the dropdown
+        enterDashboard(artistId, realName);
       } else {
-        const code = prompt("Enter the access code to unlock this artist:");
-        if (code) {
-          try {
-            const res = await fetch('/api/verify-jc', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ passcode: code })
-            });
-            const data = await res.json();
-            if (data.success) {
-              jcPasscode = code;
-              jcUnlocked = true;
-              unlockJcChasezUI();
-              enterDashboard(artistId, 'JC Chasez');
-            } else {
-              alert("Invalid code!");
-            }
-          } catch (err) {
-            console.error('Error verifying JC code:', err);
-            alert('Could not reach the server.');
-          }
-        }
+        alert("Invalid code!");
       }
-    } else {
-      enterDashboard(artistId, artistName);
+    } catch (err) {
+      console.error('Error verifying access code:', err);
+      alert('Could not reach the server.');
     }
   });
+}
+
+// Build (or rebuild) the picker cards + dropdown from currentRoster, honouring
+// the admin `locked` flag and any artists unlocked this session. Called once by
+// applyRoster and again whenever an artist is unlocked.
+function renderPickerRoster() {
+  const roster = currentRoster;
+  const grid = document.querySelector('.picker-grid');
+  if (grid) {
+    grid.innerHTML = '';
+    roster.forEach(a => {
+      const locked = isArtistLocked(a.artist_id);
+      const card = document.createElement('button');
+      card.className = locked ? 'picker-card locked-card' : 'picker-card';
+      card.dataset.artist = a.artist_id;
+      card.dataset.realName = a.name;
+      card.dataset.name = locked ? 'Locked Artist' : a.name;
+
+      if (locked) {
+        card.innerHTML = `
+          <div class="picker-card-img-wrap locked-img-wrap">
+            <div class="lock-placeholder">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lock-svg">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </div>
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3>Locked Artist</h3>
+          </div>
+        `;
+      } else {
+        card.innerHTML = `
+          <div class="picker-card-img-wrap">
+            <img src="${a.image_url || '/images/default.jpg'}" alt="${a.name}" class="picker-card-img" loading="eager" crossorigin="anonymous">
+            <div class="picker-card-overlay"></div>
+          </div>
+          <div class="picker-card-info">
+            <h3>${a.name}</h3>
+          </div>
+        `;
+      }
+      grid.appendChild(card);
+    });
+  }
+
+  const artistSelector = document.getElementById('artist-selector');
+  if (artistSelector) {
+    artistSelector.innerHTML = '';
+    roster.forEach(a => {
+      if (!isArtistLocked(a.artist_id)) {
+        const option = document.createElement('option');
+        option.value = a.artist_id;
+        option.text = a.name;
+        artistSelector.appendChild(option);
+      }
+    });
+    if (currentArtist) artistSelector.value = currentArtist;
+  }
 }
 
 // Back to picker button
@@ -2671,66 +2706,9 @@ function deriveThemeFromAccent(hex) {
     }
   });
 
-  // Rebuild picker cards dynamically based on roster.
-  const grid = document.querySelector('.picker-grid');
-  if (grid) {
-    grid.innerHTML = '';
-    roster.forEach(a => {
-      const isJc = a.artist_id === '3p3U04w2DaiBzuYMZnYr00';
-      const isLocked = a.locked && (!isJc || !jcUnlocked);
-
-      const card = document.createElement('button');
-      card.className = isLocked ? 'picker-card locked-card' : 'picker-card';
-      card.dataset.artist = a.artist_id;
-      card.dataset.name = isLocked ? 'Locked Artist' : a.name;
-      if (isJc) card.id = 'jc-card';
-
-      if (isLocked) {
-        card.innerHTML = `
-          <div class="picker-card-img-wrap locked-img-wrap"${isJc ? ' id="jc-img-wrap"' : ''}>
-            <div class="lock-placeholder">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lock-svg">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-              </svg>
-            </div>
-            <div class="picker-card-overlay"></div>
-          </div>
-          <div class="picker-card-info">
-            <h3${isJc ? ' id="jc-card-title"' : ''}>Locked Artist</h3>
-          </div>
-        `;
-      } else {
-        card.innerHTML = `
-          <div class="picker-card-img-wrap">
-            <img src="${a.image_url || '/images/default.jpg'}" alt="${a.name}" class="picker-card-img" loading="eager" crossorigin="anonymous">
-            <div class="picker-card-overlay"></div>
-          </div>
-          <div class="picker-card-info">
-            <h3>${a.name}</h3>
-          </div>
-        `;
-      }
-      grid.appendChild(card);
-    });
-  }
-
-  // Rebuild dropdown dynamically based on roster (skip locked unless unlocked).
-  if (artistSelector) {
-    artistSelector.innerHTML = '';
-    roster.forEach(a => {
-      const isJc = a.artist_id === '3p3U04w2DaiBzuYMZnYr00';
-      if (!a.locked || (isJc && jcUnlocked)) {
-        const option = document.createElement('option');
-        option.value = a.artist_id;
-        option.text = a.name;
-        artistSelector.appendChild(option);
-      }
-    });
-    if (currentArtist) {
-      artistSelector.value = currentArtist;
-    }
-  }
+  // Build the picker cards + dropdown from the roster (lock-aware, re-renderable).
+  currentRoster = roster;
+  renderPickerRoster();
 
   // ---- Adım 4: OG meta tag patch ----
   // Patch og:image + og:title for the currently selected artist (if any).

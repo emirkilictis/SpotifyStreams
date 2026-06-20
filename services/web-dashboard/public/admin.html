@@ -478,6 +478,9 @@
   </div>
 
   <script>
+    // Seed fallback only. The live names are merged in from /api/admin/artists
+    // after auth (loadArtistNames), so panel-added artists (Britney, Janet, …)
+    // also get a name in the Songs / merge / duplicate UI.
     const ARTIST_NAMES = {
       '31TPClRtHm23RisEBtV3X7': 'Justin Timberlake',
       '5L1lO4eRHmJ7a0Q6csE5cT': 'LISA',
@@ -491,6 +494,18 @@
       '2W8yFh0Ga6Yf3jiayVxwkE': 'Dove Cameron',
       '3p3U04w2DaiBzuYMZnYr00': 'JC Chasez',
     };
+
+    // Pull every tracked artist's name from the DB (source of truth) and merge
+    // it into ARTIST_NAMES so artistName() resolves panel-added artists too.
+    async function loadArtistNames() {
+      try {
+        const res = await api('/api/admin/artists');
+        if (!res.ok) return;
+        for (const a of await res.json()) {
+          if (a.artist_id && a.name) ARTIST_NAMES[a.artist_id] = a.name;
+        }
+      } catch { /* keep the seed fallback */ }
+    }
     const STATUSES = ['all', 'new', 'read', 'done', 'spam'];
 
     const gate = document.getElementById('gate');
@@ -638,6 +653,7 @@
     function unlock() {
       gate.classList.add('hidden');
       panel.classList.remove('hidden');
+      loadArtistNames();
       load();
     }
     function lock(msg) {
@@ -664,6 +680,7 @@
         allRows = await res.json();
         gate.classList.add('hidden');
         panel.classList.remove('hidden');
+        loadArtistNames();
         render();
       } catch {
         gateErr.textContent = 'Connection error.';
@@ -928,7 +945,7 @@
               <div class="ar-name">${esc(r.alias_title || '(unknown)')} ${r.canonical_id
                 ? '→ ' + esc(r.canonical_title || r.canonical_id)
                 : '<span class="ar-tag locked">keep separate</span>'}</div>
-              <div class="ar-id">${esc(r.alias_id)}${r.canonical_id ? ' → ' + esc(r.canonical_id) : ''}${r.reason ? ' · ' + esc(r.reason) : ''}</div>
+              <div class="ar-id">${artistName(r.alias_artist) ? esc(artistName(r.alias_artist)) + ' · ' : ''}${esc(r.alias_id)}${r.canonical_id ? ' → ' + esc(r.canonical_id) : ''}${r.reason ? ' · ' + esc(r.reason) : ''}</div>
             </div>
             <div class="ar-actions"><button class="act del" data-remove-rule="${esc(r.alias_id)}">Remove</button></div>
           </div>`).join('');

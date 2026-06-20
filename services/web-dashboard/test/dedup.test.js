@@ -24,6 +24,9 @@ function makeFakeClient(rows, manualMerges = []) {
         return { rows: [{ max_d: TODAY }] };
       }
       if (/FROM manual_merges/i.test(t)) return { rows: manualMerges };
+      // Named-artist seti DB'den okunur; testte boş dön ki dedup hardcoded
+      // fallback set'e düşsün (fixture'daki named bucket'lar = SKZ/Gaga).
+      if (/FROM tracked_artists/i.test(t)) return { rows: [] };
       if (/^SELECT/i.test(t)) return { rows };
       if (/UPDATE songs SET canonical_id = NULL/i.test(t)) return { rowCount: 0 };
       if (/UPDATE songs SET canonical_id = \$1 WHERE id = \$2/i.test(t)) {

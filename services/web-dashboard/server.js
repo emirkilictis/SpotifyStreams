@@ -1811,7 +1811,8 @@ app.get('/api/admin/manual-merges', requireAdmin, async (req, res) => {
   try {
     const r = await dbQuery(
       `SELECT m.alias_id, m.canonical_id, m.reason, m.created_at,
-              sa.title AS alias_title, sc.title AS canonical_title
+              sa.title AS alias_title, sc.title AS canonical_title,
+              sa.primary_artist AS alias_artist
        FROM manual_merges m
        LEFT JOIN songs sa ON sa.id = m.alias_id
        LEFT JOIN songs sc ON sc.id = m.canonical_id
