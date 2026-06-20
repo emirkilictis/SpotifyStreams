@@ -151,6 +151,14 @@
     .artist-form { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
     .af-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
     .af-row .search { flex: 1; margin: 0; }
+    .af-accent-row { align-items: center; }
+    .af-color { width: 42px; height: 38px; flex-shrink: 0; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-2); cursor: pointer; }
+    .af-color::-webkit-color-swatch-wrapper { padding: 0; }
+    .af-color::-webkit-color-swatch { border: none; border-radius: 5px; }
+    .af-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+    .af-swatch { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18); cursor: pointer; padding: 0; transition: transform 0.1s ease; }
+    .af-swatch:hover { transform: scale(1.15); }
+    .af-swatch.active { box-shadow: 0 0 0 2px var(--text); }
     .af-checks { align-items: center; }
     .af-checks label { color: var(--muted); font-size: 0.85rem; display: flex; align-items: center; gap: 5px; cursor: pointer; }
     .af-spacer { flex: 1; }
@@ -434,8 +442,12 @@
         </div>
         <div class="af-row">
           <input id="af-image" class="search" placeholder="Image URL (/images/… or https://…)" autocomplete="off">
-          <input id="af-accent" class="search" placeholder="#accent" autocomplete="off">
           <input id="af-order" class="search" type="number" placeholder="Order" style="max-width:90px">
+        </div>
+        <div class="af-row af-accent-row">
+          <input type="color" id="af-accent-picker" class="af-color" value="#1ed760" title="Pick a theme color">
+          <input id="af-accent" class="search" placeholder="#theme color (or pick →)" autocomplete="off" style="max-width:170px">
+          <div class="af-swatches" id="af-swatches" aria-label="Quick theme colors"></div>
         </div>
         <div class="af-row af-checks">
           <label><input type="checkbox" id="af-albumonly"> Album-only</label>
@@ -733,10 +745,47 @@
     const af = {
       id: document.getElementById('af-id'), name: document.getElementById('af-name'),
       image: document.getElementById('af-image'), accent: document.getElementById('af-accent'),
+      accentPicker: document.getElementById('af-accent-picker'),
       order: document.getElementById('af-order'), albumonly: document.getElementById('af-albumonly'),
       locked: document.getElementById('af-locked'), active: document.getElementById('af-active'),
       err: document.getElementById('af-err'),
     };
+
+    // ---- Theme-colour picker: native colour input + one-click preset swatches,
+    // both writing into the hex text box (which stays the source of truth on save
+    // so you can still type a code by hand). -----------------------------------
+    const ACCENT_PRESETS = [
+      '#1ed760', '#ffd700', '#ff52a2', '#bad80a', '#b39ddb', '#3498db',
+      '#8b5cf6', '#ffb703', '#b794f6', '#e74c3c', '#d81b60', '#22d3ee',
+    ];
+    const isHexColor = (v) => /^#[0-9a-fA-F]{6}$/.test(v);
+    // Set the accent everywhere (text box, native picker, active swatch ring).
+    function setAccent(hex, { syncPicker = true } = {}) {
+      af.accent.value = hex;
+      if (syncPicker && isHexColor(hex)) af.accentPicker.value = hex;
+      const norm = (hex || '').toLowerCase();
+      af.swatchEls?.forEach(el =>
+        el.classList.toggle('active', el.dataset.color.toLowerCase() === norm));
+    }
+    // Build the preset swatch buttons once.
+    (function buildSwatches() {
+      const wrap = document.getElementById('af-swatches');
+      if (!wrap) return;
+      af.swatchEls = ACCENT_PRESETS.map(hex => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'af-swatch';
+        b.dataset.color = hex;
+        b.style.background = hex;
+        b.title = hex;
+        b.addEventListener('click', () => setAccent(hex));
+        wrap.appendChild(b);
+        return b;
+      });
+    })();
+    // Native picker → text box; typing a valid hex → native picker.
+    af.accentPicker.addEventListener('input', () => setAccent(af.accentPicker.value, { syncPicker: false }));
+    af.accent.addEventListener('input', () => setAccent(af.accent.value.trim()));
 
     document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -1160,7 +1209,10 @@
       af.id.readOnly = !!artist;
       af.name.value = artist ? artist.name : '';
       af.image.value = artist ? (artist.image_url || '') : '';
-      af.accent.value = artist ? (artist.accent || '') : '';
+      // Reflect the saved accent in the text box, native picker and swatch ring.
+      const accent = artist ? (artist.accent || '') : '';
+      if (isHexColor(accent)) { setAccent(accent); }
+      else { setAccent(''); af.accentPicker.value = '#1ed760'; }
       af.order.value = artist ? artist.sort_order
         : (artists.reduce((m, a) => Math.max(m, Number(a.sort_order) || 0), 0) + 1);
       af.albumonly.checked = artist ? !!artist.album_only : false;
