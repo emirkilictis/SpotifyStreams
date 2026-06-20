@@ -2132,6 +2132,15 @@ body.modal-open {
   grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
   gap: 20px;
   margin-bottom: 40px;
+  /* Hide the static fallback cards until applyRoster() rebuilds the grid from
+     the live /api/artists roster, so the old order doesn't flash on load.
+     applyRoster adds .roster-ready (also on fetch failure, to reveal the
+     static fallback). */
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.picker-grid.roster-ready {
+  opacity: 1;
 }
 
 .picker-card {

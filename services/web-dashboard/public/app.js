@@ -2565,6 +2565,7 @@ function renderPickerRoster() {
   const roster = currentRoster;
   const grid = document.querySelector('.picker-grid');
   if (grid) {
+    grid.classList.add('roster-ready');   // reveal now that we have the live roster
     grid.innerHTML = '';
     roster.forEach(a => {
       const locked = isArtistLocked(a.artist_id);
@@ -2665,13 +2666,19 @@ function deriveThemeFromAccent(hex) {
 }
 
 (async function applyRoster() {
+  // If we can't load the live roster, reveal the static fallback cards so the
+  // picker isn't left invisible (the grid starts hidden to avoid the old-order
+  // flash — see .picker-grid in style.css).
+  const revealStaticFallback = () =>
+    document.querySelector('.picker-grid')?.classList.add('roster-ready');
+
   let roster;
   try {
     const res = await fetch('/api/artists');
-    if (!res.ok) return;
+    if (!res.ok) { revealStaticFallback(); return; }
     roster = await res.json();
-  } catch { return; }
-  if (!Array.isArray(roster) || !roster.length) return;
+  } catch { revealStaticFallback(); return; }
+  if (!Array.isArray(roster) || !roster.length) { revealStaticFallback(); return; }
 
   const byId = {};
   roster.forEach(a => { byId[a.artist_id] = a; });
