@@ -1787,14 +1787,32 @@ app.delete('/api/admin/hidden-songs/:id', requireAdmin, async (req, res) => {
 // count but resolve to different canonicals (i.e. not yet merged together). This is
 // the strongest signal of a linked Spotify copy the deduper missed. Returns groups.
 async function scanSameStreamDuplicates() {
+  const namedArtistsSet = new Set(
+    allArtistsCache
+      .filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7')
+      .map(item => `spotify:artist:${item.artist_id}`)
+  );
+
   const r = await dbQuery(
     `SELECT s.id, s.title, s.duration_ms, s.primary_artist, s.canonical_id, s.is_featured,
             a.title AS album,
-            COALESCE((SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id), 0)::bigint AS streams
-     FROM songs s LEFT JOIN albums a ON a.id = s.album_id
-     WHERE s.duration_ms IS NOT NULL`
+            COALESCE(cs.streams, 0)::bigint AS streams
+     FROM songs s
+     LEFT JOIN albums a ON a.id = s.album_id
+     LEFT JOIN (
+       SELECT song_id, MAX(stream_count) AS streams
+       FROM canonical_streams
+       GROUP BY song_id
+     ) cs ON cs.song_id = s.id
+     WHERE s.duration_ms IS NOT NULL AND s.canonical_id IS NULL`
   );
-  return groupSameStreamDuplicates(r.rows);
+
+  const rowsWithBucket = r.rows.map(row => {
+    const bucket = namedArtistsSet.has(row.primary_artist) ? row.primary_artist : 'collab';
+    return { ...row, bucket };
+  });
+
+  return groupSameStreamDuplicates(rowsWithBucket);
 }
 
 app.get('/api/admin/same-stream-dups', requireAdmin, async (req, res) => {

@@ -60,7 +60,10 @@ const ARTIST_SEARCH_NAMES = {
   '2dIgFjalVxs4ThymZ67YCE': ['stray kids'],
   '4UIOuc84ExWojcUzFGtb8W': ['felix'],
   '2W8yFh0Ga6Yf3jiayVxwkE': ['dove cameron', 'dove'],
-  '4qwGe91Bz9K2T8jXTZ815W': ['janet jackson', 'janet']
+  '4qwGe91Bz9K2T8jXTZ815W': ['janet jackson', 'janet'],
+  '26dSoYclwsYLMAKD3tpOr4': ['britney spears', 'britney'],
+  '64M6ah0SkkRsnPGtGiRAbb': ['bebe rexha'],
+  '0hCNtLu0JehylgoiP8L4Gh': ['nicki minaj', 'nicki']
 };
 
 function isCoverOrTribute(title) {
@@ -148,7 +151,7 @@ async function processAlbum(page, client, album, artistUri, stats) {
   return kept;
 }
 
-async function scrapeArtist(page, client, artistId, stats) {
+async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds = []) {
   const artistUri = `spotify:artist:${artistId}`;
   console.log(`\n[scraper] Discovering albums for artist: ${artistId}...`);
   let { albums: discoveredAlbums, own_count, feat_count, stats: artistStats } = await discoverAllAlbumsPuppeteer(page, artistId);
@@ -205,26 +208,29 @@ async function scrapeArtist(page, client, artistId, stats) {
   // 2. Determine albums to scrape: combine newly discovered albums with existing
   // database albums containing canonical songs for this artist.
   //
-  // For JT the dashboard counts EVERY song whose primary_artist is not one of the other
-  // tracked artists (i.e. all his features/collabs, where primary_artist is JAY-Z,
-  // Timbaland, etc.). Those collab albums are only reached via appears-on discovery,
-  // which is flaky and silently stopped surfacing them on 2026-05-26 — freezing dozens
-  // of counted tracks and dropping JT's daily below its true value. Mirror the dashboard
-  // bucket here so any collab album already in the DB is ALWAYS re-scraped daily and can
-  // never freeze again, independent of discovery. Other artists keep the exact match.
-  const JT_OTHER_TRACKED_ARTISTS = [
-    'spotify:artist:5L1lO4eRHmJ7a0Q6csE5cT', // LISA
-    'spotify:artist:1HY2Jd0NmPuamShAr6KMms', // Lady Gaga
-    'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH', // Billie Eilish
-    'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR', // Ariana Grande
-    'spotify:artist:6Ff53KvcvAj5U7Z1vojB5o', // *NSYNC
-    'spotify:artist:3p3U04w2DaiBzuYMZnYr00', // JC Chasez
-    'spotify:artist:3LHYvj5ZejV1NLqncEObSJ', // Vaelis
-    'spotify:artist:2dIgFjalVxs4ThymZ67YCE', // Stray Kids
-    'spotify:artist:4UIOuc84ExWojcUzFGtb8W', // Felix
-    'spotify:artist:2W8yFh0Ga6Yf3jiayVxwkE', // Dove Cameron
-  ];
-  const dbAlbumsRes = artistId === '31TPClRtHm23RisEBtV3X7'
+  // JT is the dashboard's only catch-all bucket ("everything not claimed by a named
+  // artist"), so only JT re-scrapes every collab/orphan album in the DB. The exclusion
+  // list is built dynamically from the live roster (allTrackedArtistIds) so newly added
+  // artists are excluded automatically — tighter than the old hardcoded list, which was
+  // missing Janet/Nicki/Britney/Bebe/George. Named artists (incl. Britney/Bebe/Nicki)
+  // use the exact-match query below: their features already carry their own primary_artist,
+  // so exact-match re-scrapes them, and targeted extraAlbums pins cover any gaps — far
+  // cheaper than running a full catch-all pass per artist.
+  const isCatchAll = artistId === '31TPClRtHm23RisEBtV3X7';
+  const activeIds = allTrackedArtistIds && allTrackedArtistIds.length > 0
+    ? allTrackedArtistIds
+    : [
+        '31TPClRtHm23RisEBtV3X7', '5L1lO4eRHmJ7a0Q6csE5cT', '1HY2Jd0NmPuamShAr6KMms',
+        '6qqNVTkY8uBg9cP3Jd7DAH', '66CXWjxzNUsdJxJ2JdwvnR', '6Ff53KvcvAj5U7Z1vojB5o',
+        '3p3U04w2DaiBzuYMZnYr00', '3LHYvj5ZejV1NLqncEObSJ', '2dIgFjalVxs4ThymZ67YCE',
+        '4UIOuc84ExWojcUzFGtb8W', '2W8yFh0Ga6Yf3jiayVxwkE', '4qwGe91Bz9K2T8jXTZ815W',
+        '26dSoYclwsYLMAKD3tpOr4', '64M6ah0SkkRsnPGtGiRAbb', '0hCNtLu0JehylgoiP8L4Gh'
+      ];
+  const otherTrackedUris = activeIds
+    .filter(id => id !== artistId)
+    .map(id => `spotify:artist:${id}`);
+
+  const dbAlbumsRes = isCatchAll
     ? await client.query(`
         SELECT a.id, a.title, a.release_date,
                COALESCE(bool_or(s.is_featured), false) as is_featured
@@ -233,7 +239,7 @@ async function scrapeArtist(page, client, artistId, stats) {
         WHERE s.canonical_id IS NULL
           AND (s.primary_artist IS NULL OR s.primary_artist <> ALL($1))
         GROUP BY a.id, a.title, a.release_date
-      `, [JT_OTHER_TRACKED_ARTISTS])
+      `, [otherTrackedUris])
     : await client.query(`
         SELECT a.id, a.title, a.release_date,
                COALESCE(bool_or(s.is_featured), false) as is_featured
@@ -335,6 +341,44 @@ async function scrapeArtist(page, client, artistId, stats) {
       }
     }
   }
+
+  // For Britney Spears, manually ensure featured / missing albums are scraped
+  if (artistId === '26dSoYclwsYLMAKD3tpOr4') {
+    const extraAlbums = [
+      { id: '09IChrkzmFo9ZZroCRYujr', title: "Tom's Diner", release_date: '2015-06-12', is_featured: true }, // Tom's Diner (Giorgio Moroder)
+      { id: '7Fy8ImgNfxQoVxD8GU2zsn', title: '#willpower', release_date: '2013-04-19', is_featured: true }, // Scream & Shout Hit-Boy Remix (#willpower)
+      { id: '574xhx2X0G9MkqACxqi4cg', title: 'Greatest Hits: My Prerogative', release_date: '2004-11-08', is_featured: false } // Overprotected Darkchild Remix Edit & Toxic Armand Remix Edit
+    ];
+
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
+    }
+  }
+
+  // For Bebe Rexha, manually ensure featured / missing albums are scraped
+  if (artistId === '64M6ah0SkkRsnPGtGiRAbb') {
+    const extraAlbums = [
+      { id: '1S18T2TzC03H2y4jJ3U1n4', title: 'Listen', release_date: '2014-11-21', is_featured: true }, // Hey Mama & Yesterday (David Guetta)
+      { id: '2eSgXcemb8czlGvqHPSp7j', title: 'Take Me Home (feat. Bebe Rexha)', release_date: '2013-07-15', is_featured: true }, // Take Me Home (Cash Cash)
+      { id: '7skmxw0M4VQMZwY4lICAHl', title: "That's How You Know", release_date: '2015-07-17', is_featured: true }, // That's How You Know (Nico & Vinz)
+      { id: '0kd0OCzyoqrr0c9n66xjgi', title: 'If Only I (feat. Bebe Rexha)', release_date: '2023-06-23', is_featured: true }, // If Only I (Loud Luxury)
+      { id: '5uOBHR89JOzaZxuVZdhWWp', title: 'Heart Still Beating', release_date: '2023-10-27', is_featured: true }, // Heart Still Beating (Nathan Dawe)
+      { id: '4EUf4YyNjuXypWY6W5wEDm', title: 'This Is Not A Drill', release_date: '2014-11-21', is_featured: true }, // This Is Not A Drill (Pitbull)
+      { id: '3magxZAvx6F9hKyUQmFy3s', title: 'Battle Cry', release_date: '2014-04-14', is_featured: true }, // Battle Cry (Havana Brown)
+      { id: '0ZZSo8nObNWR7fTyRZARez', title: 'Dare You - Acoustic Version', release_date: '2014-01-24', is_featured: true } // Dare You Acoustic (Hardwell)
+    ];
+
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
+    }
+  }
+
 
   const albumsToScrape = Array.from(albumMap.values());
   
@@ -446,12 +490,14 @@ async function run() {
 
       const artistFilterArg = process.argv.find(arg => arg.startsWith('--artists='));
       let artistsToRun = [];
+      let allTrackedArtistIds = [];
       try {
         const dbRes = await client.query(
           'SELECT artist_id as id, name FROM tracked_artists WHERE active = true ORDER BY sort_order, name'
         );
         if (dbRes.rows.length) {
           artistsToRun = dbRes.rows;
+          allTrackedArtistIds = dbRes.rows.map(a => a.id);
           console.log(`[scraper] Loaded ${artistsToRun.length} active artists from database.`);
         }
       } catch (err) {
@@ -473,6 +519,9 @@ async function run() {
           { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' },
           { id: '4qwGe91Bz9K2T8jXTZ815W', name: 'Janet Jackson' }
         ];
+        allTrackedArtistIds = artistsToRun.map(a => a.id);
+      } else if (!allTrackedArtistIds.length) {
+        allTrackedArtistIds = artistsToRun.map(a => a.id);
       }
 
       if (artistFilterArg) {
@@ -519,7 +568,7 @@ async function run() {
       }
 
       for (const artist of pendingArtists) {
-        await scrapeArtist(page, client, artist.id, stats);
+        await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds);
       }
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
