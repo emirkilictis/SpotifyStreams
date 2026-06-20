@@ -120,7 +120,9 @@ const milestoneFilterButtons = document.querySelectorAll('.milestone-filter-btn'
 // Formatting Helpers
 function formatNumber(num) {
   if (num === null || num === undefined) return '0';
-  return Number(num).toLocaleString('en-US');
+  const n = Number(num);
+  if (!Number.isFinite(n)) return '0';   // guard: never render literal "NaN"
+  return n.toLocaleString('en-US');
 }
 
 function formatShortNumber(val) {
@@ -283,7 +285,7 @@ async function fetchData() {
       featDailyStreamsEl.textContent = (featDaily > 0 ? '+' : '') + formatNumber(featDaily);
     }
     
-    totalSongsEl.textContent = statsData.total_songs;
+    totalSongsEl.textContent = statsData.total_songs ?? '0';
     lastUpdateEl.textContent = formatDate(statsData.last_update);
 
     // Fetch artist-level stats (monthly listeners)

@@ -33,9 +33,18 @@ const ARTIST_ROSTER_FALLBACK = [
   { artist_id: '4qwGe91Bz9K2T8jXTZ815W', name: 'Janet Jackson',     image_url: 'https://i.scdn.co/image/ab6761610000e5eb8b290c36cbc9e89827ff562a', accent: '#d81b60', sort_order: 14, album_only: false, locked: false },
 ];
 
-// Accepted access codes for the locked artist (JC Chasez). Both unlock the same content.
+// Accepted access codes for a locked artist (currently JC Chasez). Both unlock
+// any artist flagged `locked` in the roster.
 const JC_PASSCODES = ['peakedinhighschool', 'flop'];
 const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
+
+// True if the given artist id is currently flagged `locked` in the live roster
+// (tracked_artists). Server-side access control reads this so the admin `locked`
+// toggle is the SINGLE source of truth — removing the lock in the panel actually
+// unlocks the API (no more hardcoded JC id, which left the API 403'ing after the
+// frontend was unlocked → "NaN" in the stat tiles).
+const isArtistLockedById = (artistId) =>
+  allArtistsCache.some(a => a.artist_id === artistId && a.locked);
 
 // Admin passcode for reading visitor feedback/requests. Set ADMIN_PASSCODE in the
 // environment (Render dashboard); falls back to a dev default so local runs work.
@@ -319,7 +328,7 @@ const validateArtistAccess = (req, res, next) => {
   const artistParam = req.query.artist;
   if (artistParam) {
     const artistId = artistParam.replace('spotify:artist:', '');
-    if (artistId === '3p3U04w2DaiBzuYMZnYr00') {
+    if (isArtistLockedById(artistId)) {
       const passcode = req.headers['x-jc-passcode'];
       if (!isJcAllowed(passcode)) {
         return res.status(403).json({ error: 'Forbidden: Access to this artist is locked.' });
@@ -945,19 +954,19 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
 
 app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
   try {
-    // Check if album belongs to JC Chasez (spotify:artist:3p3U04w2DaiBzuYMZnYr00)
+    // Check whether the album belongs to a currently-locked artist (DB-driven).
     const albumCheck = await dbQuery(
-      `SELECT DISTINCT s.primary_artist 
-       FROM songs s 
+      `SELECT DISTINCT s.primary_artist
+       FROM songs s
        WHERE s.album_id = $1`,
       [req.params.id]
     );
-    // Lock if ANY track on the album belongs to JC Chasez (a mixed-artist
+    // Lock if ANY track on the album belongs to a locked artist (a mixed-artist
     // album must not slip the lock just because its first row is someone else).
-    const isJcAlbum = albumCheck.rows.some(
-      r => r.primary_artist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00'
+    const isLockedAlbum = albumCheck.rows.some(
+      r => isArtistLockedById((r.primary_artist || '').replace('spotify:artist:', ''))
     );
-    if (isJcAlbum) {
+    if (isLockedAlbum) {
       const passcode = req.headers['x-jc-passcode'];
       if (!isJcAllowed(passcode)) {
         return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
@@ -1050,8 +1059,8 @@ app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
       [req.params.id]
     );
     if (songCheck.rows.length > 0) {
-      const primaryArtist = songCheck.rows[0].primary_artist;
-      if (primaryArtist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00') {
+      const primaryArtist = (songCheck.rows[0].primary_artist || '').replace('spotify:artist:', '');
+      if (isArtistLockedById(primaryArtist)) {
         const passcode = req.headers['x-jc-passcode'];
         if (!isJcAllowed(passcode)) {
           return res.status(403).json({ error: 'Forbidden: Access to this song is locked.' });
@@ -1081,12 +1090,12 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
        WHERE s.album_id = $1`,
       [req.params.id]
     );
-    // Lock if ANY track on the album belongs to JC Chasez (a mixed-artist
+    // Lock if ANY track on the album belongs to a locked artist (a mixed-artist
     // album must not slip the lock just because its first row is someone else).
-    const isJcAlbum = albumCheck.rows.some(
-      r => r.primary_artist === 'spotify:artist:3p3U04w2DaiBzuYMZnYr00'
+    const isLockedAlbum = albumCheck.rows.some(
+      r => isArtistLockedById((r.primary_artist || '').replace('spotify:artist:', ''))
     );
-    if (isJcAlbum) {
+    if (isLockedAlbum) {
       const passcode = req.headers['x-jc-passcode'];
       if (!isJcAllowed(passcode)) {
         return res.status(403).json({ error: 'Forbidden: Access to this album is locked.' });
