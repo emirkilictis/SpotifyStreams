@@ -205,6 +205,12 @@
     .dup-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .dup-info b { font-weight: 600; }
     .dup-sub { font-size: 0.72rem; color: var(--faint); font-family: monospace; word-break: break-all; }
+    .dup-streams { color: var(--green); font-weight: 700; font-family: monospace; }
+    .dup-post {
+      margin-top: 10px; padding: 7px 10px; background: var(--card-2);
+      border-radius: 7px; font-size: 0.74rem; color: var(--muted); line-height: 1.45;
+    }
+    .dup-post b { color: var(--green); }
     .dup-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
 
     /* Snapshot inspector */
@@ -965,13 +971,14 @@
               <input type="radio" name="dupcanon-${gi}" value="${esc(s.id)}" ${si === def ? 'checked' : ''}>
               <span class="dup-info">
                 <b>${esc(s.title)}</b>${s.is_featured ? ' <span class="ar-tag">feat</span>' : ''}${s.merged ? ' <span class="ar-tag locked">merged</span>' : ''}
-                <span class="dup-sub">${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.album || '—')} · ${fmtDur(s.duration_ms)} · ${esc(s.id)}</span>
+                <span class="dup-sub"><span class="dup-streams">${fmtStreams(g.streams)}</span> streams · ${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.album || '—')} · ${fmtDur(s.duration_ms)} · ${esc(s.id)}</span>
               </span>
             </label>`).join('');
           return `
             <div class="dup-group">
               <div class="dup-head">${fmtStreams(g.streams)} streams · ${g.songs.length} copies</div>
               ${rows}
+              <div class="dup-post">After merge → kept as <b>${fmtStreams(g.streams)} streams</b> on the selected copy. All ${g.songs.length} copies already share this exact count, so the artist total stays the same — these duplicates were never double-counted.</div>
               <div class="dup-actions">
                 <button class="act ok" data-merge-group="${gi}">Merge others into selected</button>
               </div>
