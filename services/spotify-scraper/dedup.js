@@ -139,6 +139,35 @@ function normalizeTitle(title) {
   return t;
 }
 
+// Exact-stream-count auto-merge (Pass 2 in dedupCanonical) only fires above this
+// floor. Spotify shows an identical play count, to the single stream, only for
+// LINKED copies of one recording — so an exact match inside one artist bucket is
+// a near-certain "same recording" signal. The ONE failure mode is coincidence at
+// tiny counts (two unrelated B-sides both at, say, 200 streams — see the
+// "Give It To Me" test fixture). A high floor removes that: two genuinely
+// different songs essentially never share an exact integer count this large.
+const EXACT_MERGE_FLOOR = 1_000_000;
+
+// Words that survive normalizeTitle but carry no identity (so they don't count
+// as a shared "this is the same song" token in the exact-count pass).
+const TITLE_STOPWORDS = new Set([
+  'version', 'remix', 'edit', 'mix', 'live', 'feat', 'with', 'from', 'original',
+  'remaster', 'remastered', 'deluxe', 'radio', 'single', 'album', 'part',
+  'club', 'extended', 'instrumental', 'acoustic',
+]);
+
+// True if two titles share a meaningful word (≥4 chars, not a stopword). Pairs
+// the exact-count signal with a sanity check so two unrelated songs that happen
+// to collide on a play count are still never glued together.
+function shareSignificantToken(a, b) {
+  const toks = (t) => new Set(
+    normalizeTitle(t).split(' ').filter(w => w.length >= 4 && !TITLE_STOPWORDS.has(w))
+  );
+  const setB = toks(b);
+  for (const w of toks(a)) if (setB.has(w)) return true;
+  return false;
+}
+
 /**
  * Album scoring — eski ve own daha iyi.
  */
@@ -192,6 +221,11 @@ async function dedupCanonical(client) {
   let canonicalCount  = 0;
   let aliasCount      = 0;
   let resetCount      = 0;
+
+  // Track the title-pass result so Pass 2 (exact-count) can skip already-merged
+  // aliases and re-point a merged canonical's own aliases (never build a chain).
+  const isAlias  = new Set();   // ids merged under some canonical
+  const aliasesOf = new Map();  // canonicalId -> [aliasId, …]
 
   // Önce tüm canonical_id'leri sıfırla
   const reset = await client.query(`UPDATE songs SET canonical_id = NULL WHERE canonical_id IS NOT NULL`);
@@ -314,9 +348,59 @@ function shouldKeepSeparate(title) {
           [canonical.id, cluster[i].id]
         );
         aliasCount++;
+        isAlias.add(cluster[i].id);
+        if (!aliasesOf.has(canonical.id)) aliasesOf.set(canonical.id, []);
+        aliasesOf.get(canonical.id).push(cluster[i].id);
       }
     }
   }
+
+  // ===== Pass 2: exact-stream-count auto-merge =====
+  // The title pass above can only cluster copies whose titles normalize to the
+  // same key. Real catalogs defeat that constantly — "… - Club Mix" vs
+  // "… (Album Version)", an artist-name-prefixed title, oddly tagged remixes —
+  // so linked copies of ONE recording end up in different groups and never get
+  // compared. This is exactly the "same stream count" duplicates the admin had
+  // to merge by hand. Here we auto-apply that signal: group every still-unmerged
+  // representative by (bucket, exact play count) and merge the ones that also
+  // share a significant title word. Guards: EXACT_MERGE_FLOOR (no coincidental
+  // low-count collisions) and shareSignificantToken (no unrelated songs glued by
+  // a coincidental count). FORCE_CANONICAL + manual rules below still override.
+  const exactGroups = new Map(); // `${bucket}|${streams}` -> rows
+  for (const r of rows) {
+    if (isAlias.has(r.id) || NEVER_MERGE.has(r.id) || manualSplit.has(r.id)) continue;
+    const s = Number(r.max_streams) || 0;
+    if (s < EXACT_MERGE_FLOOR) continue;
+    const key = `${bucketOfWith(namedArtists, r.primary_artist)}|${s}`;
+    if (!exactGroups.has(key)) exactGroups.set(key, []);
+    exactGroups.get(key).push(r);
+  }
+  let exactCount = 0;
+  const variantRe = /\b(?:remix|instrumental|a\s*cappella|acappella|mix|version|remaster(?:ed)?|edit|live|acoustic|karaoke)\b/i;
+  for (const group of exactGroups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => {
+      const sa = scoreCanonical(a), sb = scoreCanonical(b);
+      if (sa !== sb) return sb - sa;
+      // Tiebreak: keep the "plain" title (no remix/instrumental/… tag) as the
+      // canonical so the dashboard shows the main version, not a variant.
+      const va = variantRe.test(a.title) ? 1 : 0, vb = variantRe.test(b.title) ? 1 : 0;
+      if (va !== vb) return va - vb;
+      return a.id.localeCompare(b.id);
+    });
+    const canonical = group[0];
+    for (let i = 1; i < group.length; i++) {
+      const m = group[i];
+      if (!shareSignificantToken(canonical.title, m.title)) continue;
+      // Re-point m AND anything already merged under m, so no 2-level chains form.
+      for (const id of [m.id, ...(aliasesOf.get(m.id) || [])]) {
+        await client.query(`UPDATE songs SET canonical_id = $1 WHERE id = $2`, [canonical.id, id]);
+        isAlias.add(id);
+        exactCount++;
+      }
+    }
+  }
+  aliasCount += exactCount;
 
   // Apply forced canonical overrides
   for (const [trackId, canonId] of Object.entries(FORCE_CANONICAL)) {
@@ -335,7 +419,7 @@ function shouldKeepSeparate(title) {
     );
     manualCount += r.rowCount;
   }
-  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced, ${manualCount} manual merge, ${manualSplit.size} manual split.`);
+  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (${exactCount} exact-count auto-merge dahil; önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced, ${manualCount} manual merge, ${manualSplit.size} manual split.`);
   return { canonicalCount, aliasCount };
 }
 

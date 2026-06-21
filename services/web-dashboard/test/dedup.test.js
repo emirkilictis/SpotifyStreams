@@ -205,3 +205,83 @@ test('manual split rule keeps an otherwise-merging pair separate', async () => {
   await dedupCanonical(client);
   assert.equal(client.assignments['bbb'], undefined, 'split rule must keep the song unmerged');
 });
+
+// ---- Pass 2: exact-stream-count auto-merge ----
+// Helper for compact exact-count fixtures. Distinct (non-shared) words in a
+// title default to bucket 'collab' (primary_artist not a named artist).
+const exrow = (id, title, streams, dur, opts = {}) => ({
+  id, title, duration_ms: dur, is_featured: opts.feat || false,
+  album_id: opts.album || ('alb-' + id), primary_artist: opts.pa || 'collabArt',
+  release_date: D(opts.date || '2015-01-01'), max_streams: streams, last_date: TODAY,
+});
+
+test('Pass 2 merges exact-same-count copies the title pass missed (different titles)', async () => {
+  // Same recording, but "(Album Version)" vs "- Club Mix" normalize differently,
+  // so the title pass never compares them. Identical 5,000,000 count + shared
+  // words ("girl", "everything") → Pass 2 merges the club mix into the older one.
+  const rows = [
+    exrow('fg1', 'For The Girl Who Has Everything (Album Version)', 5_000_000, 200000, { date: '2000-01-01' }),
+    exrow('fg2', 'For The Girl Who Has Everything - Club Mix',      5_000_000, 320000, { date: '2001-01-01' }),
+  ];
+  const client = makeFakeClient(rows);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['fg2'], 'fg1', 'exact-count copy should merge into the older album version');
+});
+
+test('Pass 2 does NOT merge unrelated songs sharing only a coincidental count', async () => {
+  const rows = [
+    exrow('u1', 'Apple Orchard',  3_000_000, 200000),
+    exrow('u2', 'Zephyr Highway', 3_000_000, 240000),
+  ];
+  const client = makeFakeClient(rows);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['u1'], undefined, 'no shared title word → no merge');
+  assert.equal(client.assignments['u2'], undefined, 'no shared title word → no merge');
+});
+
+test('Pass 2 does NOT merge below the stream floor (coincidence-safe)', async () => {
+  const rows = [
+    exrow('lf1', 'Sunlight Avenue (Album Version)', 500_000, 200000, { date: '2000-01-01' }),
+    exrow('lf2', 'Sunlight Avenue - Club Mix',      500_000, 320000, { date: '2001-01-01' }),
+  ];
+  const client = makeFakeClient(rows);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['lf2'], undefined, 'below the 1M floor must stay separate');
+});
+
+test('Pass 2 requires an EXACT count (off by one does not merge)', async () => {
+  const rows = [
+    exrow('e1', 'Moonrise Boulevard (Album Version)', 5_000_000, 200000, { date: '2000-01-01' }),
+    exrow('e2', 'Moonrise Boulevard - Club Mix',      5_000_001, 320000, { date: '2001-01-01' }),
+  ];
+  const client = makeFakeClient(rows);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['e2'], undefined, 'non-exact counts must not merge');
+});
+
+test('Pass 2 never merges across artist buckets', async () => {
+  const rows = [
+    exrow('xb1', 'Crystal Skyline', 4_000_000, 200000, { pa: 'collabArt' }),
+    exrow('xb2', 'Crystal Skyline', 4_000_000, 320000, { pa: SKZ_ARTIST }),
+  ];
+  const client = makeFakeClient(rows);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['xb1'], undefined, 'different buckets must not merge');
+  assert.equal(client.assignments['xb2'], undefined, 'different buckets must not merge');
+});
+
+test('Pass 2 re-points an existing alias so no canonical chain forms', async () => {
+  // Title pass: tg2→tg1 and tg4→tg3. Then Pass 2 links tg3 (with alias tg4) into
+  // tg1 by exact count — tg4 must be re-pointed to tg1, not left pointing at tg3.
+  const rows = [
+    exrow('tg1', 'Thunder Road',              7_000_000, 200000, { date: '2000-01-01' }),
+    exrow('tg2', 'Thunder Road',              7_000_000, 201000, { date: '2005-01-01' }),
+    exrow('tg3', 'Thunder Road - Club Take',  7_000_000, 330000, { date: '2001-01-01' }),
+    exrow('tg4', 'Thunder Road - Club Take',  7_000_000, 331000, { date: '2002-01-01' }),
+  ];
+  const client = makeFakeClient(rows);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['tg2'], 'tg1', 'title-pass alias stays under tg1');
+  assert.equal(client.assignments['tg3'], 'tg1', 'exact-count copy merges into tg1');
+  assert.equal(client.assignments['tg4'], 'tg1', 're-pointed alias must point at tg1, not tg3 (no chain)');
+});
