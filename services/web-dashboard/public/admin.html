@@ -162,6 +162,11 @@
     .af-checks { align-items: center; }
     .af-checks label { color: var(--muted); font-size: 0.85rem; display: flex; align-items: center; gap: 5px; cursor: pointer; }
     .af-spacer { flex: 1; }
+    .af-hint {
+      margin: 2px 0 0; font-size: 0.76rem; color: var(--faint); line-height: 1.5;
+      background: var(--card-2); border-radius: 8px; padding: 9px 12px;
+    }
+    .af-hint b { color: var(--muted); font-weight: 700; }
     .af-err { text-align: left; margin: 4px 0 0; }
     .af-danger {
       display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px;
@@ -340,6 +345,41 @@
     .orphan-item .oi-main { flex: 1; min-width: 0; font-size: 0.85rem; }
     .orphan-item .oi-id { font-family: monospace; font-size: 0.72rem; color: var(--faint); }
 
+    /* Merge audit (over-merge check) */
+    .merge-card {
+      border: 1px solid var(--border); border-radius: 12px;
+      padding: 14px 16px; margin-bottom: 16px; background: var(--card);
+    }
+    .merge-card.ok { border-color: rgba(74,222,128,0.4); }
+    .merge-card.warn { border-color: rgba(248,113,113,0.45); }
+    .merge-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+    .merge-head b { font-size: 0.95rem; }
+    .merge-head .merge-sub { font-size: 0.74rem; color: var(--muted); margin-left: auto; }
+    .merge-card > p { margin: 0 0 12px; font-size: 0.8rem; color: var(--muted); }
+    .merge-bucket { border-top: 1px solid rgba(255,255,255,0.06); }
+    .merge-brow {
+      display: flex; align-items: center; gap: 10px; padding: 9px 0;
+      cursor: default;
+    }
+    .merge-brow.has-over { cursor: pointer; }
+    .merge-bname { flex: 1; min-width: 0; font-weight: 600; font-size: 0.88rem; }
+    .merge-bcaret { width: 12px; font-size: 0.7rem; color: var(--faint); transition: transform 0.15s; }
+    .merge-bucket.open .merge-bcaret { transform: rotate(90deg); }
+    .merge-pill {
+      font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+      background: var(--card-2); color: var(--muted); font-variant-numeric: tabular-nums;
+    }
+    .merge-pill.over { background: rgba(248,113,113,0.16); color: var(--red); }
+    .merge-pill.clean { background: rgba(74,222,128,0.14); color: var(--green); }
+    .merge-samples { padding: 2px 0 10px 22px; display: none; }
+    .merge-bucket.open .merge-samples { display: block; }
+    .merge-sample {
+      font-size: 0.76rem; color: var(--muted); padding: 5px 0;
+      border-top: 1px dashed rgba(255,255,255,0.05);
+    }
+    .merge-sample b { color: var(--text); font-weight: 600; }
+    .merge-sample .ms-num { font-family: monospace; color: var(--amber); }
+
     /* ---- Mobile (≤560px) ---- */
     @media (max-width: 560px) {
       .wrap { padding: 16px 12px 64px; }
@@ -441,6 +481,7 @@
       </div>
       <div id="health-summary"></div>
       <div id="health-orphans"></div>
+      <div id="health-merge"></div>
       <div id="health-list"></div>
     </div>
 
@@ -478,12 +519,13 @@
         </div>
         <div class="af-row af-checks">
           <label><input type="checkbox" id="af-albumonly"> Album-only</label>
-          <label><input type="checkbox" id="af-locked"> Locked</label>
+          <label title="Hides this artist on the public site behind the access passcode. Unchecking unlocks it for everyone."><input type="checkbox" id="af-locked"> Locked</label>
           <label><input type="checkbox" id="af-active" checked> Active</label>
           <span class="af-spacer"></span>
           <button type="button" id="af-cancel" class="tool-btn">Cancel</button>
           <button type="submit" id="af-save" class="btn-primary" style="width:auto;padding:8px 18px">Save</button>
         </div>
+        <p class="af-hint" id="af-lock-hint">🔒 <b>Locked</b> hides this artist on the public site — visitors see a masked “Locked Artist” card and need the access passcode to view it. This single toggle now controls both the page and the API, so unchecking it fully unlocks the artist. <b>Active</b> = shown in the roster at all; <b>Album-only</b> = no solo/feature split.</p>
         <p class="af-err gate-err" id="af-err"></p>
         <div id="af-danger" class="af-danger hidden">
           <span class="af-danger-text">Permanently delete this artist and <b>all</b> their songs/streams from the database. Use this to fully remove a mistakenly-added artist. Cannot be undone.</span>
@@ -1145,6 +1187,14 @@
       const v = Number(n);
       return (v >= 0 ? '+' : '') + (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v.toLocaleString());
     };
+    // Compact, sign-less count: 1.23B / 45.6M / 12,345.
+    const fmtCount = (n) => {
+      const v = Number(n);
+      if (!Number.isFinite(v)) return '0';
+      if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+      if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+      return v.toLocaleString();
+    };
 
     async function loadHealth() {
       const listEl = document.getElementById('health-list');
@@ -1157,10 +1207,64 @@
         if (!res.ok) throw new Error();
         const d = await res.json();
         renderHealth(d);
+        loadMergeAudit();
       } catch {
         listEl.innerHTML = '<div class="empty">Could not load health.</div>';
       }
     }
+
+    // Over-merge check: per bucket, how many merged copies are legit linked
+    // copies vs genuinely different songs glued together (which hide streams).
+    async function loadMergeAudit() {
+      const el = document.getElementById('health-merge');
+      el.innerHTML = '<div class="loading">Auditing merges…</div>';
+      try {
+        const res = await api('/api/admin/merge-audit');
+        if (!res.ok) throw new Error();
+        renderMergeAudit(await res.json());
+      } catch {
+        el.innerHTML = '';
+      }
+    }
+
+    function renderMergeAudit(d) {
+      const el = document.getElementById('health-merge');
+      const buckets = d.buckets || [];
+      const t = d.totals || { merged: 0, linked: 0, over: 0 };
+      const clean = t.over === 0;
+      const rows = buckets.map(b => {
+        const hasOver = b.over > 0;
+        const samples = hasOver ? `<div class="merge-samples">${b.samples.map(s => `
+          <div class="merge-sample"><b>${esc(s.alias_title)}</b> <span class="ms-num">${fmtCount(s.alias_peak)}</span>
+          → merged into <b>${esc(s.canon_title)}</b> <span class="ms-num">${fmtCount(s.canon_peak)}</span></div>`).join('')}
+          ${b.over > b.samples.length ? `<div class="merge-sample">…and ${b.over - b.samples.length} more</div>` : ''}
+        </div>` : '';
+        return `<div class="merge-bucket ${hasOver ? '' : ''}" data-bucket>
+          <div class="merge-brow ${hasOver ? 'has-over' : ''}" ${hasOver ? 'data-toggle' : ''}>
+            ${hasOver ? '<span class="merge-bcaret">▸</span>' : '<span class="merge-bcaret"></span>'}
+            <span class="merge-bname">${esc(b.name)}</span>
+            <span class="merge-pill">${b.merged} merged</span>
+            ${hasOver
+              ? `<span class="merge-pill over">${b.over} over · ${fmtCount(b.hidden)} hidden</span>`
+              : `<span class="merge-pill clean">clean</span>`}
+          </div>
+          ${samples}
+        </div>`;
+      }).join('');
+      el.innerHTML = `<div class="merge-card ${clean ? 'ok' : 'warn'}">
+        <div class="merge-head">
+          <b>${clean ? '✓ No over-merges' : '⚠ ' + t.over + ' possible over-merge' + (t.over > 1 ? 's' : '')}</b>
+          <span class="merge-sub">${t.merged} merged copies · ${t.linked} verified linked</span>
+        </div>
+        <p>Each merged copy is checked against the one it folded into. A &gt;0.5% peak gap means two different songs may have been glued together (their streams stop counting). Same gap the deduper uses.</p>
+        ${rows || '<div class="empty">No merged copies yet.</div>'}
+      </div>`;
+    }
+
+    document.getElementById('health-merge').addEventListener('click', (e) => {
+      const row = e.target.closest('[data-toggle]'); if (!row) return;
+      row.closest('.merge-bucket').classList.toggle('open');
+    });
 
     function renderHealth(d) {
       const sumEl = document.getElementById('health-summary');
@@ -1217,8 +1321,17 @@
         orphEl.innerHTML = '';
       }
 
-      // Per-artist health rows.
-      listEl.innerHTML = d.artists.map(a => {
+      // Per-artist health rows — float the ones that need attention to the top:
+      // flagged (frozen / no-songs) first, then most-stale, then roster order.
+      const ranked = [...d.artists].sort((a, b) => {
+        const fa = (a.flags || []).length ? 1 : 0;
+        const fb = (b.flags || []).length ? 1 : 0;
+        if (fa !== fb) return fb - fa;
+        const sa = a.active ? 0 : 1, sb = b.active ? 0 : 1;
+        if (sa !== sb) return sa - sb;            // active before inactive
+        return (b.days_stale || 0) - (a.days_stale || 0);
+      });
+      listEl.innerHTML = ranked.map(a => {
         const flags = (a.flags || []).map(f => `<span class="hr-flag">${f}</span>`).join(' ');
         const staleClass = a.flags && a.flags.includes('frozen') ? 'flagged' : '';
         return `<div class="health-row ${a.active ? '' : 'inactive'} ${staleClass}">
@@ -1285,7 +1398,7 @@
       artistsListEl.innerHTML = artists.map(a => {
         const tags = [];
         if (a.album_only) tags.push('<span class="ar-tag album">album-only</span>');
-        if (a.locked) tags.push('<span class="ar-tag locked">locked</span>');
+        if (a.locked) tags.push('<span class="ar-tag locked" title="Hidden on the public site behind the access passcode. Edit → uncheck Locked to unlock.">🔒 locked</span>');
         if (!a.active) tags.push('<span class="ar-tag">inactive</span>');
         const img = a.image_url || `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'/>`;
         return `<div class="artist-row ${a.active ? '' : 'inactive'}">

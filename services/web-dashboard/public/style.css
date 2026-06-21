@@ -2971,6 +2971,59 @@ body.modal-open {
   box-shadow: 0 0 0 3px rgba(30, 215, 96, 0.12);
 }
 select.tc-input { cursor: pointer; }
+
+/* Searchable song/album picker (type-to-filter combobox) */
+.tc-combo { position: relative; flex: 1; min-width: 200px; }
+.tc-combo .tc-input { width: 100%; min-width: 0; }
+.tc-options {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #14161c;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+}
+.tc-options.hidden { display: none; }
+.tc-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+.tc-opt:hover,
+.tc-opt.active { background: rgba(255, 255, 255, 0.07); }
+.tc-opt.selected { background: rgba(30, 215, 96, 0.14); }
+.tc-opt-icon { flex-shrink: 0; font-size: 0.9rem; }
+.tc-opt-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-opt-streams {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tc-opt-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
 .tc-result { margin-top: 14px; min-height: 1px; }
 .tc-eta {
   display: flex;

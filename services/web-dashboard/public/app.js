@@ -1901,9 +1901,19 @@ function renderMilestones() {
 }
 
 // ===== Target Calculator: days-to-go for a custom stream goal =====
-const tcItemEl = document.getElementById('tc-item');
+const tcItemEl = document.getElementById('tc-item');       // search input (combobox)
+const tcOptionsEl = document.getElementById('tc-options'); // filtered dropdown list
 const tcValueEl = document.getElementById('tc-value');
 const tcResultEl = document.getElementById('tc-result');
+
+// Searchable picker state. The old native <select> made finding one song among
+// hundreds a scroll-fest; this is a type-to-filter combobox instead. tcSelected
+// keeps the chosen "song:ID"/"album:ID" value so the ETA logic is unchanged.
+let tcItems = [];        // [{ value, title, kind:'song'|'album', streams }]
+let tcSelected = '';     // currently chosen value (or '' when nothing picked)
+let tcActiveIdx = -1;    // keyboard-highlighted row in the open list
+const tcEsc = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 // Parse "500M", "1.5b", "750,000,000", "750000000" -> number (or NaN).
 function parseTargetInput(raw) {
@@ -1916,34 +1926,76 @@ function parseTargetInput(raw) {
   return n * mult;
 }
 
-// Build the song/album picker from the in-memory data, preserving selection.
+// Build the song/album list from the in-memory data, preserving any selection.
 function populateTargetCalc() {
   if (!tcItemEl) return;
-  const prev = tcItemEl.value;
-  const opt = (val, label) => `<option value="${val}">${label.replace(/</g, '&lt;')}</option>`;
-  let html = '';
   const songs = (allSongs || []).filter(s => Number(s.cumulative) > 0)
     .sort((a, b) => Number(b.cumulative) - Number(a.cumulative));
   const albums = (allAlbums || []).filter(a => Number(a.total_streams) > 0)
     .sort((a, b) => Number(b.total_streams) - Number(a.total_streams));
-  if (songs.length) {
-    html += `<optgroup label="🎵 Songs">` +
-      songs.map(s => opt(`song:${s.id}`, `${s.title} (${formatShortNumber(s.cumulative)})`)).join('') +
-      `</optgroup>`;
-  }
-  if (albums.length) {
-    html += `<optgroup label="💿 Albums">` +
-      albums.map(a => opt(`album:${a.album_id}`, `${a.album_title} (${formatShortNumber(a.total_streams)})`)).join('') +
-      `</optgroup>`;
-  }
-  tcItemEl.innerHTML = html || `<option value="">No data yet</option>`;
-  if (prev && tcItemEl.querySelector(`option[value="${CSS.escape(prev)}"]`)) tcItemEl.value = prev;
+  tcItems = [
+    ...songs.map(s => ({ value: `song:${s.id}`, title: s.title, kind: 'song', streams: Number(s.cumulative) })),
+    ...albums.map(a => ({ value: `album:${a.album_id}`, title: a.album_title, kind: 'album', streams: Number(a.total_streams) })),
+  ];
+  // Keep the field showing the previously-picked item's title after a data refresh.
+  const cur = tcItems.find(it => it.value === tcSelected);
+  if (cur) tcItemEl.value = cur.title;
+  else tcSelected = '';
   computeTargetEta();
+}
+
+// Render up to 60 matches for the current query into the dropdown.
+function renderTcOptions(query) {
+  if (!tcOptionsEl) return;
+  const q = (query || '').trim().toLowerCase();
+  const matches = (q ? tcItems.filter(it => it.title.toLowerCase().includes(q)) : tcItems).slice(0, 60);
+  tcOptionsEl._matches = matches;
+  tcActiveIdx = -1;
+  if (!matches.length) {
+    tcOptionsEl.innerHTML = `<div class="tc-opt-empty">No song or album matches “${tcEsc(query)}”.</div>`;
+  } else {
+    tcOptionsEl.innerHTML = matches.map((it, i) => `
+      <div class="tc-opt${it.value === tcSelected ? ' selected' : ''}" role="option" data-idx="${i}">
+        <span class="tc-opt-icon">${it.kind === 'song' ? '🎵' : '💿'}</span>
+        <span class="tc-opt-title">${tcEsc(it.title)}</span>
+        <span class="tc-opt-streams">${formatShortNumber(it.streams)}</span>
+      </div>`).join('');
+  }
+  showTcOptions();
+}
+
+function showTcOptions() {
+  if (!tcOptionsEl) return;
+  tcOptionsEl.classList.remove('hidden');
+  tcItemEl.setAttribute('aria-expanded', 'true');
+}
+function hideTcOptions() {
+  if (!tcOptionsEl) return;
+  tcOptionsEl.classList.add('hidden');
+  tcItemEl.setAttribute('aria-expanded', 'false');
+  tcActiveIdx = -1;
+}
+
+// Commit a pick: store its value, show its title in the field, run the ETA.
+function selectTcItem(idx) {
+  const matches = tcOptionsEl._matches || [];
+  const it = matches[idx];
+  if (!it) return;
+  tcSelected = it.value;
+  tcItemEl.value = it.title;
+  hideTcOptions();
+  computeTargetEta();
+}
+
+function highlightTc() {
+  [...tcOptionsEl.children].forEach((c, i) => c.classList.toggle('active', i === tcActiveIdx));
+  const act = tcOptionsEl.children[tcActiveIdx];
+  if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
 }
 
 function computeTargetEta() {
   if (!tcResultEl) return;
-  const sel = tcItemEl && tcItemEl.value;
+  const sel = tcSelected;
   if (!sel) { tcResultEl.innerHTML = ''; return; }
   const [type, id] = sel.split(/:(.+)/);
 
@@ -1990,7 +2042,45 @@ function computeTargetEta() {
     </div>`;
 }
 
-if (tcItemEl) tcItemEl.addEventListener('change', computeTargetEta);
+if (tcItemEl) {
+  // Show the full list on focus (sorted by streams) so browsing is one tap away.
+  tcItemEl.addEventListener('focus', () => renderTcOptions(''));
+  // Typing filters the list and clears any prior pick until a row is chosen.
+  tcItemEl.addEventListener('input', () => {
+    tcSelected = '';
+    renderTcOptions(tcItemEl.value);
+    computeTargetEta();
+  });
+  tcItemEl.addEventListener('keydown', (e) => {
+    const open = tcOptionsEl && !tcOptionsEl.classList.contains('hidden');
+    const matches = (tcOptionsEl && tcOptionsEl._matches) || [];
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!open) { renderTcOptions(tcItemEl.value); return; }
+      tcActiveIdx = Math.min(tcActiveIdx + 1, matches.length - 1);
+      highlightTc();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      tcActiveIdx = Math.max(tcActiveIdx - 1, 0);
+      highlightTc();
+    } else if (e.key === 'Enter') {
+      if (open && tcActiveIdx >= 0) { e.preventDefault(); selectTcItem(tcActiveIdx); }
+    } else if (e.key === 'Escape') {
+      hideTcOptions();
+    }
+  });
+  // Close when focus leaves the combobox (small delay so a click can land first).
+  tcItemEl.addEventListener('blur', () => setTimeout(hideTcOptions, 120));
+}
+if (tcOptionsEl) {
+  // mousedown (not click) so it fires before the input's blur hides the list.
+  tcOptionsEl.addEventListener('mousedown', (e) => {
+    const opt = e.target.closest('.tc-opt');
+    if (!opt) return;
+    e.preventDefault();
+    selectTcItem(Number(opt.dataset.idx));
+  });
+}
 if (tcValueEl) tcValueEl.addEventListener('input', computeTargetEta);
 
 // ===== Achieved Milestones (separate collapsible log) =====

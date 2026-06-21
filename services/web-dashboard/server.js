@@ -1833,6 +1833,98 @@ app.get('/api/admin/same-stream-dups', requireAdmin, async (req, res) => {
   }
 });
 
+// Mirror the deduper's linked-copy tolerance (services/spotify-scraper/dedup.js
+// LINKED_COUNT_TOLERANCE): two copies whose peak playcounts are within 0.5% are
+// the same recording (scrape-time drift); beyond that they're genuinely
+// different songs. We audit against the same threshold so the panel's verdict
+// matches what the merger actually did.
+const MERGE_AUDIT_TOLERANCE = 0.005;
+
+// Admin: per-bucket merge audit — the over-merge check we used to run by hand.
+// For every merged alias we compare its last scraped count against where its
+// canonical stood ON THE SAME DATE. Within 0.5% (the deduper's own tolerance) =
+// a legit linked copy; beyond = two different recordings merged together, which
+// hides the smaller copy's streams (a cluster only counts the MAX).
+//
+// Comparing date-aligned (not all-time peaks) is essential: a frozen appears-on
+// copy stops growing while the kept copy keeps climbing, so their *lifetime*
+// peaks drift well past 0.5% even though they're the same recording. Aligning on
+// the alias's last date neutralises that and leaves only genuine over-merges.
+// Read-only.
+app.get('/api/admin/merge-audit', requireAdmin, async (req, res) => {
+  try {
+    const r = await dbQuery(`
+      WITH alias_last AS (
+        SELECT DISTINCT ON (song_id) song_id, recorded_date, stream_count
+        FROM stream_stats ORDER BY song_id, recorded_date DESC
+      )
+      SELECT al.id            AS alias_id,
+             al.title         AS alias_title,
+             al_last.stream_count::bigint AS alias_peak,
+             cn.title         AS canon_title,
+             cn.primary_artist AS canon_artist,
+             (SELECT ss.stream_count FROM stream_stats ss
+               WHERE ss.song_id = cn.id AND ss.recorded_date <= al_last.recorded_date
+               ORDER BY ss.recorded_date DESC LIMIT 1)::bigint AS canon_peak
+      FROM songs al
+      JOIN songs cn ON cn.id = al.canonical_id
+      JOIN alias_last al_last ON al_last.song_id = al.id
+      WHERE al.canonical_id IS NOT NULL
+    `);
+
+    // bucket key = canonical's primary artist if it's a named tracked artist,
+    // otherwise everything falls into JT's catch-all (same rule as the dashboard).
+    const named = new Map(
+      allArtistsCache
+        .filter(a => a.artist_id !== '31TPClRtHm23RisEBtV3X7')
+        .map(a => [`spotify:artist:${a.artist_id}`, a.name])
+    );
+    const jt = allArtistsCache.find(a => a.artist_id === '31TPClRtHm23RisEBtV3X7');
+    const jtName = jt ? jt.name : 'Justin Timberlake (catch-all)';
+
+    const buckets = new Map();
+    for (const row of r.rows) {
+      const uri = row.canon_artist || '';
+      const key = named.has(uri) ? uri : 'collab';
+      const name = named.get(uri) || jtName;
+      if (!buckets.has(key)) {
+        buckets.set(key, { key, name, merged: 0, linked: 0, over: 0, hidden: 0n, samples: [] });
+      }
+      const b = buckets.get(key);
+      b.merged++;
+      const a = Number(row.alias_peak), c = Number(row.canon_peak);
+      const tol = Math.max(a, c) * MERGE_AUDIT_TOLERANCE;
+      if (a > 0 && c > 0 && Math.abs(a - c) > tol) {
+        b.over++;
+        b.hidden += BigInt(Math.min(a, c)); // streams excluded from the total (only the MAX copy counts)
+        b.samples.push({
+          alias_title: row.alias_title, alias_peak: row.alias_peak,
+          canon_title: row.canon_title, canon_peak: row.canon_peak,
+        });
+      } else {
+        b.linked++;
+      }
+    }
+
+    const out = [...buckets.values()].map(b => ({
+      key: b.key, name: b.name, merged: b.merged, linked: b.linked, over: b.over,
+      hidden: b.hidden.toString(),
+      samples: b.samples
+        .sort((x, y) => Number(y.alias_peak) - Number(x.alias_peak))
+        .slice(0, 6),
+    })).sort((a, b) => b.over - a.over || (Number(b.hidden) - Number(a.hidden)));
+
+    const totals = out.reduce(
+      (t, b) => ({ merged: t.merged + b.merged, linked: t.linked + b.linked, over: t.over + b.over }),
+      { merged: 0, linked: 0, over: 0 }
+    );
+    res.json({ buckets: out, totals });
+  } catch (err) {
+    console.error('Admin merge-audit error:', err);
+    res.status(500).json({ error: 'Failed to run merge audit.' });
+  }
+});
+
 // Admin: list manual merge / split rules (with titles).
 app.get('/api/admin/manual-merges', requireAdmin, async (req, res) => {
   try {

@@ -351,7 +351,13 @@
         <h2 class="section-title">🎯 Target Calculator</h2>
         <p class="target-calc-hint">Pick a song or album and enter a target stream count to see how long it’ll take — based on the smoothed 7-day average pace (so weekend spikes / Monday dips don’t skew it).</p>
         <div class="target-calc-row">
-          <select id="tc-item" class="tc-input" aria-label="Song or album"></select>
+          <div class="tc-combo" id="tc-combo">
+            <input id="tc-item" class="tc-input" type="text" role="combobox" autocomplete="off"
+                   aria-label="Search a song or album" aria-autocomplete="list"
+                   aria-expanded="false" aria-controls="tc-options"
+                   placeholder="🔍 Search a song or album…">
+            <div id="tc-options" class="tc-options hidden" role="listbox"></div>
+          </div>
           <input id="tc-value" class="tc-input" type="text" inputmode="numeric" autocomplete="off"
                  placeholder="Target — e.g. 500M, 1.5B, 750000000">
         </div>
