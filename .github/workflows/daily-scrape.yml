@@ -14,11 +14,21 @@ on:
         type: string
         default: ''
 
+# Saatlik cron-job.org tetiklemeleri gercek bir tarama (yeni gun / yeni sanatci)
+# 20-30 dk surdugunde cakisabiliyor. Tek bir kuyruk: bir run devam ederken yeni
+# tetikleme IPTAL ETMEZ, sira bekler (cancel-in-progress: false) — boylece iki
+# run ayni anda DB'ye yazip birbirini ezmez.
+concurrency:
+  group: spotify-scrape
+  cancel-in-progress: false
+
 jobs:
   scrape:
     name: Scrape JT Stream Counts
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Yogun gunler (yeni sanatci backfill + appears-on) 30 dk'yi asabiliyor; 45'e
+    # cikarildi ki timeout yuzunden iptal olmasin.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
