@@ -27,6 +27,11 @@ function makeFakeClient(rows, manualMerges = []) {
       // Named-artist seti DB'den okunur; testte boş dön ki dedup hardcoded
       // fallback set'e düşsün (fixture'daki named bucket'lar = SKZ/Gaga).
       if (/FROM tracked_artists/i.test(t)) return { rows: [] };
+      // Chain-flatten step reads the live alias→canonical state, so reflect the
+      // assignments made so far in this run (not the static input fixture).
+      if (/SELECT id, canonical_id FROM songs WHERE canonical_id IS NOT NULL/i.test(t)) {
+        return { rows: Object.entries(assignments).map(([id, canonical_id]) => ({ id, canonical_id })) };
+      }
       if (/^SELECT/i.test(t)) return { rows };
       if (/UPDATE songs SET canonical_id = NULL/i.test(t)) return { rowCount: 0 };
       if (/UPDATE songs SET canonical_id = \$1 WHERE id = \$2/i.test(t)) {
@@ -283,6 +288,21 @@ test('Pass 2 leaves manual-merge pairs alone (no canonical cycle)', async () => 
   await dedupCanonical(client);
   assert.equal(client.assignments['eot2'], 'eot1', 'manual rule links eot2 → eot1');
   assert.equal(client.assignments['eot1'], undefined, 'eot1 stays the root canonical — no cycle');
+});
+
+test('chain-flatten resolves alias→alias→root to a single hop', async () => {
+  // Title pass merges cx→cy (same title). A manual rule then re-roots cy→cz,
+  // leaving cx→cy→cz. The final flatten pass must re-point cx straight to cz so
+  // cy isn't a phantom canonical (counted in the tile but absent from the list).
+  const rows = [
+    exrow('cx', 'Flatten Test', 9_000_000, 200000, { date: '2003-01-01' }),
+    exrow('cy', 'Flatten Test', 9_000_000, 200400, { date: '2000-01-01' }),
+    exrow('cz', 'Flatten Root', 4_000_000, 240000, { date: '1999-01-01' }),
+  ];
+  const client = makeFakeClient(rows, [{ alias_id: 'cy', canonical_id: 'cz' }]);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['cy'], 'cz', 'manual rule re-roots cy → cz');
+  assert.equal(client.assignments['cx'], 'cz', 'chained alias cx must flatten to the root cz, not cy');
 });
 
 test('Pass 2 re-points an existing alias so no canonical chain forms', async () => {

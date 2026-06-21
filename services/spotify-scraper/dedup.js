@@ -430,7 +430,35 @@ function shouldKeepSeparate(title) {
     );
     manualCount += r.rowCount;
   }
-  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (${exactCount} exact-count auto-merge dahil; önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced, ${manualCount} manual merge, ${manualSplit.size} manual split.`);
+
+  // Flatten canonical chains so every alias points STRAIGHT at a root. A manual
+  // rule or FORCE_CANONICAL can re-root a canonical that the title pass had
+  // already merged copies into (X→Y, then Y→Z), leaving X→Y→Z. The view resolves
+  // only one level, so the intermediate Y becomes a phantom canonical — counted
+  // in the stat total but absent from the representative list (tile > list).
+  // Resolve each alias to its ultimate root in one pass; the `seen` guard also
+  // makes this safe against any residual 2-cycle.
+  let flattened = 0;
+  try {
+    const all = await client.query(`SELECT id, canonical_id FROM songs WHERE canonical_id IS NOT NULL`);
+    const canonOf = new Map(all.rows.map(r => [r.id, r.canonical_id]));
+    const rootOf = (start) => {
+      let cur = start; const seen = new Set();
+      while (canonOf.has(cur) && !seen.has(cur)) { seen.add(cur); cur = canonOf.get(cur); }
+      return cur;
+    };
+    for (const [id, canon] of canonOf) {
+      const root = rootOf(canon);
+      if (root !== canon && root !== id) {
+        await client.query(`UPDATE songs SET canonical_id = $1 WHERE id = $2`, [root, id]);
+        flattened++;
+      }
+    }
+  } catch (e) {
+    console.warn('[dedup] chain-flatten step failed:', e.code || e.message);
+  }
+
+  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (${exactCount} exact-count auto-merge dahil; önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced, ${manualCount} manual merge, ${manualSplit.size} manual split, ${flattened} chain flattened.`);
   return { canonicalCount, aliasCount };
 }
 
