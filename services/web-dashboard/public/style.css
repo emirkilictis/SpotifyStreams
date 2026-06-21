@@ -1761,7 +1761,53 @@ body.modal-open {
     font-size: 0.62rem;
     padding: 1px 4px;
   }
-  
+
+  /* Compact artist song list on phones — one tight line per song so more fit on
+     screen at a glance. Title + badge share a single line (title ellipsis-clips
+     instead of wrapping to 2-3 lines, which was the main height cost). Scoped to
+     #songs-table so the modal / other tables keep their normal spacing. */
+  /* Fixed layout + column widths so the nowrap title clips to its column
+     (ellipsis) instead of stretching the table and pushing the stream columns
+     off-screen. */
+  #songs-table {
+    table-layout: fixed;
+    width: 100%;
+  }
+  #songs-table th:nth-child(1),
+  #songs-table td:nth-child(1) { width: 26px; }
+  #songs-table th:nth-child(4),
+  #songs-table td:nth-child(4) { width: 104px; }
+  #songs-table th:nth-child(5),
+  #songs-table td:nth-child(5) { width: 78px; }
+  #songs-table td,
+  #songs-table th {
+    padding: 5px 6px;
+  }
+  /* Title on one line (ellipsis-clipped, not wrapped to 2-3 lines — the main
+     height cost) with the badge stacked tight underneath; gives the title the
+     full song column for a readable clip. */
+  #songs-table .song-title-cell {
+    gap: 1px;
+    min-width: 0;
+  }
+  #songs-table .song-title {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.84rem;
+    line-height: 1.2;
+  }
+  #songs-table .badge {
+    font-size: 0.54rem;
+    padding: 0 4px;
+    line-height: 1.4;
+  }
+  #songs-table .streams-count,
+  #songs-table .gain-cell {
+    font-size: 0.8rem;
+  }
+
   /* Modal responsive adjustment */
   .modal-card {
     padding: 12px 10px;
