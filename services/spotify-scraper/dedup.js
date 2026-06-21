@@ -246,6 +246,17 @@ async function dedupCanonical(client) {
     console.warn('[dedup] manual_merges tablosu yok/okunamadı:', e.code || e.message);
   }
 
+  // Every id touched by a manual rule (as alias OR canonical). Pass 2 must leave
+  // these alone: the rules are applied last and set their own direction, so if
+  // Pass 2 merged the pair the other way first, the two would end up pointing at
+  // each other (a canonical_id cycle) — both then drop out of the dashboard,
+  // since neither is a NULL-canonical representative anymore.
+  const manualIds = new Set([
+    ...Object.keys(manualMerge),
+    ...Object.values(manualMerge),
+    ...manualSplit,
+  ]);
+
 function shouldKeepSeparate(title) {
   const lower = title.toLowerCase();
   return lower.includes('live') || 
@@ -368,7 +379,7 @@ function shouldKeepSeparate(title) {
   // a coincidental count). FORCE_CANONICAL + manual rules below still override.
   const exactGroups = new Map(); // `${bucket}|${streams}` -> rows
   for (const r of rows) {
-    if (isAlias.has(r.id) || NEVER_MERGE.has(r.id) || manualSplit.has(r.id)) continue;
+    if (isAlias.has(r.id) || NEVER_MERGE.has(r.id) || manualIds.has(r.id)) continue;
     const s = Number(r.max_streams) || 0;
     if (s < EXACT_MERGE_FLOOR) continue;
     const key = `${bucketOfWith(namedArtists, r.primary_artist)}|${s}`;

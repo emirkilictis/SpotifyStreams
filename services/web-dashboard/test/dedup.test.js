@@ -270,6 +270,21 @@ test('Pass 2 never merges across artist buckets', async () => {
   assert.equal(client.assignments['xb2'], undefined, 'different buckets must not merge');
 });
 
+test('Pass 2 leaves manual-merge pairs alone (no canonical cycle)', async () => {
+  // Two "End Of Time" copies with the EXACT same count that Pass 2 would merge
+  // (≥1M, shared word, 28s apart so the title pass skips them). A manual rule
+  // already links eot2→eot1. Pass 2 must NOT also merge them the other way, or
+  // the two end up pointing at each other (cycle) and both vanish from the site.
+  const rows = [
+    exrow('eot1', 'End Of Time', 21_000_000, 182000, { date: '2011-01-01' }),
+    exrow('eot2', 'End Of Time', 21_000_000, 210000, { date: '2012-01-01' }),
+  ];
+  const client = makeFakeClient(rows, [{ alias_id: 'eot2', canonical_id: 'eot1' }]);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['eot2'], 'eot1', 'manual rule links eot2 → eot1');
+  assert.equal(client.assignments['eot1'], undefined, 'eot1 stays the root canonical — no cycle');
+});
+
 test('Pass 2 re-points an existing alias so no canonical chain forms', async () => {
   // Title pass: tg2→tg1 and tg4→tg3. Then Pass 2 links tg3 (with alias tg4) into
   // tg1 by exact count — tg4 must be re-pointed to tg1, not left pointing at tg3.
