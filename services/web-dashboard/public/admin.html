@@ -1109,16 +1109,46 @@
         if (!res.ok) throw new Error();
         const rows = await res.json();
         if (!rows.length) { manualListEl.innerHTML = '<div class="empty">No manual rules.</div>'; return; }
-        manualListEl.innerHTML = rows.map(r => `
-          <div class="artist-row">
-            <div class="ar-main">
-              <div class="ar-name">${esc(r.alias_title || '(unknown)')} ${r.canonical_id
-                ? '→ ' + esc(r.canonical_title || r.canonical_id)
-                : '<span class="ar-tag locked">keep separate</span>'}</div>
-              <div class="ar-id">${artistName(r.alias_artist) ? esc(artistName(r.alias_artist)) + ' · ' : ''}${esc(r.alias_id)}${r.canonical_id ? ' → ' + esc(r.canonical_id) : ''}${r.reason ? ' · ' + esc(r.reason) : ''}</div>
-            </div>
-            <div class="ar-actions"><button class="act del" data-remove-rule="${esc(r.alias_id)}">Remove</button></div>
-          </div>`).join('');
+
+        // Group rules by the alias's artist (same bucketing as the duplicate
+        // finder); collabs with no tracked primary fall under "Other / collab".
+        const groups = new Map();
+        for (const r of rows) {
+          const name = artistName(r.alias_artist) || 'Other / collab';
+          if (!groups.has(name)) groups.set(name, []);
+          groups.get(name).push(r);
+        }
+        const sorted = [...groups.entries()].sort((a, b) => {
+          if (a[0] === 'Other / collab') return 1;
+          if (b[0] === 'Other / collab') return -1;
+          return a[0].localeCompare(b[0]);
+        });
+
+        manualListEl.innerHTML = sorted.map(([name, list]) => {
+          const merges = list.filter(r => r.canonical_id).length;
+          const splits = list.length - merges;
+          const meta = [merges ? `${merges} merge${merges === 1 ? '' : 's'}` : '',
+                        splits ? `${splits} split${splits === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+          const body = list.map(r => `
+            <div class="artist-row">
+              <div class="ar-main">
+                <div class="ar-name">${esc(r.alias_title || '(unknown)')} ${r.canonical_id
+                  ? '→ ' + esc(r.canonical_title || r.canonical_id)
+                  : '<span class="ar-tag locked">keep separate</span>'}</div>
+                <div class="ar-id">${esc(r.alias_id)}${r.canonical_id ? ' → ' + esc(r.canonical_id) : ''}${r.reason ? ' · ' + esc(r.reason) : ''}</div>
+              </div>
+              <div class="ar-actions"><button class="act del" data-remove-rule="${esc(r.alias_id)}">Remove</button></div>
+            </div>`).join('');
+          return `
+            <div class="dup-artist open" data-artist="${esc(name)}">
+              <div class="dup-artist-head" data-toggle>
+                <span class="dup-artist-caret">▸</span>
+                <span class="dup-artist-name">${esc(name)}</span>
+                <span class="dup-artist-meta">${list.length} rule${list.length === 1 ? '' : 's'}${meta ? ' · ' + meta : ''}</span>
+              </div>
+              <div class="dup-artist-body">${body}</div>
+            </div>`;
+        }).join('');
       } catch { manualListEl.innerHTML = '<div class="empty">Could not load (migration 016 applied?).</div>'; }
     }
 
@@ -1173,6 +1203,16 @@
     });
 
     manualListEl.addEventListener('click', async (e) => {
+      // Collapse/expand an artist group (click on its header, not the Remove button).
+      const head = e.target.closest('.dup-artist-head[data-toggle]');
+      if (head) {
+        const art = head.closest('.dup-artist');
+        const body = art.querySelector('.dup-artist-body');
+        const opening = body.hasAttribute('hidden');
+        if (opening) body.removeAttribute('hidden'); else body.setAttribute('hidden', '');
+        art.classList.toggle('open', opening);
+        return;
+      }
       const btn = e.target.closest('button[data-remove-rule]');
       if (!btn) return;
       if (!confirm('Remove this rule? The deduper decides this song automatically again.')) return;
