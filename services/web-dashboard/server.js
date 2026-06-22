@@ -1261,6 +1261,43 @@ app.get('/api/artists', async (req, res) => {
   res.json(ARTIST_ROSTER_FALLBACK);
 });
 
+// Same-origin image proxy. The Compare card is exported to PNG via html2canvas;
+// cross-origin avatars/covers without CORS headers (e.g. some admin-pasted CDN
+// URLs) would otherwise taint the canvas and break the screenshot. Streaming the
+// bytes through our own origin sidesteps that. Read-only; images are public.
+app.get('/api/img-proxy', async (req, res) => {
+  const u = req.query.u;
+  if (!u || typeof u !== 'string' || !/^https?:\/\//i.test(u)) return res.status(400).end();
+  let target;
+  try { target = new URL(u); } catch { return res.status(400).end(); }
+  // Basic SSRF guard: never let the proxy hit internal/loopback hosts.
+  const host = target.hostname.toLowerCase();
+  if (host === 'localhost' || host === '::1' ||
+      /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+    return res.status(400).end();
+  }
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const upstream = await fetch(target.href, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (SpotifyStreams image proxy)' },
+    });
+    clearTimeout(timer);
+    if (!upstream.ok) return res.status(502).end();
+    const ct = upstream.headers.get('content-type') || '';
+    if (!ct.startsWith('image/')) return res.status(415).end();
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    if (buf.length > 8 * 1024 * 1024) return res.status(413).end();
+    res.set('Content-Type', ct);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buf);
+  } catch (err) {
+    res.status(502).end();
+  }
+});
+
 // Admin: full roster incl. inactive, for management.
 app.get('/api/admin/artists', requireAdmin, async (req, res) => {
   try {

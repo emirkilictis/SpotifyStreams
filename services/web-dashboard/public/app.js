@@ -3246,4 +3246,342 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   });
 })();
 
+/* ============================================================
+   COMPARE — side-by-side "showdown" card with screenshot export.
+   JT is protected: he can never be shown losing to a bigger artist
+   (or album). The card simply refuses to render that matchup.
+   ============================================================ */
+(function compareModule() {
+  const JT_ID = '31TPClRtHm23RisEBtV3X7';
+
+  const overlay = document.getElementById('compare-overlay');
+  const openBtn = document.getElementById('open-compare-btn');
+  if (!overlay || !openBtn) return;
+
+  const closeBtn   = document.getElementById('compare-close-btn');
+  const cardEl     = document.getElementById('compare-card');
+  const dlBtn      = document.getElementById('compare-download-btn');
+  const modeBtns   = overlay.querySelectorAll('.cmp-mode-btn');
+  const pickersArtists = document.getElementById('cmp-pickers-artists');
+  const pickersAlbums  = document.getElementById('cmp-pickers-albums');
+
+  const aArtist = document.getElementById('cmp-a-artist');
+  const bArtist = document.getElementById('cmp-b-artist');
+  const aAlbArtist = document.getElementById('cmp-a-alb-artist');
+  const bAlbArtist = document.getElementById('cmp-b-alb-artist');
+  const aAlbum = document.getElementById('cmp-a-album');
+  const bAlbum = document.getElementById('cmp-b-album');
+
+  let mode = 'artists';
+  let canDownload = false;
+  const artistDataCache = new Map(); // id -> { totalStreams, songs, daily, ml, followers }
+  const albumsCache = new Map();     // artistId -> [albums]
+
+  const cesc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const headers = () => (jcPasscode ? { 'X-JC-Passcode': jcPasscode } : {});
+
+  // Non-locked roster only — the locked artist never enters a comparison.
+  function roster() {
+    return (currentRoster || []).filter(a => !isArtistLocked(a.artist_id));
+  }
+  function artistName(id) {
+    const a = (currentRoster || []).find(x => x.artist_id === id);
+    return a ? a.name : 'Artist';
+  }
+  function artistImg(id) {
+    const a = (currentRoster || []).find(x => x.artist_id === id);
+    return (ARTIST_THEMES[id] && ARTIST_THEMES[id].img) || (a && a.image_url) || '/images/default.jpg';
+  }
+  // Route remote images through our same-origin proxy so html2canvas can export
+  // the card without cross-origin canvas tainting. Local/inline URLs pass through.
+  function proxied(url) {
+    if (!url) return '';
+    if (url.startsWith('/') || url.startsWith('data:') || url.startsWith(location.origin)) return url;
+    return '/api/img-proxy?u=' + encodeURIComponent(url);
+  }
+
+  function fillArtistSelect(sel, placeholder) {
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = `<option value="">${placeholder}</option>` +
+      roster().map(a => `<option value="${a.artist_id}">${cesc(a.name)}</option>`).join('');
+    if (prev) sel.value = prev;
+  }
+
+  async function fetchArtistData(id) {
+    if (artistDataCache.has(id)) return artistDataCache.get(id);
+    const h = headers();
+    const [statsRes, asRes] = await Promise.all([
+      fetch(`/api/stats?artist=${id}`, { headers: h }),
+      fetch(`/api/artist-stats?artist=${id}`, { headers: h }),
+    ]);
+    const stats = await statsRes.json();
+    const as = await asRes.json().catch(() => ({}));
+    const latest = (as && as.latest) || {};
+    const data = {
+      totalStreams: Number(stats.total_streams) || 0,
+      songs: Number(stats.total_songs) || 0,
+      daily: Number(stats.daily_avg_7d || stats.daily_gain) || 0,
+      ml: latest.monthly_listeners != null ? Number(latest.monthly_listeners) : 0,
+      followers: latest.followers != null ? Number(latest.followers) : 0,
+    };
+    artistDataCache.set(id, data);
+    return data;
+  }
+
+  async function fetchAlbums(id) {
+    if (albumsCache.has(id)) return albumsCache.get(id);
+    const res = await fetch(`/api/albums?artist=${id}`, { headers: headers() });
+    const list = await res.json().catch(() => []);
+    const arr = Array.isArray(list) ? list : [];
+    albumsCache.set(id, arr);
+    return arr;
+  }
+
+  function setEmpty(msg) {
+    cardEl.innerHTML = `<div class="cc-empty">${cesc(msg)}</div>`;
+    setDownloadable(false);
+  }
+  function setDownloadable(ok) {
+    canDownload = ok;
+    dlBtn.disabled = !ok;
+  }
+
+  function metricRow(label, aVal, bVal, fmt, highlight) {
+    const f = fmt || formatShortNumber;
+    const a = Number(aVal) || 0, b = Number(bVal) || 0;
+    const aWin = highlight !== false && a > b;
+    const bWin = highlight !== false && b > a;
+    return `<div class="cc-metric">
+      <span class="cc-mval cc-left ${aWin ? 'win' : ''}">${f(a)}</span>
+      <span class="cc-mlabel">${cesc(label)}</span>
+      <span class="cc-mval cc-right ${bWin ? 'win' : ''}">${f(b)}</span>
+    </div>`;
+  }
+
+  function shieldHTML(protectedName, biggerName) {
+    return `<div class="cc-shield">
+      <div class="cc-shield-icon">🛡️</div>
+      <div class="cc-shield-title">${cesc(protectedName)} is protected</div>
+      <div class="cc-shield-body">${cesc(biggerName)} out-streams ${cesc(protectedName)}, so this matchup is blocked. No dragging the king here.</div>
+    </div>`;
+  }
+
+  // ---------- ARTIST comparison ----------
+  async function renderArtists() {
+    const idA = aArtist.value, idB = bArtist.value;
+    if (!idA || !idB) { setEmpty('Pick two artists to compare.'); return; }
+    if (idA === idB) { setEmpty('Pick two different artists.'); return; }
+    cardEl.innerHTML = `<div class="cc-empty">Loading…</div>`;
+    setDownloadable(false);
+    let dA, dB;
+    try {
+      [dA, dB] = await Promise.all([fetchArtistData(idA), fetchArtistData(idB)]);
+    } catch { setEmpty('Could not load stats. Try again.'); return; }
+
+    const nameA = artistName(idA), nameB = artistName(idB);
+
+    // JT anti-drag guard (by total catalogue streams — the headline metric).
+    if (idA === JT_ID && dB.totalStreams > dA.totalStreams) {
+      cardEl.innerHTML = shieldHTML(nameA, nameB); setDownloadable(false); return;
+    }
+    if (idB === JT_ID && dA.totalStreams > dB.totalStreams) {
+      cardEl.innerHTML = shieldHTML(nameB, nameA); setDownloadable(false); return;
+    }
+
+    const aWin = dA.totalStreams > dB.totalStreams;
+    const bWin = dB.totalStreams > dA.totalStreams;
+    const winnerName = aWin ? nameA : (bWin ? nameB : null);
+
+    cardEl.innerHTML = `
+      <div class="cc-head">⚔️ Stream Showdown</div>
+      <div class="cc-vs-row">
+        <div class="cc-side">
+          <img class="cc-avatar" src="${cesc(proxied(artistImg(idA)))}" alt="">
+          <div class="cc-name">${cesc(nameA)}</div>
+          <div class="cc-bignum ${aWin ? 'win' : ''}">${formatShortNumber(dA.totalStreams)}</div>
+          <div class="cc-bigsub">Total Streams</div>
+        </div>
+        <div class="cc-vs">VS</div>
+        <div class="cc-side">
+          <img class="cc-avatar" src="${cesc(proxied(artistImg(idB)))}" alt="">
+          <div class="cc-name">${cesc(nameB)}</div>
+          <div class="cc-bignum ${bWin ? 'win' : ''}">${formatShortNumber(dB.totalStreams)}</div>
+          <div class="cc-bigsub">Total Streams</div>
+        </div>
+      </div>
+      <div class="cc-metrics">
+        ${metricRow('Monthly Listeners', dA.ml, dB.ml)}
+        ${metricRow('Followers', dA.followers, dB.followers)}
+        ${metricRow('Daily Streams', dA.daily, dB.daily)}
+        ${metricRow('Songs', dA.songs, dB.songs, formatNumber)}
+      </div>
+      ${winnerName ? `<div class="cc-winner">🏆 ${cesc(winnerName)}</div>` : ''}
+      <div class="cc-foot">Spotify Streams — Fan Dashboard</div>
+    `;
+    setDownloadable(true);
+  }
+
+  // ---------- ALBUM comparison ----------
+  function pickAlbum(list, id) { return (list || []).find(x => x.album_id === id); }
+  function yearOf(d) { return d ? String(d).slice(0, 4) : '—'; }
+
+  async function loadAlbumsInto(albSel, artistId) {
+    albSel.innerHTML = `<option value="">Loading…</option>`;
+    if (!artistId) { albSel.innerHTML = `<option value="">Select album</option>`; return; }
+    let list = [];
+    try { list = await fetchAlbums(artistId); } catch {}
+    albSel.innerHTML = `<option value="">Select album</option>` +
+      list.map(a => `<option value="${a.album_id}">${cesc(a.album_title)}</option>`).join('');
+  }
+
+  async function renderAlbums() {
+    const artA = aAlbArtist.value, artB = bAlbArtist.value;
+    const albIdA = aAlbum.value, albIdB = bAlbum.value;
+    if (!artA || !artB || !albIdA || !albIdB) { setEmpty('Pick an album on each side.'); return; }
+    cardEl.innerHTML = `<div class="cc-empty">Loading…</div>`;
+    setDownloadable(false);
+    let listA, listB;
+    try {
+      [listA, listB] = await Promise.all([fetchAlbums(artA), fetchAlbums(artB)]);
+    } catch { setEmpty('Could not load albums. Try again.'); return; }
+    const alA = pickAlbum(listA, albIdA), alB = pickAlbum(listB, albIdB);
+    if (!alA || !alB) { setEmpty('Could not find one of the albums.'); return; }
+
+    const tA = Number(alA.total_streams) || 0, tB = Number(alB.total_streams) || 0;
+
+    // JT anti-drag guard for albums.
+    if (artA === JT_ID && tB > tA) {
+      cardEl.innerHTML = shieldHTML(`${artistName(artA)}'s "${alA.album_title}"`, `"${alB.album_title}"`);
+      setDownloadable(false); return;
+    }
+    if (artB === JT_ID && tA > tB) {
+      cardEl.innerHTML = shieldHTML(`${artistName(artB)}'s "${alB.album_title}"`, `"${alA.album_title}"`);
+      setDownloadable(false); return;
+    }
+
+    const aWin = tA > tB, bWin = tB > tA;
+    const winnerName = aWin ? alA.album_title : (bWin ? alB.album_title : null);
+
+    cardEl.innerHTML = `
+      <div class="cc-head">💿 Album Showdown</div>
+      <div class="cc-vs-row">
+        <div class="cc-side">
+          <img class="cc-avatar cc-square" src="${cesc(proxied(alA.image_url))}" alt="">
+          <div class="cc-name">${cesc(alA.album_title)}</div>
+          <div class="cc-subname">${cesc(artistName(artA))}</div>
+          <div class="cc-bignum ${aWin ? 'win' : ''}">${formatShortNumber(tA)}</div>
+          <div class="cc-bigsub">Total Streams</div>
+        </div>
+        <div class="cc-vs">VS</div>
+        <div class="cc-side">
+          <img class="cc-avatar cc-square" src="${cesc(proxied(alB.image_url))}" alt="">
+          <div class="cc-name">${cesc(alB.album_title)}</div>
+          <div class="cc-subname">${cesc(artistName(artB))}</div>
+          <div class="cc-bignum ${bWin ? 'win' : ''}">${formatShortNumber(tB)}</div>
+          <div class="cc-bigsub">Total Streams</div>
+        </div>
+      </div>
+      <div class="cc-metrics">
+        ${metricRow('Daily Streams', alA.daily_avg_7d || alA.daily_gain, alB.daily_avg_7d || alB.daily_gain)}
+        ${metricRow('Tracks', alA.track_count, alB.track_count, formatNumber)}
+        ${metricRow('Released', yearOf(alA.release_date), yearOf(alB.release_date), (v) => v, false)}
+      </div>
+      ${winnerName ? `<div class="cc-winner">🏆 ${cesc(winnerName)}</div>` : ''}
+      <div class="cc-foot">Spotify Streams — Fan Dashboard</div>
+    `;
+    setDownloadable(true);
+  }
+
+  function render() {
+    if (mode === 'artists') renderArtists();
+    else renderAlbums();
+  }
+
+  // ---------- Download (screenshot) ----------
+  async function downloadCard() {
+    if (!canDownload) return;
+    const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
+    const imgs = Array.from(cardEl.querySelectorAll('img'));
+    await Promise.all(imgs.map(async (im) => {
+      if (!im.src) { im.style.visibility = 'hidden'; return; }
+      try { await im.decode(); } catch { im.style.visibility = 'hidden'; }
+      if (im.style.visibility !== 'hidden' && !im.naturalWidth) im.style.visibility = 'hidden';
+    }));
+    try {
+      const canvas = await html2canvas(cardEl, {
+        backgroundColor: '#080c14',
+        scale: 2,
+        useCORS: true,
+        imageTimeout: 15000,
+        logging: false,
+        width: 600,
+        windowWidth: 700,
+        onclone: (doc) => {
+          const c = doc.getElementById('compare-card');
+          if (c) {
+            c.style.setProperty('width', '600px', 'important');
+            c.style.setProperty('max-width', '600px', 'important');
+            c.style.setProperty('padding', '26px 28px', 'important');
+          }
+        }
+      });
+      const fileName = `compare_${Date.now()}.png`;
+      let url = null;
+      if (canvas.toBlob) {
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        if (blob) url = URL.createObjectURL(blob);
+      }
+      if (!url) url = canvas.toDataURL('image/png');
+      if (isMobile) {
+        showMobileImageOverlay(url, 'comparison');
+      } else {
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = url;
+        link.click();
+        if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }
+    } catch (e) {
+      console.error('Compare export failed:', e);
+      alert('Could not generate the image. Please try again.');
+    } finally {
+      imgs.forEach(im => { im.style.visibility = 'visible'; });
+    }
+  }
+
+  // ---------- Wiring ----------
+  function openOverlay() {
+    fillArtistSelect(aArtist, 'Select artist');
+    fillArtistSelect(bArtist, 'Select artist');
+    fillArtistSelect(aAlbArtist, 'Select artist');
+    fillArtistSelect(bAlbArtist, 'Select artist');
+    setEmpty('Pick two to start.');
+    overlay.classList.remove('hidden');
+  }
+  function closeOverlay() { overlay.classList.add('hidden'); }
+
+  openBtn.addEventListener('click', openOverlay);
+  closeBtn.addEventListener('click', closeOverlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
+
+  modeBtns.forEach(btn => btn.addEventListener('click', () => {
+    mode = btn.dataset.cmpmode;
+    modeBtns.forEach(b => b.classList.toggle('active', b === btn));
+    pickersArtists.classList.toggle('hidden', mode !== 'artists');
+    pickersAlbums.classList.toggle('hidden', mode !== 'albums');
+    setEmpty('Pick two to start.');
+  }));
+
+  aArtist.addEventListener('change', render);
+  bArtist.addEventListener('change', render);
+  aAlbArtist.addEventListener('change', async () => { await loadAlbumsInto(aAlbum, aAlbArtist.value); render(); });
+  bAlbArtist.addEventListener('change', async () => { await loadAlbumsInto(bAlbum, bAlbArtist.value); render(); });
+  aAlbum.addEventListener('change', render);
+  bAlbum.addEventListener('change', render);
+  dlBtn.addEventListener('click', downloadCard);
+})();
+
 

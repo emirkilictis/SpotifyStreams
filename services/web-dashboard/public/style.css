@@ -3745,3 +3745,288 @@ select.tc-input { cursor: pointer; }
     min-height: 200px;
   }
 }
+
+/* ============================================================
+   COMPARE — side-by-side "showdown" card + screenshot export
+   ============================================================ */
+
+/* Open button on the artist picker header */
+.compare-open-btn {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  border-radius: 22px;
+  border: 1px solid var(--accent-green-glow);
+  background: rgba(30, 215, 96, 0.08);
+  color: var(--accent-green);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+.compare-open-btn:hover {
+  background: rgba(30, 215, 96, 0.16);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px var(--accent-green-glow);
+}
+
+.compare-modal {
+  max-width: 720px;
+  width: 92vw;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+.compare-h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+/* Mode toggle (Artists / Albums) */
+.compare-mode-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  margin-bottom: 18px;
+}
+.cmp-mode-btn {
+  padding: 8px 22px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.cmp-mode-btn.active {
+  background: var(--accent-green);
+  color: #04140a;
+}
+
+/* Picker rows */
+.compare-pickers {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.cmp-side {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.cmp-pick-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+.cmp-select {
+  width: 100%;
+  font-size: 0.88rem;
+}
+.cmp-vs-chip {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 18px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+}
+
+/* ---------- The exportable card ---------- */
+#compare-card-wrap {
+  display: flex;
+  justify-content: center;
+}
+.compare-card {
+  width: 100%;
+  max-width: 600px;
+  background: linear-gradient(160deg, #0e1626 0%, #080c14 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 26px 28px;
+  box-sizing: border-box;
+}
+.cc-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 48px 12px;
+  font-size: 0.95rem;
+}
+.cc-head {
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: var(--accent-green);
+  text-transform: uppercase;
+  margin-bottom: 22px;
+}
+
+.cc-vs-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.cc-side {
+  text-align: center;
+  min-width: 0;
+}
+.cc-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--accent-green);
+  display: block;
+  margin: 0 auto 12px;
+  background: #111a2e;
+}
+.cc-avatar.cc-square {
+  border-radius: 14px;
+}
+.cc-name {
+  font-size: 1.12rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+  margin-bottom: 2px;
+  overflow-wrap: break-word;
+}
+.cc-subname {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-bignum {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+.cc-bignum.win {
+  color: var(--accent-green);
+  text-shadow: 0 0 22px var(--accent-green-glow);
+}
+.cc-bigsub {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+.cc-vs {
+  font-size: 1.3rem;
+  font-weight: 900;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+/* Metric rows */
+.cc-metrics {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 8px;
+}
+.cc-metric {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.cc-metric:last-child { border-bottom: none; }
+.cc-mval {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.cc-mval.cc-left { text-align: right; }
+.cc-mval.cc-right { text-align: left; }
+.cc-mval.win { color: var(--accent-green); }
+.cc-mlabel {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.cc-winner {
+  text-align: center;
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(30, 215, 96, 0.1);
+  border: 1px solid var(--accent-green-glow);
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--accent-green);
+}
+.cc-foot {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.03em;
+}
+
+/* JT anti-drag shield */
+.cc-shield {
+  text-align: center;
+  padding: 30px 16px;
+}
+.cc-shield-icon { font-size: 2.6rem; }
+.cc-shield-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 12px 0 8px;
+}
+.cc-shield-body {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 380px;
+  margin: 0 auto;
+}
+
+.compare-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 22px;
+}
+#compare-download-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+@media (max-width: 600px) {
+  .compare-pickers { flex-direction: column; align-items: stretch; gap: 10px; }
+  .cmp-vs-chip { margin-top: 0; }
+  .compare-card { padding: 20px 16px; }
+  .cc-avatar { width: 76px; height: 76px; }
+  .cc-bignum { font-size: 1.6rem; }
+  .cc-name { font-size: 0.98rem; }
+  .cc-mval { font-size: 0.9rem; }
+  .cc-mlabel { font-size: 0.58rem; }
+}

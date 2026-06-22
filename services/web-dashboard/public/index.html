@@ -28,6 +28,10 @@
         </div>
         <h1 class="picker-title">Spotify Streams</h1>
         <p class="picker-subtitle">Choose an artist to view their streaming stats</p>
+        <button id="open-compare-btn" class="compare-open-btn" type="button">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5 21 10l-3.5 3.5"></path><path d="M9.5 20.5 3 14l3.5-3.5"></path><path d="M3 14h11a4 4 0 0 0 4-4V3.5"></path><path d="M21 10H10a4 4 0 0 0-4 4v6.5"></path></svg>
+          Compare
+        </button>
       </div>
 
       <div class="picker-grid">
@@ -669,6 +673,63 @@
   <div id="sync-banner" class="sync-banner hidden">
     <span class="sync-spinner"></span>
     <span id="sync-banner-text">Syncing Spotify playcounts…</span>
+  </div>
+
+  <!-- Compare overlay: side-by-side "showdown" card you can screenshot. JT is
+       protected — see app.js (anti-drag guard). -->
+  <div class="modal-backdrop hidden" id="compare-overlay">
+    <div class="modal-card glass compare-modal">
+      <button class="modal-close" id="compare-close-btn">&times;</button>
+      <h2 class="modal-title compare-h2">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-green);"><path d="M14.5 3.5 21 10l-3.5 3.5"></path><path d="M9.5 20.5 3 14l3.5-3.5"></path><path d="M3 14h11a4 4 0 0 0 4-4V3.5"></path><path d="M21 10H10a4 4 0 0 0-4 4v6.5"></path></svg>
+        Compare
+      </h2>
+      <p class="modal-subtitle" style="margin-bottom: 18px;">Pick two and screenshot the showdown.</p>
+
+      <div class="compare-mode-toggle">
+        <button class="cmp-mode-btn active" type="button" data-cmpmode="artists">Artists</button>
+        <button class="cmp-mode-btn" type="button" data-cmpmode="albums">Albums</button>
+      </div>
+
+      <!-- Artists pickers -->
+      <div class="compare-pickers" id="cmp-pickers-artists">
+        <div class="cmp-side">
+          <label class="cmp-pick-label">Left</label>
+          <select id="cmp-a-artist" class="artist-select-dropdown cmp-select"></select>
+        </div>
+        <span class="cmp-vs-chip">VS</span>
+        <div class="cmp-side">
+          <label class="cmp-pick-label">Right</label>
+          <select id="cmp-b-artist" class="artist-select-dropdown cmp-select"></select>
+        </div>
+      </div>
+
+      <!-- Albums pickers -->
+      <div class="compare-pickers hidden" id="cmp-pickers-albums">
+        <div class="cmp-side">
+          <label class="cmp-pick-label">Left</label>
+          <select id="cmp-a-alb-artist" class="artist-select-dropdown cmp-select"></select>
+          <select id="cmp-a-album" class="artist-select-dropdown cmp-select"></select>
+        </div>
+        <span class="cmp-vs-chip">VS</span>
+        <div class="cmp-side">
+          <label class="cmp-pick-label">Right</label>
+          <select id="cmp-b-alb-artist" class="artist-select-dropdown cmp-select"></select>
+          <select id="cmp-b-album" class="artist-select-dropdown cmp-select"></select>
+        </div>
+      </div>
+
+      <div id="compare-card-wrap">
+        <div id="compare-card" class="compare-card"></div>
+      </div>
+
+      <div class="compare-actions">
+        <button id="compare-download-btn" class="btn-primary" type="button" disabled style="width:auto;padding:12px 26px;display:inline-flex;align-items:center;gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Download Image
+        </button>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
