@@ -3334,7 +3334,10 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     const data = {
       totalStreams: Number(stats.total_streams) || 0,
       songs: Number(stats.total_songs) || 0,
-      daily: Number(stats.daily_avg_7d || stats.daily_gain) || 0,
+      // Use the latest-day gain (daily_gain), matching the main dashboard's
+      // headline "Daily Streams". The 7-day average blends in older days, which
+      // made the comparator show numbers that didn't match the rest of the app.
+      daily: Number(stats.daily_gain) || 0,
       ml: latest.monthly_listeners != null ? Number(latest.monthly_listeners) : 0,
       followers: latest.followers != null ? Number(latest.followers) : 0,
     };
@@ -3524,7 +3527,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
         </div>
       </div>
       <div class="cc-metrics">
-        ${metricRow('Daily Streams', alA.daily_avg_7d || alA.daily_gain, alB.daily_avg_7d || alB.daily_gain)}
+        ${metricRow('Daily Streams', alA.daily_gain, alB.daily_gain)}
         ${metricRow('Tracks', alA.track_count, alB.track_count, formatNumber)}
         ${metricRow('Released', yearOf(alA.release_date), yearOf(alB.release_date), (v) => cesc(v), false)}
       </div>
