@@ -3488,14 +3488,18 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
     const tA = Number(alA.total_streams) || 0, tB = Number(alB.total_streams) || 0;
 
-    // JT anti-drag guard for albums.
-    if (artA === JT_ID && tB > tA) {
-      cardEl.innerHTML = shieldHTML(`${artistName(artA)}'s "${alA.album_title}"`, `"${alB.album_title}"`);
-      setDownloadable(false); return;
-    }
-    if (artB === JT_ID && tA > tB) {
-      cardEl.innerHTML = shieldHTML(`${artistName(artB)}'s "${alB.album_title}"`, `"${alA.album_title}"`);
-      setDownloadable(false); return;
+    // JT anti-drag guard for albums — only against OTHER artists. JT comparing
+    // his own albums to each other is allowed (no outstream risk to himself).
+    const jtVsJt = artA === JT_ID && artB === JT_ID;
+    if (!jtVsJt) {
+      if (artA === JT_ID && tB > tA) {
+        cardEl.innerHTML = shieldHTML(`${artistName(artA)}'s "${alA.album_title}"`, `"${alB.album_title}"`);
+        setDownloadable(false); return;
+      }
+      if (artB === JT_ID && tA > tB) {
+        cardEl.innerHTML = shieldHTML(`${artistName(artB)}'s "${alB.album_title}"`, `"${alA.album_title}"`);
+        setDownloadable(false); return;
+      }
     }
 
     const aWin = tA > tB, bWin = tB > tA;
