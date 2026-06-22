@@ -171,18 +171,10 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
     console.log(`[scraper] Lady Gaga filtered to Mayhem & The Fame Monster: ${discoveredAlbums.length} albums.`);
   }
 
-  // Billie Eilish filters: official studio albums and EPs
-  if (artistId === '6qqNVTkY8uBg9cP3Jd7DAH') {
-    discoveredAlbums = discoveredAlbums.filter(a => {
-      const title = a.title.toLowerCase();
-      return title.includes('hit me hard and soft') ||
-             (title.includes('happier than ever') && !title.includes('edit')) ||
-             title.includes('when we all fall asleep') ||
-             title.includes('smile at me') ||
-             title.includes('guitar songs');
-    });
-    console.log(`[scraper] Billie Eilish filtered to official albums: ${discoveredAlbums.length} albums.`);
-  }
+  // Billie Eilish is now a full-discography artist (album_only turned off in the
+  // roster), so we no longer cap her to studio albums — her singles and
+  // appears-on features flow through discovery like any other named artist.
+  // (isCoverAlbum already strips tribute/karaoke junk upstream in discover.js.)
 
   // Ariana Grande filters: official studio albums & singles
   if (artistId === '66CXWjxzNUsdJxJ2JdwvnR') {
