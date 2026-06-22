@@ -705,18 +705,18 @@
       </div>
       <p class="cmp-note" id="cmp-artists-note">Album-only artists aren't listed here — only their albums are tracked, so a full-catalogue total would be partial. Compare their albums in Albums mode.</p>
 
-      <!-- Albums pickers -->
-      <div class="compare-pickers hidden" id="cmp-pickers-albums">
+      <!-- Albums pickers: pick an artist, then click an album cover -->
+      <div class="compare-pickers compare-pickers--albums hidden" id="cmp-pickers-albums">
         <div class="cmp-side">
           <label class="cmp-pick-label">Left</label>
           <select id="cmp-a-alb-artist" class="artist-select-dropdown cmp-select"></select>
-          <select id="cmp-a-album" class="artist-select-dropdown cmp-select"></select>
+          <div id="cmp-a-album-list" class="cmp-album-list"><div class="cmp-album-empty">Pick an artist first.</div></div>
         </div>
         <span class="cmp-vs-chip">VS</span>
         <div class="cmp-side">
           <label class="cmp-pick-label">Right</label>
           <select id="cmp-b-alb-artist" class="artist-select-dropdown cmp-select"></select>
-          <select id="cmp-b-album" class="artist-select-dropdown cmp-select"></select>
+          <div id="cmp-b-album-list" class="cmp-album-list"><div class="cmp-album-empty">Pick an artist first.</div></div>
         </div>
       </div>
 

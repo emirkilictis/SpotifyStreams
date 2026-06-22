@@ -3269,11 +3269,17 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   const bArtist = document.getElementById('cmp-b-artist');
   const aAlbArtist = document.getElementById('cmp-a-alb-artist');
   const bAlbArtist = document.getElementById('cmp-b-alb-artist');
-  const aAlbum = document.getElementById('cmp-a-album');
-  const bAlbum = document.getElementById('cmp-b-album');
+  const aAlbList = document.getElementById('cmp-a-album-list');
+  const bAlbList = document.getElementById('cmp-b-album-list');
+
+  // The scraper ingests singles & remix bundles as their own "albums", which
+  // floods the picker. Only surface entries with a real album's worth of tracks.
+  const MIN_ALBUM_TRACKS = 6;
 
   let mode = 'artists';
   let canDownload = false;
+  let selAlbumA = '';   // chosen album id, left side
+  let selAlbumB = '';   // chosen album id, right side
   const artistDataCache = new Map(); // id -> { totalStreams, songs, daily, ml, followers }
   const albumsCache = new Map();     // artistId -> [albums]
 
@@ -3354,13 +3360,19 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     dlBtn.disabled = !ok;
   }
 
-  // Neutral side-by-side row — no winner highlight. It's a comparison, not a contest.
-  function metricRow(label, aVal, bVal, fmt) {
+  // Side-by-side row. The bigger number is tinted green so the reader can see
+  // who leads on each metric at a glance — but there's no overall "winner"
+  // verdict; they draw their own conclusions. Pass highlight=false to skip
+  // tinting (e.g. release year, where "bigger" isn't "better").
+  function metricRow(label, aVal, bVal, fmt, highlight) {
     const f = fmt || ((v) => formatShortNumber(Number(v) || 0));
+    const na = Number(aVal), nb = Number(bVal);
+    const cmp = highlight !== false && Number.isFinite(na) && Number.isFinite(nb);
+    const aWin = cmp && na > nb, bWin = cmp && nb > na;
     return `<div class="cc-metric">
-      <span class="cc-mval cc-left">${f(aVal)}</span>
+      <span class="cc-mval cc-left ${aWin ? 'win' : ''}">${f(aVal)}</span>
       <span class="cc-mlabel">${cesc(label)}</span>
-      <span class="cc-mval cc-right">${f(bVal)}</span>
+      <span class="cc-mval cc-right ${bWin ? 'win' : ''}">${f(bVal)}</span>
     </div>`;
   }
 
@@ -3394,20 +3406,23 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       cardEl.innerHTML = shieldHTML(nameB, nameA); setDownloadable(false); return;
     }
 
+    const aWin = dA.totalStreams > dB.totalStreams;
+    const bWin = dB.totalStreams > dA.totalStreams;
+
     cardEl.innerHTML = `
       <div class="cc-head">Stream Comparison</div>
       <div class="cc-vs-row">
         <div class="cc-side">
           <img class="cc-avatar" src="${cesc(proxied(artistImg(idA)))}" alt="">
           <div class="cc-name">${cesc(nameA)}</div>
-          <div class="cc-bignum">${formatShortNumber(dA.totalStreams)}</div>
+          <div class="cc-bignum ${aWin ? 'win' : ''}">${formatShortNumber(dA.totalStreams)}</div>
           <div class="cc-bigsub">Total Streams</div>
         </div>
         <div class="cc-vs">VS</div>
         <div class="cc-side">
           <img class="cc-avatar" src="${cesc(proxied(artistImg(idB)))}" alt="">
           <div class="cc-name">${cesc(nameB)}</div>
-          <div class="cc-bignum">${formatShortNumber(dB.totalStreams)}</div>
+          <div class="cc-bignum ${bWin ? 'win' : ''}">${formatShortNumber(dB.totalStreams)}</div>
           <div class="cc-bigsub">Total Streams</div>
         </div>
       </div>
@@ -3426,18 +3441,41 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   function pickAlbum(list, id) { return (list || []).find(x => x.album_id === id); }
   function yearOf(d) { return d ? String(d).slice(0, 4) : '—'; }
 
-  async function loadAlbumsInto(albSel, artistId) {
-    albSel.innerHTML = `<option value="">Loading…</option>`;
-    if (!artistId) { albSel.innerHTML = `<option value="">Select album</option>`; return; }
+  // Render the clickable, cover-art album picker for one side. Singles/remix
+  // bundles (fewer than MIN_ALBUM_TRACKS tracks) are filtered out.
+  async function renderAlbumList(listEl, artistId, side) {
+    if (!artistId) { listEl.innerHTML = `<div class="cmp-album-empty">Pick an artist first.</div>`; return; }
+    listEl.innerHTML = `<div class="cmp-album-empty">Loading…</div>`;
     let list = [];
     try { list = await fetchAlbums(artistId); } catch {}
-    albSel.innerHTML = `<option value="">Select album</option>` +
-      list.map(a => `<option value="${a.album_id}">${cesc(a.album_title)}</option>`).join('');
+    const albums = list.filter(a => (Number(a.track_count) || 0) >= MIN_ALBUM_TRACKS);
+    if (!albums.length) {
+      listEl.innerHTML = `<div class="cmp-album-empty">No full-length albums tracked for this artist.</div>`;
+      return;
+    }
+    const selId = side === 'a' ? selAlbumA : selAlbumB;
+    listEl.innerHTML = albums.map(a => `
+      <button type="button" class="cmp-alb-row ${a.album_id === selId ? 'selected' : ''}" data-id="${cesc(a.album_id)}">
+        <img class="cmp-alb-thumb" src="${cesc(proxied(a.image_url))}" alt="" loading="lazy">
+        <span class="cmp-alb-meta">
+          <span class="cmp-alb-title">${cesc(a.album_title)}</span>
+          <span class="cmp-alb-year">${yearOf(a.release_date)} · ${formatNumber(a.track_count)} tracks</span>
+        </span>
+      </button>`).join('');
+  }
+
+  function onAlbumPick(listEl, side, e) {
+    const row = e.target.closest('.cmp-alb-row');
+    if (!row) return;
+    const id = row.dataset.id;
+    if (side === 'a') selAlbumA = id; else selAlbumB = id;
+    listEl.querySelectorAll('.cmp-alb-row').forEach(r => r.classList.toggle('selected', r === row));
+    render();
   }
 
   async function renderAlbums() {
     const artA = aAlbArtist.value, artB = bAlbArtist.value;
-    const albIdA = aAlbum.value, albIdB = bAlbum.value;
+    const albIdA = selAlbumA, albIdB = selAlbumB;
     if (!artA || !artB || !albIdA || !albIdB) { setEmpty('Pick an album on each side.'); return; }
     cardEl.innerHTML = `<div class="cc-empty">Loading…</div>`;
     setDownloadable(false);
@@ -3460,6 +3498,8 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       setDownloadable(false); return;
     }
 
+    const aWin = tA > tB, bWin = tB > tA;
+
     cardEl.innerHTML = `
       <div class="cc-head">Album Comparison</div>
       <div class="cc-vs-row">
@@ -3467,7 +3507,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
           <img class="cc-avatar cc-square" src="${cesc(proxied(alA.image_url))}" alt="">
           <div class="cc-name">${cesc(alA.album_title)}</div>
           <div class="cc-subname">${cesc(artistName(artA))}</div>
-          <div class="cc-bignum">${formatShortNumber(tA)}</div>
+          <div class="cc-bignum ${aWin ? 'win' : ''}">${formatShortNumber(tA)}</div>
           <div class="cc-bigsub">Total Streams</div>
         </div>
         <div class="cc-vs">VS</div>
@@ -3475,14 +3515,14 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
           <img class="cc-avatar cc-square" src="${cesc(proxied(alB.image_url))}" alt="">
           <div class="cc-name">${cesc(alB.album_title)}</div>
           <div class="cc-subname">${cesc(artistName(artB))}</div>
-          <div class="cc-bignum">${formatShortNumber(tB)}</div>
+          <div class="cc-bignum ${bWin ? 'win' : ''}">${formatShortNumber(tB)}</div>
           <div class="cc-bigsub">Total Streams</div>
         </div>
       </div>
       <div class="cc-metrics">
         ${metricRow('Daily Streams', alA.daily_avg_7d || alA.daily_gain, alB.daily_avg_7d || alB.daily_gain)}
         ${metricRow('Tracks', alA.track_count, alB.track_count, formatNumber)}
-        ${metricRow('Released', yearOf(alA.release_date), yearOf(alB.release_date), (v) => cesc(v))}
+        ${metricRow('Released', yearOf(alA.release_date), yearOf(alB.release_date), (v) => cesc(v), false)}
       </div>
       <div class="cc-foot">Spotify Streams — Fan Dashboard</div>
     `;
@@ -3552,6 +3592,9 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     fillArtistSelect(bArtist, 'Select artist', true);
     fillArtistSelect(aAlbArtist, 'Select artist', false);
     fillArtistSelect(bAlbArtist, 'Select artist', false);
+    selAlbumA = ''; selAlbumB = '';
+    if (!aAlbArtist.value) aAlbList.innerHTML = `<div class="cmp-album-empty">Pick an artist first.</div>`;
+    if (!bAlbArtist.value) bAlbList.innerHTML = `<div class="cmp-album-empty">Pick an artist first.</div>`;
     setEmpty('Pick two to start.');
     overlay.classList.remove('hidden');
   }
@@ -3573,10 +3616,10 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   aArtist.addEventListener('change', render);
   bArtist.addEventListener('change', render);
-  aAlbArtist.addEventListener('change', async () => { await loadAlbumsInto(aAlbum, aAlbArtist.value); render(); });
-  bAlbArtist.addEventListener('change', async () => { await loadAlbumsInto(bAlbum, bAlbArtist.value); render(); });
-  aAlbum.addEventListener('change', render);
-  bAlbum.addEventListener('change', render);
+  aAlbArtist.addEventListener('change', async () => { selAlbumA = ''; await renderAlbumList(aAlbList, aAlbArtist.value, 'a'); render(); });
+  bAlbArtist.addEventListener('change', async () => { selAlbumB = ''; await renderAlbumList(bAlbList, bAlbArtist.value, 'b'); render(); });
+  aAlbList.addEventListener('click', (e) => onAlbumPick(aAlbList, 'a', e));
+  bAlbList.addEventListener('click', (e) => onAlbumPick(bAlbList, 'b', e));
   dlBtn.addEventListener('click', downloadCard);
 })();
 
