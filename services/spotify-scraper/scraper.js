@@ -26,6 +26,19 @@ const DELAY_MS   = 400;
 const RUN_START       = Date.now();
 const SCRAPE_BUDGET_MS = Number(process.env.SCRAPE_BUDGET_MS) || 35 * 60 * 1000;
 
+// Two-tier cadence: dormant, low-traffic FEATURED albums (an artist's old guest
+// spots) don't need a fresh snapshot every single day. We scrape them at most
+// once every COLD_STALE_DAYS; everything that actually moves the headline numbers
+// stays daily. An album is always-daily ("hot") when ANY of:
+//   - it's an OWN album/single (is_featured = false) — the primary catalogue,
+//   - it was released within HOT_RECENT_DAYS (still ramping),
+//   - it has no snapshot yet (must baseline it),
+//   - its latest-day total gain >= HOT_GAIN_THRESHOLD (a popular feature).
+// Set SCRAPE_COLD_STALE_DAYS=0 to disable and scrape everything daily (old behaviour).
+const COLD_STALE_DAYS      = Number(process.env.SCRAPE_COLD_STALE_DAYS ?? 3);
+const HOT_RECENT_DAYS      = Number(process.env.SCRAPE_HOT_RECENT_DAYS ?? 365);
+const HOT_GAIN_THRESHOLD   = Number(process.env.SCRAPE_HOT_GAIN_THRESHOLD ?? 20000);
+
 const BLACKLISTED_TRACK_IDS = new Set([
   '3K7xYRXPFDVyen7cZF5Zk2', // Get Back Up Again (Anna Kendrick)
   '1w1kzejjmiMhdWAOecgo4l', // They Don't Know (Ariana Grande)
@@ -160,7 +173,7 @@ async function processAlbum(page, client, album, artistUri, stats) {
   return kept;
 }
 
-async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds = []) {
+async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds = [], isForce = false) {
   const artistUri = `spotify:artist:${artistId}`;
   console.log(`\n[scraper] Discovering albums for artist: ${artistId}...`);
   let { albums: discoveredAlbums, own_count, feat_count, stats: artistStats } = await discoverAllAlbumsPuppeteer(page, artistId);
@@ -381,8 +394,57 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
   }
 
 
-  const albumsToScrape = Array.from(albumMap.values());
-  
+  let albumsToScrape = Array.from(albumMap.values());
+
+  // Two-tier cadence: skip dormant low-traffic featured albums that were scraped
+  // within the last COLD_STALE_DAYS. Force runs and SCRAPE_COLD_STALE_DAYS=0
+  // scrape everything (old behaviour).
+  if (!isForce && COLD_STALE_DAYS > 0 && albumsToScrape.length) {
+    const ids = albumsToScrape.map(a => a.id);
+    let lastMap = new Map();
+    try {
+      const lastRes = await client.query(`
+        SELECT s.album_id AS id,
+               MAX(l.recorded_date) AS last_date,
+               COALESCE(SUM(l.daily_gain), 0)::bigint AS last_gain
+        FROM songs s
+        JOIN LATERAL (
+          SELECT recorded_date, daily_gain
+          FROM daily_streams_canonical d
+          WHERE d.canonical_id = s.id
+          ORDER BY d.recorded_date DESC
+          LIMIT 1
+        ) l ON true
+        WHERE s.album_id = ANY($1)
+        GROUP BY s.album_id
+      `, [ids]);
+      for (const r of lastRes.rows) lastMap.set(r.id, { last: r.last_date, gain: Number(r.last_gain) });
+    } catch (err) {
+      console.warn(`[scraper] cold-skip lookup failed (${err.message}); scraping all albums.`);
+      lastMap = null;
+    }
+
+    if (lastMap) {
+      const staleCutoff = Date.now() - COLD_STALE_DAYS * 86400000;
+      const recentCutoff = Date.now() - HOT_RECENT_DAYS * 86400000;
+      let skipped = 0;
+      const ms = (v) => { const t = v ? new Date(v).getTime() : NaN; return Number.isFinite(t) ? t : NaN; };
+      albumsToScrape = albumsToScrape.filter(a => {
+        if (!a.is_featured) return true;                       // own catalogue → always
+        const rel = ms(a.release_date);
+        if (Number.isFinite(rel) && rel >= recentCutoff) return true; // recent → always
+        const info = lastMap.get(a.id);
+        if (!info || !info.last) return true;                  // never scraped → baseline
+        if (info.gain >= HOT_GAIN_THRESHOLD) return true;      // popular feature → always
+        const last = ms(info.last);
+        if (!Number.isFinite(last) || last < staleCutoff) return true; // stale/unknown → refresh
+        skipped++;
+        return false;                                          // cold & fresh → skip today
+      });
+      if (skipped) console.log(`[scraper] cold-skip: deferring ${skipped} dormant featured album(s) (refreshed within ${COLD_STALE_DAYS}d).`);
+    }
+  }
+
   console.log(`[scraper] Scraping ${albumsToScrape.length} albums for ${artistId}...`);
 
   for (let i = 0; i < albumsToScrape.length; i++) {
@@ -579,7 +641,7 @@ async function run() {
           console.log(`[scraper] ⏱️ Time budget (${Math.round(SCRAPE_BUDGET_MS / 60000)}m) reached — deferring ${deferred.length} artist(s) to the next run: ${deferred.join(', ')}`);
           break;
         }
-        await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds);
+        await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds, isForce);
       }
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
