@@ -220,48 +220,62 @@ async function fetchAlbumTracks(page, albumId) {
   }
 
   if (page.capturedToken) {
-    try {
-      const data = await page.evaluate(async (token, albumId) => {
-        const res = await fetch('https://api-partner.spotify.com/pathfinder/v2/query', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + token,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            variables: {
-              uri: `spotify:album:${albumId}`,
-              offset: 0,
-              limit: 300
+    // The pathfinder endpoint intermittently returns an empty body ("Unexpected
+    // end of JSON input"), which used to drop us straight into the 40s page-nav
+    // fallback below. Retry the cheap in-page fetch once first — it almost always
+    // succeeds on the second try, saving ~40-50s per affected album.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const data = await page.evaluate(async (token, albumId) => {
+          const res = await fetch('https://api-partner.spotify.com/pathfinder/v2/query', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json'
             },
-            operationName: "queryAlbumTracks",
-            extensions: {
-              persistedQuery: {
-                version: 1,
-                sha256Hash: "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"
+            body: JSON.stringify({
+              variables: {
+                uri: `spotify:album:${albumId}`,
+                offset: 0,
+                limit: 300
+              },
+              operationName: "queryAlbumTracks",
+              extensions: {
+                persistedQuery: {
+                  version: 1,
+                  sha256Hash: "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"
+                }
               }
-            }
-          })
-        });
-        return res.json();
-      }, page.capturedToken, albumId);
+            })
+          });
+          if (!res.ok) return { __err: 'http ' + res.status };
+          const text = await res.text();
+          if (!text) return { __err: 'empty body' };
+          try { return JSON.parse(text); } catch { return { __err: 'bad json' }; }
+        }, page.capturedToken, albumId);
 
-      const items = data?.data?.albumUnion?.tracksV2?.items ?? [];
-      return items.map(item => {
-        const t = item.track;
-        if (!t) return null;
-        const artistUris = (t.artists?.items ?? []).map(x => x.uri);
-        return {
-          id:           t.uri?.split(':')[2],
-          title:        t.name,
-          duration_ms:  t.duration?.totalMilliseconds ?? null,
-          track_number: t.trackNumber ?? null,
-          playCount:    parseInt(t.playcount ?? '0', 10),
-          artistUris,
-        };
-      }).filter(Boolean);
-    } catch (err) {
-      console.warn(`[fetchAlbumTracks] Paginated GraphQL query failed for album ${albumId}, falling back to page navigation:`, err.message);
+        if (data && !data.__err) {
+          const items = data?.data?.albumUnion?.tracksV2?.items ?? [];
+          return items.map(item => {
+            const t = item.track;
+            if (!t) return null;
+            const artistUris = (t.artists?.items ?? []).map(x => x.uri);
+            return {
+              id:           t.uri?.split(':')[2],
+              title:        t.name,
+              duration_ms:  t.duration?.totalMilliseconds ?? null,
+              track_number: t.trackNumber ?? null,
+              playCount:    parseInt(t.playcount ?? '0', 10),
+              artistUris,
+            };
+          }).filter(Boolean);
+        }
+        if (attempt === 0) { await new Promise(r => setTimeout(r, 400)); continue; }
+        console.warn(`[fetchAlbumTracks] GraphQL empty for album ${albumId} (${data.__err}) after retry, falling back to page navigation.`);
+      } catch (err) {
+        if (attempt === 0) { await new Promise(r => setTimeout(r, 400)); continue; }
+        console.warn(`[fetchAlbumTracks] Paginated GraphQL query failed for album ${albumId}, falling back to page navigation:`, err.message);
+      }
     }
   }
 
@@ -279,11 +293,17 @@ async function fetchAlbumTracks(page, albumId) {
   };
   page.on('response', handler);
 
-  await page.goto(`https://open.spotify.com/album/${albumId}`, {
-    waitUntil: 'networkidle2', timeout: 40000,
-  });
+  try {
+    await page.goto(`https://open.spotify.com/album/${albumId}`, {
+      waitUntil: 'networkidle2', timeout: 15000,
+    });
+  } catch (navErr) {
+    // networkidle2 can time out on heavy pages even though the album response
+    // already arrived via the interception handler; don't burn the full budget.
+    console.warn(`[fetchAlbumTracks] Nav timeout for album ${albumId} (${navErr.message}); checking interception.`);
+  }
   await dismissCookieBanner(page);
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 12; i++) {
     if (result) break;
     await new Promise(r => setTimeout(r, 500));
   }
