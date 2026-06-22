@@ -17,6 +17,15 @@ const ARTIST_ID  = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
 const ARTIST_URI = `spotify:artist:${ARTIST_ID}`;
 const DELAY_MS   = 400;
 
+// Wall-clock budget for scraping artists. The GitHub Actions job is capped at
+// 45 min; a hard cancel marks the run FAILED and can interrupt the dedup step.
+// Instead we stop *starting* new artists once this budget elapses, then exit
+// cleanly (dedup + exit 0). The per-artist resume (artistHasTodaysData) means
+// the next hourly run finishes whatever was deferred. Tunable via env so a
+// future GHA-timeout change doesn't require a code edit.
+const RUN_START       = Date.now();
+const SCRAPE_BUDGET_MS = Number(process.env.SCRAPE_BUDGET_MS) || 35 * 60 * 1000;
+
 const BLACKLISTED_TRACK_IDS = new Set([
   '3K7xYRXPFDVyen7cZF5Zk2', // Get Back Up Again (Anna Kendrick)
   '1w1kzejjmiMhdWAOecgo4l', // They Don't Know (Ariana Grande)
@@ -559,7 +568,17 @@ async function run() {
         }
       }
 
-      for (const artist of pendingArtists) {
+      for (let i = 0; i < pendingArtists.length; i++) {
+        const artist = pendingArtists[i];
+        // Soft time budget: don't START a new artist once we're past the budget.
+        // Heavy appears-on artists (Taylor/Zara/Olivia) can take 10+ min each, so
+        // we leave headroom under the GHA cap for the in-flight artist + dedup.
+        // Forced runs ignore the budget (manual/admin full re-scrapes run to end).
+        if (!isForce && Date.now() - RUN_START > SCRAPE_BUDGET_MS) {
+          const deferred = pendingArtists.slice(i).map(a => a.name);
+          console.log(`[scraper] ⏱️ Time budget (${Math.round(SCRAPE_BUDGET_MS / 60000)}m) reached — deferring ${deferred.length} artist(s) to the next run: ${deferred.join(', ')}`);
+          break;
+        }
         await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds);
       }
 

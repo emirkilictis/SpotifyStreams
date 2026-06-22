@@ -26,9 +26,12 @@ jobs:
   scrape:
     name: Scrape JT Stream Counts
     runs-on: ubuntu-latest
-    # Yogun gunler (yeni sanatci backfill + appears-on) 30 dk'yi asabiliyor; 45'e
-    # cikarildi ki timeout yuzunden iptal olmasin.
-    timeout-minutes: 45
+    # Yogun gunler (yeni sanatci backfill + appears-on) uzun surebiliyor. Scraper
+    # artik kendi SCRAPE_BUDGET_MS (varsayilan 35 dk) butcesiyle yeni sanatci
+    # baslatmayi birakip temiz cikiyor (dedup + exit 0); kalanlar bir sonraki
+    # saatlik run'da resume ile tamamlaniyor. Bu cap sadece guvenlik agi — butce +
+    # ucan sanatci + dedup'a pay birakacak sekilde 50'ye cikarildi.
+    timeout-minutes: 50
 
     steps:
       - name: Checkout
