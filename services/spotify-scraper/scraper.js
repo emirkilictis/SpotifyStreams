@@ -173,7 +173,7 @@ async function processAlbum(page, client, album, artistUri, stats) {
   return kept;
 }
 
-async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds = [], isForce = false) {
+async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds = [], isForce = false, albumOnly = false) {
   const artistUri = `spotify:artist:${artistId}`;
   console.log(`\n[scraper] Discovering albums for artist: ${artistId}...`);
   let { albums: discoveredAlbums, own_count, feat_count, stats: artistStats } = await discoverAllAlbumsPuppeteer(page, artistId);
@@ -397,9 +397,11 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
   let albumsToScrape = Array.from(albumMap.values());
 
   // Two-tier cadence: skip dormant low-traffic featured albums that were scraped
-  // within the last COLD_STALE_DAYS. Force runs and SCRAPE_COLD_STALE_DAYS=0
-  // scrape everything (old behaviour).
-  if (!isForce && COLD_STALE_DAYS > 0 && albumsToScrape.length) {
+  // within the last COLD_STALE_DAYS. Applied ONLY to album-only artists (Taylor,
+  // Gaga, Nicki) — full-disc artists (JT and the rest) always scrape everything
+  // daily so their numbers are never even slightly stale. Force runs and
+  // SCRAPE_COLD_STALE_DAYS=0 also scrape everything (old behaviour).
+  if (albumOnly && !isForce && COLD_STALE_DAYS > 0 && albumsToScrape.length) {
     const ids = albumsToScrape.map(a => a.id);
     let lastMap = new Map();
     try {
@@ -556,7 +558,7 @@ async function run() {
       let allTrackedArtistIds = [];
       try {
         const dbRes = await client.query(
-          'SELECT artist_id as id, name FROM tracked_artists WHERE active = true ORDER BY sort_order, name'
+          'SELECT artist_id as id, name, album_only FROM tracked_artists WHERE active = true ORDER BY sort_order, name'
         );
         if (dbRes.rows.length) {
           artistsToRun = dbRes.rows;
@@ -569,18 +571,18 @@ async function run() {
 
       if (!artistsToRun.length) {
         artistsToRun = [
-          { id: '31TPClRtHm23RisEBtV3X7', name: 'Justin Timberlake' },
-          { id: '5L1lO4eRHmJ7a0Q6csE5cT', name: 'LISA' },
-          { id: '1HY2Jd0NmPuamShAr6KMms', name: 'Lady Gaga' },
-          { id: '6qqNVTkY8uBg9cP3Jd7DAH', name: 'Billie Eilish' },
-          { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande' },
-          { id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC' },
-          { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez' },
-          { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis' },
-          { id: '2dIgFjalVxs4ThymZ67YCE', name: 'Stray Kids' },
-          { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix' },
-          { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron' },
-          { id: '4qwGe91Bz9K2T8jXTZ815W', name: 'Janet Jackson' }
+          { id: '31TPClRtHm23RisEBtV3X7', name: 'Justin Timberlake', album_only: false },
+          { id: '5L1lO4eRHmJ7a0Q6csE5cT', name: 'LISA', album_only: false },
+          { id: '1HY2Jd0NmPuamShAr6KMms', name: 'Lady Gaga', album_only: true },
+          { id: '6qqNVTkY8uBg9cP3Jd7DAH', name: 'Billie Eilish', album_only: false },
+          { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande', album_only: true },
+          { id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC', album_only: false },
+          { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez', album_only: false },
+          { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis', album_only: false },
+          { id: '2dIgFjalVxs4ThymZ67YCE', name: 'Stray Kids', album_only: false },
+          { id: '4UIOuc84ExWojcUzFGtb8W', name: 'Felix', album_only: false },
+          { id: '2W8yFh0Ga6Yf3jiayVxwkE', name: 'Dove Cameron', album_only: false },
+          { id: '4qwGe91Bz9K2T8jXTZ815W', name: 'Janet Jackson', album_only: false }
         ];
         allTrackedArtistIds = artistsToRun.map(a => a.id);
       } else if (!allTrackedArtistIds.length) {
@@ -641,7 +643,7 @@ async function run() {
           console.log(`[scraper] ⏱️ Time budget (${Math.round(SCRAPE_BUDGET_MS / 60000)}m) reached — deferring ${deferred.length} artist(s) to the next run: ${deferred.join(', ')}`);
           break;
         }
-        await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds, isForce);
+        await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds, isForce, !!artist.album_only);
       }
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
