@@ -3919,11 +3919,7 @@ select.tc-input { cursor: pointer; }
   font-size: 2rem;
   font-weight: 800;
   line-height: 1;
-  color: var(--text-secondary);
-}
-.cc-bignum.win {
-  color: var(--accent-green);
-  text-shadow: 0 0 22px var(--accent-green-glow);
+  color: var(--text-primary);
 }
 .cc-bigsub {
   font-size: 0.66rem;
@@ -3956,11 +3952,10 @@ select.tc-input { cursor: pointer; }
 .cc-mval {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 .cc-mval.cc-left { text-align: right; }
 .cc-mval.cc-right { text-align: left; }
-.cc-mval.win { color: var(--accent-green); }
 .cc-mlabel {
   font-size: 0.66rem;
   text-transform: uppercase;
@@ -3970,16 +3965,12 @@ select.tc-input { cursor: pointer; }
   white-space: nowrap;
 }
 
-.cc-winner {
-  text-align: center;
-  margin-top: 20px;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(30, 215, 96, 0.1);
-  border: 1px solid var(--accent-green-glow);
-  font-weight: 800;
-  font-size: 1rem;
-  color: var(--accent-green);
+.cmp-note {
+  margin: -8px 0 18px;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  opacity: 0.85;
 }
 .cc-foot {
   text-align: center;

@@ -3302,12 +3302,17 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     return '/api/img-proxy?u=' + encodeURIComponent(url);
   }
 
-  function fillArtistSelect(sel, placeholder) {
+  // Album-only artists (Taylor, Billie, …) only have their albums tracked, not
+  // their full catalogue — so an artist-level "total streams" comparison would be
+  // partial and misleading. Drop them from the Artists-mode dropdowns; they stay
+  // available in Albums mode, where per-album totals ARE complete.
+  function fillArtistSelect(sel, placeholder, excludeAlbumOnly) {
     if (!sel) return;
     const prev = sel.value;
+    const list = roster().filter(a => !(excludeAlbumOnly && a.album_only));
     sel.innerHTML = `<option value="">${placeholder}</option>` +
-      roster().map(a => `<option value="${a.artist_id}">${cesc(a.name)}</option>`).join('');
-    if (prev) sel.value = prev;
+      list.map(a => `<option value="${a.artist_id}">${cesc(a.name)}</option>`).join('');
+    if (prev && list.some(a => a.artist_id === prev)) sel.value = prev;
   }
 
   async function fetchArtistData(id) {
@@ -3349,15 +3354,13 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     dlBtn.disabled = !ok;
   }
 
-  function metricRow(label, aVal, bVal, fmt, highlight) {
-    const f = fmt || formatShortNumber;
-    const a = Number(aVal) || 0, b = Number(bVal) || 0;
-    const aWin = highlight !== false && a > b;
-    const bWin = highlight !== false && b > a;
+  // Neutral side-by-side row — no winner highlight. It's a comparison, not a contest.
+  function metricRow(label, aVal, bVal, fmt) {
+    const f = fmt || ((v) => formatShortNumber(Number(v) || 0));
     return `<div class="cc-metric">
-      <span class="cc-mval cc-left ${aWin ? 'win' : ''}">${f(a)}</span>
+      <span class="cc-mval cc-left">${f(aVal)}</span>
       <span class="cc-mlabel">${cesc(label)}</span>
-      <span class="cc-mval cc-right ${bWin ? 'win' : ''}">${f(b)}</span>
+      <span class="cc-mval cc-right">${f(bVal)}</span>
     </div>`;
   }
 
@@ -3391,24 +3394,20 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       cardEl.innerHTML = shieldHTML(nameB, nameA); setDownloadable(false); return;
     }
 
-    const aWin = dA.totalStreams > dB.totalStreams;
-    const bWin = dB.totalStreams > dA.totalStreams;
-    const winnerName = aWin ? nameA : (bWin ? nameB : null);
-
     cardEl.innerHTML = `
-      <div class="cc-head">⚔️ Stream Showdown</div>
+      <div class="cc-head">Stream Comparison</div>
       <div class="cc-vs-row">
         <div class="cc-side">
           <img class="cc-avatar" src="${cesc(proxied(artistImg(idA)))}" alt="">
           <div class="cc-name">${cesc(nameA)}</div>
-          <div class="cc-bignum ${aWin ? 'win' : ''}">${formatShortNumber(dA.totalStreams)}</div>
+          <div class="cc-bignum">${formatShortNumber(dA.totalStreams)}</div>
           <div class="cc-bigsub">Total Streams</div>
         </div>
         <div class="cc-vs">VS</div>
         <div class="cc-side">
           <img class="cc-avatar" src="${cesc(proxied(artistImg(idB)))}" alt="">
           <div class="cc-name">${cesc(nameB)}</div>
-          <div class="cc-bignum ${bWin ? 'win' : ''}">${formatShortNumber(dB.totalStreams)}</div>
+          <div class="cc-bignum">${formatShortNumber(dB.totalStreams)}</div>
           <div class="cc-bigsub">Total Streams</div>
         </div>
       </div>
@@ -3418,7 +3417,6 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
         ${metricRow('Daily Streams', dA.daily, dB.daily)}
         ${metricRow('Songs', dA.songs, dB.songs, formatNumber)}
       </div>
-      ${winnerName ? `<div class="cc-winner">🏆 ${cesc(winnerName)}</div>` : ''}
       <div class="cc-foot">Spotify Streams — Fan Dashboard</div>
     `;
     setDownloadable(true);
@@ -3462,17 +3460,14 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       setDownloadable(false); return;
     }
 
-    const aWin = tA > tB, bWin = tB > tA;
-    const winnerName = aWin ? alA.album_title : (bWin ? alB.album_title : null);
-
     cardEl.innerHTML = `
-      <div class="cc-head">💿 Album Showdown</div>
+      <div class="cc-head">Album Comparison</div>
       <div class="cc-vs-row">
         <div class="cc-side">
           <img class="cc-avatar cc-square" src="${cesc(proxied(alA.image_url))}" alt="">
           <div class="cc-name">${cesc(alA.album_title)}</div>
           <div class="cc-subname">${cesc(artistName(artA))}</div>
-          <div class="cc-bignum ${aWin ? 'win' : ''}">${formatShortNumber(tA)}</div>
+          <div class="cc-bignum">${formatShortNumber(tA)}</div>
           <div class="cc-bigsub">Total Streams</div>
         </div>
         <div class="cc-vs">VS</div>
@@ -3480,16 +3475,15 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
           <img class="cc-avatar cc-square" src="${cesc(proxied(alB.image_url))}" alt="">
           <div class="cc-name">${cesc(alB.album_title)}</div>
           <div class="cc-subname">${cesc(artistName(artB))}</div>
-          <div class="cc-bignum ${bWin ? 'win' : ''}">${formatShortNumber(tB)}</div>
+          <div class="cc-bignum">${formatShortNumber(tB)}</div>
           <div class="cc-bigsub">Total Streams</div>
         </div>
       </div>
       <div class="cc-metrics">
         ${metricRow('Daily Streams', alA.daily_avg_7d || alA.daily_gain, alB.daily_avg_7d || alB.daily_gain)}
         ${metricRow('Tracks', alA.track_count, alB.track_count, formatNumber)}
-        ${metricRow('Released', yearOf(alA.release_date), yearOf(alB.release_date), (v) => v, false)}
+        ${metricRow('Released', yearOf(alA.release_date), yearOf(alB.release_date), (v) => cesc(v))}
       </div>
-      ${winnerName ? `<div class="cc-winner">🏆 ${cesc(winnerName)}</div>` : ''}
       <div class="cc-foot">Spotify Streams — Fan Dashboard</div>
     `;
     setDownloadable(true);
@@ -3554,10 +3548,10 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   // ---------- Wiring ----------
   function openOverlay() {
-    fillArtistSelect(aArtist, 'Select artist');
-    fillArtistSelect(bArtist, 'Select artist');
-    fillArtistSelect(aAlbArtist, 'Select artist');
-    fillArtistSelect(bAlbArtist, 'Select artist');
+    fillArtistSelect(aArtist, 'Select artist', true);
+    fillArtistSelect(bArtist, 'Select artist', true);
+    fillArtistSelect(aAlbArtist, 'Select artist', false);
+    fillArtistSelect(bAlbArtist, 'Select artist', false);
     setEmpty('Pick two to start.');
     overlay.classList.remove('hidden');
   }
@@ -3572,6 +3566,8 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     modeBtns.forEach(b => b.classList.toggle('active', b === btn));
     pickersArtists.classList.toggle('hidden', mode !== 'artists');
     pickersAlbums.classList.toggle('hidden', mode !== 'albums');
+    const note = document.getElementById('cmp-artists-note');
+    if (note) note.classList.toggle('hidden', mode !== 'artists');
     setEmpty('Pick two to start.');
   }));
 
