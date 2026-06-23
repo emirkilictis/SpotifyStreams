@@ -423,6 +423,12 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
       { id: '1fT1s4VMXc9xGIamDyFz9S', title: 'Dinero', release_date: '2018-05-17', is_featured: true },                  // Dinero ~102M
       { id: '5hzbgBTxfikktf9cOvggGF', title: 'El Hombre', release_date: '2018-11-02', is_featured: true },               // Mi Mami ~26M
       { id: '0Y6JN2SuCzSvumQzxNy2YK', title: 'Highly Intoxicated', release_date: '2017-09-18', is_featured: true },      // Kamasutra (feat. Cardi B) ~0.8M
+      // Each of these is its own distinct track (own id, own stream count) — they
+      // are not duplicates of the originals, so they count separately like kworb.
+      { id: '4fkqsStkuqsVD2Dgl2kL1J', title: 'Girls Like You (feat. Cardi B) [St. Vincent Remix]', release_date: '2018-08-10', is_featured: true }, // ~7.4M
+      { id: '75qv2xhOcSTAsSttZMGV53', title: 'Dinero (CADE Remix)', release_date: '2018-06-29', is_featured: true },                                // ~3.0M
+      { id: '64jRBkgz4v6fdFtp9XyoSv', title: 'Girls Like You (feat. Cardi B) [TOKiMONSTA Remix]', release_date: '2018-08-02', is_featured: true },  // ~1.2M
+      { id: '3mAaCQNqRARBgzS3BFWwH0', title: 'Red Pill Blues + (Deluxe)', release_date: '2018-11-21', is_featured: true },                          // Girls Like You - CRAY Remix ~0.9M
     ];
     for (const extra of extraAlbums) {
       if (!albumMap.has(extra.id)) {
