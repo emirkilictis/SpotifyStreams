@@ -3532,10 +3532,13 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     const nameA = artistName(idA), nameB = artistName(idB);
 
     // JT anti-drag guard (by total catalogue streams — the headline metric).
-    if (idA === JT_ID && dB.totalStreams > dA.totalStreams) {
+    // Momentum exception: if JT trails on total but leads on DAILY, the matchup
+    // flatters him (he's out-streaming them right now / catching up), so let it
+    // show. Only shield when JT trails on total AND is not ahead on daily.
+    if (idA === JT_ID && dB.totalStreams > dA.totalStreams && dA.daily <= dB.daily) {
       cardEl.innerHTML = shieldHTML(nameA, nameB); setDownloadable(false); return;
     }
-    if (idB === JT_ID && dA.totalStreams > dB.totalStreams) {
+    if (idB === JT_ID && dA.totalStreams > dB.totalStreams && dB.daily <= dA.daily) {
       cardEl.innerHTML = shieldHTML(nameB, nameA); setDownloadable(false); return;
     }
 
@@ -3620,16 +3623,19 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     if (!alA || !alB) { setEmpty('Could not find one of the albums.'); return; }
 
     const tA = Number(alA.total_streams) || 0, tB = Number(alB.total_streams) || 0;
+    const dlA = Number(alA.daily_gain) || 0, dlB = Number(alB.daily_gain) || 0;
 
     // JT anti-drag guard for albums — only against OTHER artists. JT comparing
     // his own albums to each other is allowed (no outstream risk to himself).
+    // Same momentum exception as the artist guard: if JT's album trails on total
+    // but leads on DAILY, let it show — only shield when it also trails on daily.
     const jtVsJt = artA === JT_ID && artB === JT_ID;
     if (!jtVsJt) {
-      if (artA === JT_ID && tB > tA) {
+      if (artA === JT_ID && tB > tA && dlA <= dlB) {
         cardEl.innerHTML = shieldHTML(`${artistName(artA)}'s "${alA.album_title}"`, `"${alB.album_title}"`);
         setDownloadable(false); return;
       }
-      if (artB === JT_ID && tA > tB) {
+      if (artB === JT_ID && tA > tB && dlB <= dlA) {
         cardEl.innerHTML = shieldHTML(`${artistName(artB)}'s "${alB.album_title}"`, `"${alA.album_title}"`);
         setDownloadable(false); return;
       }
