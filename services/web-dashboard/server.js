@@ -84,6 +84,21 @@ const FELIX_EXTRA_TRACK_IDS = [
 ];
 const FELIX_EXTRA_TRACK_IDS_SQL = FELIX_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
 
+// Cardi B guest features that the full-disc scrape attributed to a CO-TRACKED
+// lead artist's bucket (a track has exactly one primary_artist), so they never
+// surfaced on Cardi's page even though kworb credits them to her. Same idea as
+// FELIX_EXTRA_TRACK_IDS: the track keeps its lead-artist bucket too, so it shows
+// on both pages — kworb counts a collab on every credited artist. No effect on
+// JT's catch-all (primary_artist is unchanged, still a tracked-artist exclusion)
+// and there is no roster-wide total that would double-count.
+const CARDI_EXTRA_TRACK_IDS = [
+  '4wFjTWCunQFKtukqrNijEt', // MotorSport (Migos feat. Nicki Minaj & Cardi B) — lives in Nicki's bucket (~647M)
+  '1YNQscOx6OqBQjxgJVhEeW', // Girls (Rita Ora feat. Cardi B, Bebe Rexha & Charli XCX) — lives in Bebe's bucket (~205M)
+  '6FluOWqqqg99zqIinlUHyZ', // Girls - Steve Aoki Remix — Bebe's bucket (~4.4M)
+  '2hpjjSJQJJOqtp3DWNLbVb', // Girls - Martin Jensen Remix — Bebe's bucket (~4.2M)
+];
+const CARDI_EXTRA_TRACK_IDS_SQL = CARDI_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
 // In-memory cache of active artists, initialized with the fallback list.
 // Loaded from tracked_artists table on startup and refreshed on admin updates.
 let activeArtistsCache = ARTIST_ROSTER_FALLBACK;
@@ -107,7 +122,7 @@ function artistBucketMatchSQL(s, a) {
 
   // Per-artist viewing clauses only apply to currently-active artists.
   const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
-  const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W'];
+  const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W', '4kYSro6naA4h99UJvo89HB'];
   const normalClauses = nonJtArtists
     .filter(item => !specialIds.includes(item.artist_id))
     .map(item => `OR ($1 = 'spotify:artist:${item.artist_id}' AND ${s}.primary_artist = 'spotify:artist:${item.artist_id}')`)
@@ -117,6 +132,7 @@ function artistBucketMatchSQL(s, a) {
     ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7'${jtExclusions ? ' AND (' + jtExclusions + ')' : ''})
     ${normalClauses}
     OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR ${s}.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
+    OR ($1 = 'spotify:artist:4kYSro6naA4h99UJvo89HB' AND (${s}.primary_artist = 'spotify:artist:4kYSro6naA4h99UJvo89HB' OR ${s}.id IN (${CARDI_EXTRA_TRACK_IDS_SQL})))
     OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))
     OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))
   )`;
