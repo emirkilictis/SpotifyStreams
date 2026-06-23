@@ -3501,11 +3501,15 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     </div>`;
   }
 
-  function shieldHTML(protectedName, biggerName) {
-    return `<div class="cc-shield">
-      <div class="cc-shield-icon">🛡️</div>
-      <div class="cc-shield-title">${cesc(protectedName)} is protected</div>
-      <div class="cc-shield-body">${cesc(biggerName)} out-streams ${cesc(protectedName)}, so this matchup is blocked. No dragging the king here.</div>
+  // Anti-drag guard, disguised as a generic load error so it reads as an
+  // unintentional glitch rather than a deliberate block — it must NOT name the
+  // artists/albums or reveal who out-streams whom (a screenshot of the old
+  // "X is protected, Y out-streams him" wording could be used to drag JT).
+  function shieldHTML(/* protectedName, biggerName intentionally unused */) {
+    return `<div class="cc-shield cc-shield-error">
+      <div class="cc-shield-icon">⚠️</div>
+      <div class="cc-shield-title">Couldn't load this comparison</div>
+      <div class="cc-shield-body">Something went wrong while crunching the numbers for this matchup. Please try a different pairing or check back in a bit.</div>
     </div>`;
   }
 
