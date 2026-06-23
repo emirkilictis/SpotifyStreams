@@ -412,6 +412,27 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
   }
 
 
+  // For Cardi B, several guest features sit on lead artists who are NOT tracked
+  // (Blueface, J Balvin/Jennifer Lopez, etc.), so their albums never appear in
+  // Cardi's appears-on and the tracks were never scraped. Pin them directly so
+  // they land in her bucket (primary_artist = Cardi). The track-level filter
+  // still drops every non-Cardi track on these foreign albums.
+  if (artistId === '4kYSro6naA4h99UJvo89HB') {
+    const extraAlbums = [
+      { id: '1bLGOKqe1vcQtUv6q5Mz0h', title: 'Famous Cryp (Reloaded)', release_date: '2020-07-17', is_featured: true }, // Thotiana (Remix) ~126M
+      { id: '1fT1s4VMXc9xGIamDyFz9S', title: 'Dinero', release_date: '2018-05-17', is_featured: true },                  // Dinero ~102M
+      { id: '5hzbgBTxfikktf9cOvggGF', title: 'El Hombre', release_date: '2018-11-02', is_featured: true },               // Mi Mami ~26M
+      { id: '0Y6JN2SuCzSvumQzxNy2YK', title: 'Highly Intoxicated', release_date: '2017-09-18', is_featured: true },      // Kamasutra (feat. Cardi B) ~0.8M
+    ];
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
+    }
+  }
+
+
   let albumsToScrape = Array.from(albumMap.values());
 
   // Two-tier cadence: skip dormant low-traffic featured albums that were scraped
