@@ -3319,6 +3319,128 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     sel.innerHTML = `<option value="">${placeholder}</option>` +
       list.map(a => `<option value="${a.artist_id}">${cesc(a.name)}</option>`).join('');
     if (prev && list.some(a => a.artist_id === prev)) sel.value = prev;
+    if (sel._comboSync) sel._comboSync();
+  }
+
+  // Replace a native <select> with a searchable, avatar-rich combobox while
+  // keeping the <select> as the hidden source of truth — every reader still
+  // uses `sel.value` and the `change` event, so render()/wiring is untouched.
+  const chevronSVG = '<svg class="cmp-combo-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+  function enhanceArtistSelect(sel) {
+    if (!sel || sel.dataset.comboified) return;
+    sel.dataset.comboified = '1';
+    sel.classList.add('cmp-combo-native');   // visually hidden, stays in DOM/form
+
+    const wrap = document.createElement('div');
+    wrap.className = 'cmp-combo';
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'cmp-combo-trigger';
+    const panel = document.createElement('div');
+    panel.className = 'cmp-combo-panel hidden';
+    panel.innerHTML =
+      '<div class="cmp-combo-search-wrap">' +
+        '<input type="text" class="cmp-combo-search" placeholder="Search artist…" autocomplete="off" spellcheck="false">' +
+      '</div>' +
+      '<div class="cmp-combo-list" role="listbox"></div>';
+    wrap.appendChild(trigger);
+    wrap.appendChild(panel);
+    sel.parentNode.insertBefore(wrap, sel.nextSibling);
+
+    const searchInput = panel.querySelector('.cmp-combo-search');
+    const listEl = panel.querySelector('.cmp-combo-list');
+
+    const placeholderText = () => {
+      const ph = sel.querySelector('option[value=""]');
+      return ph ? ph.textContent : 'Select artist';
+    };
+    function syncTrigger() {
+      const v = sel.value;
+      const opt = v && Array.from(sel.options).find(o => o.value === v);
+      if (!opt) {
+        trigger.classList.remove('has-val');
+        trigger.innerHTML = '<span class="cmp-combo-ph">' + cesc(placeholderText()) + '</span>' + chevronSVG;
+        return;
+      }
+      trigger.classList.add('has-val');
+      trigger.innerHTML =
+        '<img class="cmp-combo-ava" src="' + proxied(artistImg(v)) + '" alt="" onerror="this.src=\'/images/default.jpg\'">' +
+        '<span class="cmp-combo-name">' + cesc(opt.textContent) + '</span>' + chevronSVG;
+    }
+    function buildRows(filter) {
+      const f = (filter || '').trim().toLowerCase();
+      const opts = Array.from(sel.options).filter(o => o.value &&
+        (!f || o.textContent.toLowerCase().includes(f)));
+      if (!opts.length) { listEl.innerHTML = '<div class="cmp-combo-empty">No artists</div>'; return; }
+      listEl.innerHTML = opts.map(o =>
+        '<button type="button" class="cmp-combo-row' + (o.value === sel.value ? ' selected' : '') + '" data-val="' + cesc(o.value) + '">' +
+          '<img class="cmp-combo-ava" src="' + proxied(artistImg(o.value)) + '" alt="" loading="lazy" onerror="this.src=\'/images/default.jpg\'">' +
+          '<span class="cmp-combo-name">' + cesc(o.textContent) + '</span>' +
+        '</button>').join('');
+    }
+    // The panel is position:fixed so it escapes the modal's overflow:auto
+    // clipping; anchor it to the trigger and flip upward when there's no room.
+    const modalScroller = sel.closest('.compare-modal') || sel.closest('.modal-card');
+    function positionPanel() {
+      const r = trigger.getBoundingClientRect();
+      const gap = 6, margin = 10;
+      panel.style.left = Math.round(Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8))) + 'px';
+      panel.style.width = Math.round(r.width) + 'px';
+      const spaceBelow = window.innerHeight - r.bottom - gap - margin;
+      const spaceAbove = r.top - gap - margin;
+      if (spaceBelow < 180 && spaceAbove > spaceBelow) {
+        panel.style.top = 'auto';
+        panel.style.bottom = Math.round(window.innerHeight - r.top + gap) + 'px';
+        panel.style.maxHeight = Math.max(140, Math.round(spaceAbove)) + 'px';
+      } else {
+        panel.style.bottom = 'auto';
+        panel.style.top = Math.round(r.bottom + gap) + 'px';
+        panel.style.maxHeight = Math.max(140, Math.round(spaceBelow)) + 'px';
+      }
+    }
+    const onReflow = () => { if (!panel.classList.contains('hidden')) positionPanel(); };
+    function open() {
+      buildRows('');
+      searchInput.value = '';
+      panel.classList.remove('hidden');
+      wrap.classList.add('open');
+      positionPanel();
+      window.addEventListener('resize', onReflow);
+      if (modalScroller) modalScroller.addEventListener('scroll', onReflow, { passive: true });
+      setTimeout(() => searchInput.focus(), 0);
+    }
+    function close() {
+      panel.classList.add('hidden');
+      wrap.classList.remove('open');
+      window.removeEventListener('resize', onReflow);
+      if (modalScroller) modalScroller.removeEventListener('scroll', onReflow);
+    }
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      panel.classList.contains('hidden') ? open() : close();
+    });
+    searchInput.addEventListener('input', () => buildRows(searchInput.value));
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { close(); trigger.focus(); }
+      else if (e.key === 'Enter') {
+        const first = listEl.querySelector('.cmp-combo-row');
+        if (first) first.click();
+        e.preventDefault();
+      }
+    });
+    listEl.addEventListener('click', (e) => {
+      const row = e.target.closest('.cmp-combo-row');
+      if (!row) return;
+      sel.value = row.dataset.val;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      syncTrigger();
+      close();
+    });
+    document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) close(); });
+
+    sel._comboSync = syncTrigger;
+    syncTrigger();
   }
 
   async function fetchArtistData(id) {
@@ -3595,6 +3717,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   // ---------- Wiring ----------
   function openOverlay() {
+    [aArtist, bArtist, aAlbArtist, bAlbArtist].forEach(enhanceArtistSelect);
     fillArtistSelect(aArtist, 'Select artist', true);
     fillArtistSelect(bArtist, 'Select artist', true);
     fillArtistSelect(aAlbArtist, 'Select artist', false);

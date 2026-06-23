@@ -3903,6 +3903,132 @@ select.tc-input { cursor: pointer; }
 }
 .cmp-alb-year { font-size: 0.7rem; color: var(--text-secondary); }
 
+/* ---------- Searchable, avatar-rich artist combobox ---------- */
+/* The native <select> stays in the DOM (source of truth) but is hidden. */
+.cmp-combo-native {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+.cmp-combo { position: relative; width: 100%; }
+.cmp-combo-trigger {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 10px 5px 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  outline: none;
+  transition: var(--transition-smooth);
+  text-align: left;
+}
+.cmp-combo-trigger:hover,
+.cmp-combo.open .cmp-combo-trigger {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--accent-green);
+  box-shadow: 0 0 10px var(--accent-green-glow);
+}
+.cmp-combo-ava {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+  background: #111a2e;
+}
+.cmp-combo-trigger .cmp-combo-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-combo-ph { flex: 1 1 auto; color: var(--text-secondary); padding-left: 6px; }
+.cmp-combo-chev { flex: 0 0 auto; color: var(--text-secondary); transition: transform 0.18s ease; }
+.cmp-combo.open .cmp-combo-chev { transform: rotate(180deg); }
+
+.cmp-combo-panel {
+  position: fixed;          /* escapes the modal's overflow:auto clipping */
+  z-index: 1000;
+  box-sizing: border-box;   /* keep max-height inclusive of padding */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--card-bg, #15203a);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  padding: 8px;
+  backdrop-filter: blur(12px);
+}
+.cmp-combo-panel.hidden { display: none; }
+.cmp-combo-search-wrap { padding: 2px 2px 8px; }
+.cmp-combo-search {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.85rem;
+  outline: none;
+}
+.cmp-combo-search:focus {
+  border-color: var(--accent-green);
+  box-shadow: 0 0 0 2px var(--accent-green-glow);
+}
+.cmp-combo-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cmp-combo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.86rem;
+  font-weight: 600;
+  transition: background 0.15s ease;
+}
+.cmp-combo-row:hover { background: rgba(255, 255, 255, 0.06); }
+.cmp-combo-row.selected {
+  background: rgba(30, 215, 96, 0.14);
+  box-shadow: inset 0 0 0 1px var(--accent-green-glow);
+}
+.cmp-combo-row .cmp-combo-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-combo-empty {
+  padding: 16px 10px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
 /* ---------- The exportable card ---------- */
 #compare-card-wrap {
   display: flex;
