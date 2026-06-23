@@ -75,6 +75,7 @@ const ARTIST_SEARCH_NAMES = {
   '5L1lO4eRHmJ7a0Q6csE5cT': ['lisa'],
   '1HY2Jd0NmPuamShAr6KMms': ['lady gaga'],
   '6qqNVTkY8uBg9cP3Jd7DAH': ['billie eilish'],
+  '1Xylc3o4UrD53lo9CvFvVg': ['zara larsson'],
   '66CXWjxzNUsdJxJ2JdwvnR': ['ariana grande'],
   '6Ff53KvcvAj5U7Z1vojB5o': ['nsync', '*nsync'],
   '3p3U04w2DaiBzuYMZnYr00': ['jc chasez', 'chasez'],
