@@ -422,7 +422,6 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
       ) rawd ON s.id = rawd.canonical_id
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()})
-      AND ${FSLS_REMIX_EXCLUSION_SQL}
       ORDER BY cumulative DESC;
     `;
     const result = await dbQuery(query, [artistUri]);
@@ -652,7 +651,6 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
         JOIN albums a ON s.album_id = a.id
         WHERE ${artistAlbumMatchSQL('s')}
         AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
-        AND ${FSLS_REMIX_EXCLUSION_SQL}
       ),
       album_display_titles AS (
         SELECT DISTINCT ON (
