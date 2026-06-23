@@ -394,6 +394,23 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
     }
   }
 
+  // For Zara Larsson, the Swedish-market "Poster Girl (Swedish Summer Edition)"
+  // is not returned by the discography query, so its exclusive Carola cover
+  // "Säg Mig Var Du Står" (her biggest uncaptured track, ~53M) never gets
+  // scraped. Its other 20 tracks are alt-edition duplicates that dedup merges.
+  if (artistId === '1Xylc3o4UrD53lo9CvFvVg') {
+    const extraAlbums = [
+      { id: '6xkO0VLObgUL8o0ztpW0hT', title: 'Poster Girl (Swedish Summer Edition)', release_date: '2021-07-09', is_featured: false } // Säg Mig Var Du Står (Carola cover)
+    ];
+
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
+    }
+  }
+
 
   let albumsToScrape = Array.from(albumMap.values());
 
