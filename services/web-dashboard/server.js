@@ -107,7 +107,7 @@ function artistBucketMatchSQL(s, a) {
 
   // Per-artist viewing clauses only apply to currently-active artists.
   const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
-  const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '6qqNVTkY8uBg9cP3Jd7DAH', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W'];
+  const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W'];
   const normalClauses = nonJtArtists
     .filter(item => !specialIds.includes(item.artist_id))
     .map(item => `OR ($1 = 'spotify:artist:${item.artist_id}' AND ${s}.primary_artist = 'spotify:artist:${item.artist_id}')`)
@@ -118,7 +118,6 @@ function artistBucketMatchSQL(s, a) {
     ${normalClauses}
     OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR ${s}.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
     OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))
-    OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (${a}.title ILIKE 'HIT ME HARD AND SOFT%' OR ${a}.title ILIKE 'Happier Than Ever%' OR ${a}.title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%' OR ${a}.title ILIKE 'dont smile at me%' OR ${a}.title ILIKE 'don''t smile at me%' OR ${a}.title ILIKE 'Guitar Songs%'))
     OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))
   )`;
 }
@@ -881,14 +880,6 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
             OR title ILIKE '%mayhem%'
             OR id = '5C7E6m8S9vJ36z0Z39O64L'
           ))
-          OR ($1 = 'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH' AND (
-            title ILIKE 'HIT ME HARD AND SOFT%'
-            OR (title ILIKE 'Happier Than Ever%' AND title NOT ILIKE '%edit%')
-            OR title ILIKE 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO%'
-            OR title ILIKE 'dont smile at me%'
-            OR title ILIKE 'don''t smile at me%'
-            OR title ILIKE 'Guitar Songs%'
-          ))
           OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
             title ILIKE 'Yours Truly%'
             OR title ILIKE 'My Everything%'
@@ -916,7 +907,6 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
               'spotify:artist:3p3U04w2DaiBzuYMZnYr00',
               'spotify:artist:3LHYvj5ZejV1NLqncEObSJ',
               'spotify:artist:1HY2Jd0NmPuamShAr6KMms',
-              'spotify:artist:6qqNVTkY8uBg9cP3Jd7DAH',
               'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR',
               'spotify:artist:2dIgFjalVxs4ThymZ67YCE',
               'spotify:artist:4UIOuc84ExWojcUzFGtb8W'
