@@ -3344,8 +3344,11 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       '</div>' +
       '<div class="cmp-combo-list" role="listbox"></div>';
     wrap.appendChild(trigger);
-    wrap.appendChild(panel);
     sel.parentNode.insertBefore(wrap, sel.nextSibling);
+    // Portal the panel to <body>: the compare modal has transform + backdrop-filter,
+    // which would make a position:fixed child anchor to the modal (not the viewport)
+    // and mis-place the dropdown on desktop. As a body child it has no such ancestor.
+    document.body.appendChild(panel);
 
     const searchInput = panel.querySelector('.cmp-combo-search');
     const listEl = panel.querySelector('.cmp-combo-list');
@@ -3405,6 +3408,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       panel.classList.remove('hidden');
       wrap.classList.add('open');
       positionPanel();
+      requestAnimationFrame(positionPanel);  // re-measure once layout/scrollbars settle
       window.addEventListener('resize', onReflow);
       if (modalScroller) modalScroller.addEventListener('scroll', onReflow, { passive: true });
       setTimeout(() => searchInput.focus(), 0);
@@ -3437,7 +3441,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       syncTrigger();
       close();
     });
-    document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) close(); });
+    document.addEventListener('click', (e) => { if (!wrap.contains(e.target) && !panel.contains(e.target)) close(); });
 
     sel._comboSync = syncTrigger;
     syncTrigger();

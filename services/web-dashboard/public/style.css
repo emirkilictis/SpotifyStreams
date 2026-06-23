@@ -3957,7 +3957,7 @@ select.tc-input { cursor: pointer; }
 
 .cmp-combo-panel {
   position: fixed;          /* escapes the modal's overflow:auto clipping */
-  z-index: 1000;
+  z-index: 10001;           /* above the compare overlay (z-index:1000) */
   box-sizing: border-box;   /* keep max-height inclusive of padding */
   display: flex;
   flex-direction: column;
