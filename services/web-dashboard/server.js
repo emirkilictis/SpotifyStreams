@@ -2064,16 +2064,25 @@ app.get(['/', '/index.html'], requireAuth, (req, res) => {
   const desc = og
     ? `${og.name}'s live Spotify stream counts, daily gains, and milestones — updated daily.`
     : 'Live Spotify stream counts, daily gains, and milestones for your favorite artists — updated daily.';
-  let img = (og && og.image_url) ? og.image_url : '/images/jt.jpg';
+  // Default (no ?artist=) → neutral branded 1200×630 banner, NOT a single artist
+  // photo. Per-artist links still use that artist's image. og-default.png is a
+  // proper landscape card so summary_large_image doesn't crop a portrait.
+  let img = (og && og.image_url) ? og.image_url : '/images/og-default.png';
   if (img.startsWith('/')) img = baseUrl + img;
   const pageUrl = baseUrl + req.originalUrl;
   const ogEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // Only the default banner has known 1200×630 dimensions; per-artist Spotify
+  // photos are square, so we don't claim a size for them.
+  const isDefaultImg = !(og && og.image_url);
+  const dimTags = isDefaultImg
+    ? `\n  <meta property="og:image:width" content="1200">\n  <meta property="og:image:height" content="630">`
+    : '';
   const ogTags = `
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Spotify Streams — Fan Dashboard">
   <meta property="og:title" content="${ogEsc(title)}">
   <meta property="og:description" content="${ogEsc(desc)}">
-  <meta property="og:image" content="${ogEsc(img)}">
+  <meta property="og:image" content="${ogEsc(img)}">${dimTags}
   <meta property="og:url" content="${ogEsc(pageUrl)}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${ogEsc(title)}">
