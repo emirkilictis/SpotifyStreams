@@ -10,12 +10,15 @@ require('dotenv').config({ path: '../../.env' });
 
 const { launchBrowser, fetchAlbumTracks } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
-const { getPool, upsertAlbum, upsertSong, upsertStreamStat, upsertArtistStat, setScraperStatus, closePool } = require('./db');
+const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, closePool } = require('./db');
 const { dedupCanonical } = require('./dedup');
 
 const ARTIST_ID  = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
 const ARTIST_URI = `spotify:artist:${ARTIST_ID}`;
-const DELAY_MS   = 400;
+// Inter-album throttle. Lowered from 400ms → 175ms (still polite to Spotify's
+// internal endpoint); override with SCRAPE_DELAY_MS without a redeploy if we
+// ever see rate-limiting.
+const DELAY_MS   = Number(process.env.SCRAPE_DELAY_MS) || 175;
 
 // Wall-clock budget for scraping artists. The GitHub Actions job is capped at
 // 45 min; a hard cancel marks the run FAILED and can interrupt the dedup step.
@@ -114,6 +117,10 @@ function isCoverOrTribute(title) {
 async function processAlbum(page, client, album, artistUri, stats) {
   const tracks = await fetchAlbumTracks(page, album.id);
   let kept = 0;
+  // Collect rows and flush in two batched writes at the end of the album instead
+  // of 2 awaited round-trips per track — the dominant cost against Neon's latency.
+  const songRows = [];
+  const streamRows = [];
   for (const track of tracks) {
     // Skip blacklisted tracks
     if (BLACKLISTED_TRACK_IDS.has(track.id)) {
@@ -155,7 +162,7 @@ async function processAlbum(page, client, album, artistUri, stats) {
       isSolo = false;
     }
 
-    await upsertSong(client, {
+    songRows.push({
       id:             track.id,
       title:          trackTitle,
       album_id:       album.id,
@@ -166,19 +173,24 @@ async function processAlbum(page, client, album, artistUri, stats) {
       is_solo:        isSolo,
     });
     if (track.playCount > 0) {
-      await upsertStreamStat(client, track.id, track.playCount);
-      stats.streamsUpdated++;
+      streamRows.push({ songId: track.id, streamCount: track.playCount });
     }
     stats.tracksProcessed++;
     kept++;
   }
+
+  // Two round-trips for the whole album (songs must land before their stream
+  // stats — stream_stats.song_id references songs.id).
+  await upsertSongsBatch(client, songRows);
+  const written = await upsertStreamStatsBatch(client, streamRows);
+  stats.streamsUpdated += written;
   return kept;
 }
 
 async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds = [], isForce = false, albumOnly = false) {
   const artistUri = `spotify:artist:${artistId}`;
   console.log(`\n[scraper] Discovering albums for artist: ${artistId}...`);
-  let { albums: discoveredAlbums, own_count, feat_count, stats: artistStats } = await discoverAllAlbumsPuppeteer(page, artistId);
+  let { albums: discoveredAlbums, own_count, feat_count, stats: artistStats } = await discoverAllAlbumsPuppeteer(page, artistId, { includeAppearsOn: !albumOnly });
 
   // Persist artist-level stats (monthly listeners, followers, world rank) as a daily snapshot.
   if (artistStats && artistStats.monthly_listeners != null) {
@@ -467,6 +479,19 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
 
 
   let albumsToScrape = Array.from(albumMap.values());
+
+  // Album-only artists track ONLY their own discography — drop every featured/
+  // appears-on album from the scrape set (discovery already skipped fetching them;
+  // this also removes any featured albums still coming from the DB query). Their
+  // existing feature songs stay in the catalogue at their last value (frozen),
+  // they just stop being re-scraped. Makes the cold-skip block below a no-op.
+  if (albumOnly) {
+    const before = albumsToScrape.length;
+    albumsToScrape = albumsToScrape.filter(a => !a.is_featured);
+    if (before !== albumsToScrape.length) {
+      console.log(`[scraper] album-only ${artistId}: own discography only, skipped ${before - albumsToScrape.length} featured album(s).`);
+    }
+  }
 
   // Two-tier cadence: skip dormant low-traffic featured albums that were scraped
   // within the last COLD_STALE_DAYS. Applied ONLY to album-only artists (Taylor,

@@ -85,15 +85,16 @@ function isCoverAlbum(title) {
  * Discovers all albums (own + appears_on) using Puppeteer interception instead of the official API.
  * This works without client ID/secret and avoids Premium Web API restrictions.
  */
-async function discoverAllAlbumsPuppeteer(page, artistId) {
+async function discoverAllAlbumsPuppeteer(page, artistId, { includeAppearsOn = true } = {}) {
   const artistUri = `spotify:artist:${artistId}`;
 
   // 1) Own (album + single + compilation)
   const own = await fetchArtistAlbums(page, artistId);
   // Artist-level stats captured as a side-channel during the overview fetch above.
   const stats = page.lastArtistStats || null;
-  // 2) Featured (appears_on)
-  const feat = await fetchArtistAppearsOn(page, artistId);
+  // 2) Featured (appears_on) — skipped for album-only artists, who track only
+  // their own discography (paginating appears-on is the heaviest discovery step).
+  const feat = includeAppearsOn ? await fetchArtistAppearsOn(page, artistId) : [];
 
   const map = new Map(); // id → album
   for (const a of own) {

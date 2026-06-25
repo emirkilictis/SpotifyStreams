@@ -112,6 +112,92 @@ async function upsertArtistStat(client, s) {
 }
 
 /**
+ * Batched song upsert — one multi-row INSERT instead of N round-trips. Same
+ * ON CONFLICT rules as upsertSong (so own>featured protection is identical).
+ * Dedupes by id within the batch (a single INSERT can't hit one conflict twice).
+ */
+async function upsertSongsBatch(client, songs) {
+  if (!songs || !songs.length) return;
+  const byId = new Map();
+  for (const s of songs) byId.set(s.id, s); // last write wins, like sequential upserts
+  const rows = [...byId.values()];
+  const cols = 8;
+  const values = [];
+  const params = [];
+  rows.forEach((s, i) => {
+    const b = i * cols;
+    values.push(`($${b+1}, $${b+2}, $${b+3}, $${b+4}, $${b+5}, $${b+6}, $${b+7}, $${b+8})`);
+    params.push(s.id, s.title, s.album_id, s.duration_ms, s.track_number,
+                s.is_featured ?? false, s.primary_artist ?? null, s.is_solo ?? true);
+  });
+  await client.query(
+    `INSERT INTO songs (id, title, album_id, duration_ms, track_number, is_featured, primary_artist, is_solo)
+     VALUES ${values.join(', ')}
+     ON CONFLICT (id) DO UPDATE
+       SET title          = EXCLUDED.title,
+           duration_ms    = EXCLUDED.duration_ms,
+           track_number   = CASE WHEN songs.is_featured THEN EXCLUDED.track_number ELSE songs.track_number END,
+           album_id       = CASE WHEN songs.is_featured AND NOT EXCLUDED.is_featured THEN EXCLUDED.album_id
+                                 WHEN songs.is_featured THEN songs.album_id
+                                 ELSE songs.album_id END,
+           is_featured    = songs.is_featured AND EXCLUDED.is_featured,
+           primary_artist = CASE WHEN songs.is_featured AND NOT EXCLUDED.is_featured THEN EXCLUDED.primary_artist
+                                 ELSE songs.primary_artist END,
+           is_solo        = EXCLUDED.is_solo`,
+    params
+  );
+}
+
+/**
+ * Batched stream-stat upsert. Preserves the exact stale-skip rule of
+ * upsertStreamStat (only write when Spotify's count actually increased) but in
+ * 2 round-trips per album instead of 2 per track: one SELECT for the latest
+ * counts, one multi-row INSERT for the non-stale rows. Returns rows written.
+ */
+async function upsertStreamStatsBatch(client, items) {
+  if (!items || !items.length) return 0;
+  // Collapse to one entry per song (max count) so the INSERT never hits the same
+  // (song_id, today) conflict twice.
+  const byId = new Map();
+  for (const it of items) {
+    if (!(it.streamCount > 0)) continue;
+    const prev = byId.get(it.songId);
+    if (prev === undefined || it.streamCount > prev) byId.set(it.songId, it.streamCount);
+  }
+  if (!byId.size) return 0;
+  const ids = [...byId.keys()];
+  const lastRes = await client.query(
+    `SELECT DISTINCT ON (song_id) song_id, stream_count
+     FROM stream_stats WHERE song_id = ANY($1)
+     ORDER BY song_id, recorded_date DESC`,
+    [ids]
+  );
+  const last = new Map();
+  for (const r of lastRes.rows) last.set(r.song_id, parseInt(r.stream_count, 10) || 0);
+
+  const values = [];
+  const params = [];
+  let p = 0;
+  for (const [songId, streamCount] of byId) {
+    const lastCount = last.get(songId) || 0;
+    if (lastCount > 0 && streamCount <= lastCount) continue; // stale → skip (same rule)
+    values.push(`($${++p}, $${++p})`);
+    params.push(songId, streamCount);
+  }
+  if (!values.length) return 0;
+  await client.query(
+    `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
+     SELECT v.song_id::text, v.stream_count::bigint, ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date, NOW()
+     FROM (VALUES ${values.join(', ')}) AS v(song_id, stream_count)
+     ON CONFLICT (song_id, recorded_date) DO UPDATE
+       SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
+           recorded_at  = NOW()`,
+    params
+  );
+  return values.length;
+}
+
+/**
  * Scraper status update — tracks if scraper is 'idle', 'scraping', or 'deduping'.
  */
 async function setScraperStatus(client, status) {
@@ -129,4 +215,4 @@ async function closePool() {
   if (pool) await pool.end();
 }
 
-module.exports = { getPool, upsertAlbum, upsertSong, upsertStreamStat, upsertArtistStat, setScraperStatus, closePool };
+module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, closePool };
