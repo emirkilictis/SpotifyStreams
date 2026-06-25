@@ -43,6 +43,15 @@ const normTitle = (t) => t.toLowerCase()
   .replace(/\bfeat\.?\b[^-]*/g, '')
   .replace(/[^a-z0-9]/g, '');
 
+// Base title with the "- Radio Edit / - Studio Recording / - Remix" suffix
+// dropped too. Used ONLY together with a stream-value check: kworb and we often
+// LABEL the same recording differently ("Moves Like Jagger - Radio Edit" vs
+// "… - Studio Recording From The Voice"), but the same recording has the same
+// play count, whereas a real remix has a different one. So base-title + near-equal
+// value == same track; base-title + different value == a genuinely distinct remix.
+const baseTitle = (t) => normTitle(t.replace(/\s*-\s*.*$/, ''));
+const valuesClose = (a, b) => Math.abs(a - b) <= Math.max(a, b) * 0.01 + 50000;
+
 // --- 1. kworb -------------------------------------------------------------
 async function fetchKworb(id) {
   const url = `https://kworb.net/spotify/artist/${id}_songs.html`;
@@ -91,9 +100,16 @@ async function fetchOurs() {
        JOIN songs s ON s.id = dsc.canonical_id
        WHERE s.primary_artist = $1`, [ARTIST_URI]);
     const bucketTitles = new Set();
+    const bucketByBase = new Map(); // baseTitle -> [cumulative values]
     let ourTotal = 0;
-    for (const r of bucket.rows) { bucketTitles.add(normTitle(r.title)); ourTotal += Number(r.cum); }
-    return { byId, names, bucketTitles, ourTotal, ourCount: bucket.rows.length };
+    for (const r of bucket.rows) {
+      bucketTitles.add(normTitle(r.title));
+      const b = baseTitle(r.title);
+      if (!bucketByBase.has(b)) bucketByBase.set(b, []);
+      bucketByBase.get(b).push(Number(r.cum));
+      ourTotal += Number(r.cum);
+    }
+    return { byId, names, bucketTitles, bucketByBase, ourTotal, ourCount: bucket.rows.length };
   } finally {
     c.release();
   }
@@ -139,8 +155,13 @@ async function resolveAlbums(trackIds) {
     const row = t.trackId ? ours.byId.get(t.trackId) : null;
     if (row && row.primary_artist === ARTIST_URI) { ok.push(t); continue; }
     if (row) { otherBucket.push({ ...t, owner: row.primary_artist }); continue; }
-    // id miss: same recording may live under a different edition id → title match
+    // id miss: same recording may live under a different edition id.
+    // (a) exact suffix-kept title match, or
+    // (b) same base title AND a near-equal stream value (same recording, just
+    //     labelled differently) — a real remix has a different value so it stays MISSING.
     if (ours.bucketTitles.has(normTitle(t.title))) { ok.push(t); continue; }
+    const sameBase = ours.bucketByBase.get(baseTitle(t.title));
+    if (sameBase && sameBase.some((v) => valuesClose(v, t.streams))) { ok.push(t); continue; }
     if (!t.trackId) { noId.push(t); continue; }
     missing.push(t);
   }
