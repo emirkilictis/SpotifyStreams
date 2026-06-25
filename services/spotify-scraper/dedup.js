@@ -112,6 +112,16 @@ const FORCE_CANONICAL = {
   '24CBAWq81pQNTftNAxVLYk': '0Gasl1wiqhENYa8RskLpPw', // (Another Song) All Over Again FSLS standard → deluxe
   '2odDiXqmvqGNKzHUoEGTHB': '3hdGyxmW0eNskNwTwmXOIQ', // LISA Goals (FIFA WC 2026 standard, frozen) → Opening Ceremony Edition canonical
   '5GP8vMD6WaOffDeJfbit0m': '6ic8OlLUNEATToEFU3xmaH', // Gimme More ("Kimme More" Remix) (feat. Lil' Kim) → Gimme More (original)
+
+  // Cardi B "ErrTime" remixes on AM I THE DRAMA (Ultimate Edition)/(The Snow Mix):
+  // Spotify links these remix tracks to the ORIGINAL's playcount (byte-identical
+  // count + duration), so Pass 2 merged them into the wrong canonical (plain
+  // ErrTime / the Jeezy&Latto version) and the album view collapsed them away.
+  // Re-point each to its OWN standalone-remix canonical so it shows as a distinct
+  // row with its own streams. No total change — the targets are already counted heads.
+  '1QonoQ0WvX2xYX5BNhTIeQ': '5CanskmqatfFbm9O9Epavt', // ErrTime (feat. Latto) [Remix] — Ultimate → standalone Latto remix
+  '712SSg5i3QMK2yA7v2oV1D': '5CanskmqatfFbm9O9Epavt', // ErrTime (feat. Latto) [Remix] — Snow Mix → standalone Latto remix
+  '6CbbaIFRxszOfvFN9ljlTk': '1dtdgZK7egg2fBVoeC0T5i', // ErrTime (feat. Jeezy) [Remix] — Ultimate → standalone Jeezy remix
 };
 
 /**
