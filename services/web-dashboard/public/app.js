@@ -1263,11 +1263,18 @@ async function downloadModalAsImage() {
         const clonedToggles = clonedDoc.querySelector('.detailed-analysis-toggle-container');
         if (clonedToggles) clonedToggles.style.setProperty('display', 'none', 'important');
 
-        // Clean up backdrop filter on all elements inside the cloned tree
+        // Clean up backdrop filter on all elements inside the cloned tree.
+        // html2canvas can't render backdrop-filter, so a .glass panel would keep
+        // only its translucent dark base (rgba(15,23,42,0.6)) over the dark card
+        // gradient — i.e. near-black, killing contrast. Replace it with an OPAQUE,
+        // slightly lighter "frosted" fill so the panels read as glass and the
+        // white text/stats pop, matching the on-screen blurred look.
         const glassElements = clonedDoc.querySelectorAll('.glass');
         glassElements.forEach(el => {
           el.style.backdropFilter = 'none';
           el.style.webkitBackdropFilter = 'none';
+          el.style.setProperty('background', 'rgba(38, 50, 75, 0.94)', 'important');
+          el.style.setProperty('border-color', 'rgba(255, 255, 255, 0.14)', 'important');
         });
       }
     });
