@@ -86,7 +86,8 @@ const ARTIST_SEARCH_NAMES = {
   '4qwGe91Bz9K2T8jXTZ815W': ['janet jackson', 'janet'],
   '26dSoYclwsYLMAKD3tpOr4': ['britney spears', 'britney'],
   '64M6ah0SkkRsnPGtGiRAbb': ['bebe rexha'],
-  '0hCNtLu0JehylgoiP8L4Gh': ['nicki minaj', 'nicki']
+  '0hCNtLu0JehylgoiP8L4Gh': ['nicki minaj', 'nicki'],
+  '1l7ZsJRRS8wlW3WfJfPfNS': ['christina aguilera', 'christina']
 };
 
 function isCoverOrTribute(title) {
@@ -429,6 +430,32 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
       { id: '75qv2xhOcSTAsSttZMGV53', title: 'Dinero (CADE Remix)', release_date: '2018-06-29', is_featured: true },                                // ~3.0M
       { id: '64jRBkgz4v6fdFtp9XyoSv', title: 'Girls Like You (feat. Cardi B) [TOKiMONSTA Remix]', release_date: '2018-08-02', is_featured: true },  // ~1.2M
       { id: '3mAaCQNqRARBgzS3BFWwH0', title: 'Red Pill Blues + (Deluxe)', release_date: '2018-11-21', is_featured: true },                          // Girls Like You - CRAY Remix ~0.9M
+    ];
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
+    }
+  }
+
+  // Christina Aguilera guest features / duets whose lead is not tracked
+  // (Alejandro Fernández, Tony Bennett, A Great Big World, etc.) — never in her
+  // appears-on, so never scraped. Found via audit-kworb.js (track-id + value
+  // reconciliation). Same pattern: the track-level filter drops every
+  // non-Christina track on these foreign/compilation albums.
+  if (artistId === '1l7ZsJRRS8wlW3WfJfPfNS') {
+    const extraAlbums = [
+      { id: '6Z2y84TfIgaWdmSYTZMJj0', title: 'Baladas Románticas', release_date: '2020-02-28', is_featured: true },        // Hoy Tengo Ganas De Ti ~236M
+      { id: '4bePJNQoFZ2FhPHgBPmvbv', title: 'Viva Duets', release_date: '2012-10-22', is_featured: true },                 // Steppin' Out with My Baby ~5.5M
+      { id: '3ssspRe42CXkhPxdc12xcp', title: "CeeLo's Magic Moment", release_date: '2012-10-29', is_featured: true },       // Baby It's Cold Outside ~3.2M
+      { id: '0jYO6ZMmUnhM8oID5ZFsnp', title: 'Tell Me (feat. Christina Aguilera)', release_date: '2007-02-03', is_featured: true }, // Tell Me - Mixshow ~1.4M
+      { id: '3TdbZH4OnoGoMgil9f1YzK', title: 'Mi Reflejo', release_date: '2000-01-01', is_featured: true },                 // Ven Conmigo (Solamente Tú) - Karaoke ~1.2M
+      { id: '3O8cHCGgo6phxKJD6j1jnt', title: 'Platinum Christmas', release_date: '2000-11-07', is_featured: true },         // Silent Night / Noche de Paz ~0.5M
+      // Distinct Moves Like Jagger remixes (own id, own streams) — count separately.
+      { id: '17np2VFSo8AMt6LQpiq1dr', title: 'Moves Like Jagger', release_date: '2011-01-01', is_featured: true },          // - Remix ~6.4M
+      { id: '4rUY6MIb73CqjT1iS7HlQk', title: 'Marathon 2013', release_date: '2013-01-01', is_featured: true },             // - Soul Seekerz Radio Edit ~3.6M
+      { id: '0c6pUHCUuyssK8u63qKG29', title: 'Moves Like Jagger', release_date: '2011-01-01', is_featured: true },          // - Michael Carrera Darkroom Remix ~0.5M
     ];
     for (const extra of extraAlbums) {
       if (!albumMap.has(extra.id)) {
