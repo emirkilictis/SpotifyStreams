@@ -1172,18 +1172,11 @@ async function downloadModalAsImage() {
           // Drop the themed neon glow (0 0 80px accentGlow) — html2canvas renders it
           // as a smeared neon halo (especially on mobile). Keep only a clean drop shadow.
           clonedCard.style.setProperty('box-shadow', '0 25px 60px rgba(0, 0, 0, 0.6)', 'important');
-          // The live card uses a radial gradient (bright at top-center) which, on a tall
-          // captured card, reads as an abrupt "blue top / black bottom" split. Convert it to
-          // a vertical gradient that tints only the header area then settles into a uniform
-          // base, so the track table has a consistent background regardless of track count.
-          const bg = clonedCard.style.background || '';
-          // Colors may be serialized as rgb(...) (with internal commas) or hex.
-          const m = bg.match(/radial-gradient\(circle at 50% 0%,\s*(rgb\([^)]*\)|#[0-9a-f]+)\s+0%,\s*(rgb\([^)]*\)|#[0-9a-f]+)\s+100%\)/i);
-          clonedCard.style.setProperty(
-            'background',
-            m ? `linear-gradient(180deg, ${m[1].trim()} 0%, ${m[2].trim()} 100%)` : '#080c14',
-            'important'
-          );
+          // Disable the per-artist theme tint in the capture. The colored radial
+          // gradient (Christina's washed the card out — "siyahlığı yok, fazla
+          // beyazlamış") robs the shared card of the deep-black look it should have.
+          // Force a flat near-black background so every artist's save-card is dark.
+          clonedCard.style.setProperty('background', '#070b11', 'important');
         }
 
         // Force desktop-level sizes inside the cloned modal header for capture
@@ -1265,16 +1258,16 @@ async function downloadModalAsImage() {
 
         // Clean up backdrop filter on all elements inside the cloned tree.
         // html2canvas can't render backdrop-filter, so a .glass panel would keep
-        // only its translucent dark base (rgba(15,23,42,0.6)) over the dark card
-        // gradient — i.e. near-black, killing contrast. Replace it with an OPAQUE,
-        // slightly lighter "frosted" fill so the panels read as glass and the
-        // white text/stats pop, matching the on-screen blurred look.
+        // only its translucent dark base (rgba(15,23,42,0.6)). Give it an OPAQUE
+        // dark frost — distinctly above the near-black card so the panel reads as
+        // glass, but NOT the bright slate (rgba(38,50,75,0.94)) that washed the
+        // card out. A subtle hairline keeps the edges legible.
         const glassElements = clonedDoc.querySelectorAll('.glass');
         glassElements.forEach(el => {
           el.style.backdropFilter = 'none';
           el.style.webkitBackdropFilter = 'none';
-          el.style.setProperty('background', 'rgba(38, 50, 75, 0.94)', 'important');
-          el.style.setProperty('border-color', 'rgba(255, 255, 255, 0.14)', 'important');
+          el.style.setProperty('background', 'rgba(20, 27, 41, 0.96)', 'important');
+          el.style.setProperty('border-color', 'rgba(255, 255, 255, 0.08)', 'important');
         });
       }
     });
