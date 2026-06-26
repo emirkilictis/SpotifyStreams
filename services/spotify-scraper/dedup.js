@@ -500,6 +500,27 @@ function shouldKeepSeparate(title) {
     console.warn('[dedup] chain-flatten step failed:', e.code || e.message);
   }
 
+  // Post-condition guard (cheap, read-only): after flatten EVERY alias must point
+  // straight at a head whose own canonical_id is NULL. Any survivor means a chain
+  // or cycle slipped through, and the stat total will silently double-count a
+  // recording — the Christina 15.5B class of bug. Scream it into the run log so it
+  // can never hide again instead of being noticed weeks later.
+  try {
+    const bad = await client.query(`
+      SELECT a.id, a.canonical_id
+      FROM songs a
+      JOIN songs c ON c.id = a.canonical_id
+      WHERE a.canonical_id IS NOT NULL AND c.canonical_id IS NOT NULL
+      LIMIT 50`);
+    if (bad.rows.length) {
+      console.error(`[dedup] ⚠️ INTEGRITY FAIL: ${bad.rows.length}+ alias still point at a non-head (residual chain/cycle) — totals may double-count! e.g. ${bad.rows.slice(0, 5).map(r => `${r.id}→${r.canonical_id}`).join(', ')}`);
+    } else {
+      console.log('[dedup] integrity OK: every alias resolves to a NULL-canonical head (0 chains/cycles).');
+    }
+  } catch (e) {
+    console.warn('[dedup] integrity check skipped:', e.code || e.message);
+  }
+
   console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (${exactCount} exact-count auto-merge dahil; önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced, ${manualCount} manual merge, ${manualSplit.size} manual split, ${flattened} chain flattened, ${cyclesBroken} cycle broken.`);
   return { canonicalCount, aliasCount };
 }
