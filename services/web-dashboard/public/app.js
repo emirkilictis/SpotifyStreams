@@ -1256,18 +1256,24 @@ async function downloadModalAsImage() {
         const clonedToggles = clonedDoc.querySelector('.detailed-analysis-toggle-container');
         if (clonedToggles) clonedToggles.style.setProperty('display', 'none', 'important');
 
-        // Clean up backdrop filter on all elements inside the cloned tree.
-        // html2canvas can't render backdrop-filter, so a .glass panel would keep
-        // only its translucent dark base (rgba(15,23,42,0.6)). Give it an OPAQUE
-        // dark frost — distinctly above the near-black card so the panel reads as
-        // glass, but NOT the bright slate (rgba(38,50,75,0.94)) that washed the
-        // card out. A subtle hairline keeps the edges legible.
-        const glassElements = clonedDoc.querySelectorAll('.glass');
+        // Frost the INNER glass panels (the stats box etc.) — but NOT the card
+        // itself. The .modal-card also carries the `glass` class, so selecting all
+        // `.glass` overwrote the flat near-black card background we set above with a
+        // navy slate, washing the whole card out ("siyah kısım beyazlaşıyor"). Excluding
+        // .modal-card keeps the card deep black (#070b11), so the panels and the pink
+        // accents pop against it. Tint the panel borders with the artist accent so the
+        // "pink lines" read clearly instead of a faint white hairline.
+        let accentRgb = '29, 185, 84';
+        try {
+          const a = (clonedCard && clonedCard.style.getPropertyValue('--album-accent').trim()) || '';
+          if (a) accentRgb = hexToRgbTriplet(a);
+        } catch (_) {}
+        const glassElements = clonedDoc.querySelectorAll('.glass:not(.modal-card)');
         glassElements.forEach(el => {
           el.style.backdropFilter = 'none';
           el.style.webkitBackdropFilter = 'none';
-          el.style.setProperty('background', 'rgba(20, 27, 41, 0.96)', 'important');
-          el.style.setProperty('border-color', 'rgba(255, 255, 255, 0.08)', 'important');
+          el.style.setProperty('background', 'rgba(24, 32, 49, 0.97)', 'important');
+          el.style.setProperty('border-color', `rgba(${accentRgb}, 0.45)`, 'important');
         });
       }
     });
