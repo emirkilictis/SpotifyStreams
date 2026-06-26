@@ -2809,6 +2809,18 @@ function deriveThemeFromAccent(hex) {
   currentRoster = roster;
   renderPickerRoster();
 
+  // Deep-link: a shared /?artist=<id> link (the per-artist OG share card) should
+  // open that artist's dashboard directly instead of dropping the visitor on the
+  // picker. Only auto-enter active, unlocked artists; locked ones still need the code.
+  try {
+    const want = (new URLSearchParams(location.search).get('artist') || '')
+      .replace('spotify:artist:', '').trim();
+    const a = want && byId[want];
+    if (a && a.active !== false && !isArtistLocked(want)) {
+      enterDashboard(want, a.name);
+    }
+  } catch (_) { /* on any error the picker remains as the fallback */ }
+
   // ---- Adım 4: OG meta tag patch ----
   // Patch og:image + og:title for the currently selected artist (if any).
   // Also sets up a hook so switching artists later also updates OG tags.

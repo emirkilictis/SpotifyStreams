@@ -473,7 +473,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
             FROM daily_streams_canonical d2
             JOIN songs s2 ON s2.id = d2.canonical_id
             JOIN albums a2 ON s2.album_id = a2.id
-            WHERE ${artistBucketMatchSQL('s2', 'a2')}
+            WHERE s2.canonical_id IS NULL AND ${artistBucketMatchSQL('s2', 'a2')}
               AND s2.id NOT IN (${hiddenTrackIdsSql()})
             GROUP BY d2.recorded_date
             ORDER BY d2.recorded_date DESC
@@ -493,7 +493,12 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
       ) dsc
       JOIN songs s ON s.id = dsc.canonical_id
       JOIN albums a ON s.album_id = a.id
-      WHERE ${artistBucketMatchSQL('s', 'a')}
+      -- s.canonical_id IS NULL: count ONLY true canonical heads. The view keys on
+      -- COALESCE(canonical_id, id), so a residual dedup chain/cycle would surface a
+      -- non-head as its own row and double-count the recording (this is what showed
+      -- Christina's inflated 15.5B). The guard makes the headline total structurally
+      -- immune regardless of dedup state.
+      WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()});
     `;
     const result = await dbQuery(query, [artistUri]);
@@ -627,7 +632,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
         FROM daily_streams_canonical dsc
         JOIN songs s ON s.id = dsc.canonical_id
         JOIN albums a ON s.album_id = a.id
-        WHERE ${artistBucketMatchSQL('s', 'a')}
+        WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
         AND s.id NOT IN (${hiddenTrackIdsSql()})
       ),
       song_crossings AS (
