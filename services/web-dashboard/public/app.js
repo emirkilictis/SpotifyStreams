@@ -751,6 +751,12 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
           // They punch up into muddy noise — a dark grey jacket on Justified's blue
           // cover became dusty rose. Keep only pixels that carry an actual colour.
           if (mx < 55 || mn > 230 || (mx ? (mx - mn) / mx : 0) < 0.10) continue;
+          // Skip skin tones (YCbCr range) so a dark/monochrome cover dominated by a
+          // face (FutureSex/LoveSounds) doesn't theme flesh-coloured — fall back to
+          // the artist accent instead. Doesn't touch blues/greens/cool covers.
+          const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+          const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+          if (cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) continue;
           const key = (r >> 4) + ',' + (g >> 4) + ',' + (b >> 4);
           const e = buckets.get(key) || { c: 0, r: 0, g: 0, b: 0 };
           e.c++; e.r += r; e.g += g; e.b += b; buckets.set(key, e);
