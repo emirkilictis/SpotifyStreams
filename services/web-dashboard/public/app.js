@@ -727,7 +727,46 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
     modalCover.classList.remove('hidden');
     modalCover.style.boxShadow = `0 8px 32px ${artistTheme.accentGlow}`;
   }
-  
+
+  // Auto-theme the modal AND the save-card from the album cover's dominant colour.
+  // The cover already loads with crossOrigin='anonymous', so we can sample its
+  // pixels on a canvas and pick the most vibrant one as the accent. If the image
+  // is CORS-tainted or has no usable colour we silently keep the artist theme.
+  if (modalCoverUrl) {
+    const themeFromCover = () => {
+      try {
+        const n = 24, cv = document.createElement('canvas');
+        cv.width = n; cv.height = n;
+        const cx = cv.getContext('2d');
+        cx.drawImage(modalCover, 0, 0, n, n);
+        const d = cx.getImageData(0, 0, n, n).data;
+        let best = null, bestScore = -1, rs = 0, gs = 0, bs = 0, cnt = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i + 1], b = d[i + 2];
+          if (d[i + 3] < 128) continue;
+          rs += r; gs += g; bs += b; cnt++;
+          const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+          const score = (mx === 0 ? 0 : (mx - mn) / mx) * mx; // saturated AND bright
+          if (mx > 40 && mx < 245 && score > bestScore) { bestScore = score; best = [r, g, b]; }
+        }
+        if (!best && cnt) best = [Math.round(rs / cnt), Math.round(gs / cnt), Math.round(bs / cnt)];
+        if (!best) return;
+        const hx = (c) => c.toString(16).padStart(2, '0');
+        const th = deriveThemeFromAccent(`#${hx(best[0])}${hx(best[1])}${hx(best[2])}`);
+        modalCard.style.setProperty('--album-accent', th.accent);
+        modalCard.style.setProperty('--album-accent-rgb', hexToRgbTriplet(th.accent));
+        modalCard.style.setProperty('--album-glow', th.accentGlow);
+        modalCard.style.background = th.bgGradient;
+        modalCard.style.borderColor = th.accent + '30';
+        modalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${th.accentGlow}`;
+        modalTitle.style.color = th.accent;
+        modalCover.style.boxShadow = `0 8px 32px ${th.accentGlow}`;
+      } catch (_) { /* CORS-tainted / no pixels → keep the artist theme */ }
+    };
+    if (modalCover.complete && modalCover.naturalWidth) themeFromCover();
+    else modalCover.addEventListener('load', themeFromCover, { once: true });
+  }
+
   try {
     const headers = {};
     if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
