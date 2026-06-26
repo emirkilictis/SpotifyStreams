@@ -737,7 +737,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   if (modalCoverUrl) {
     const themeFromCover = () => {
       try {
-        const n = 40, cv = document.createElement('canvas');
+        const n = 56, cv = document.createElement('canvas');
         cv.width = n; cv.height = n;
         const cx = cv.getContext('2d');
         cx.drawImage(modalCover, 0, 0, n, n);
@@ -761,18 +761,29 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
           const e = buckets.get(key) || { c: 0, r: 0, g: 0, b: 0 };
           e.c++; e.r += r; e.g += g; e.b += b; buckets.set(key, e);
         }
-        // Most common colour among the genuinely-coloured pixels = the cover's hue.
-        let best = null, bestC = -1;
+        // Pick the colour that is both common AND saturated (frequency × sat^1.4).
+        // Pure "most common" landed on a washed periwinkle for Justified; weighting
+        // saturation pulls it to the cover's real blue, while the count term still
+        // stops a tiny vivid stray (one red pixel) from winning.
+        let best = null, bestScore = -1;
         for (const e of buckets.values()) {
-          if (e.c > bestC) { bestC = e.c; best = [e.r / e.c, e.g / e.c, e.b / e.c]; }
+          const r = e.r / e.c, g = e.g / e.c, b = e.b / e.c;
+          const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+          const sat = mx ? (mx - mn) / mx : 0;
+          const score = e.c * Math.pow(sat, 1.4);
+          if (score > bestScore) { bestScore = score; best = [r, g, b]; }
         }
         if (!best) return;
         // Punch a muted dominant up: amplify saturation around the grey axis and
         // lift brightness, keeping the hue, so e.g. a grey-blue sky reads as blue.
-        const avg = (best[0] + best[1] + best[2]) / 3, f = 1.55;
+        const avg = (best[0] + best[1] + best[2]) / 3, f = 1.35;
         let r = avg + (best[0] - avg) * f, g = avg + (best[1] - avg) * f, b = avg + (best[2] - avg) * f;
         const mx = Math.max(r, g, b);
-        if (mx > 0 && mx < 195) { const s = 195 / mx; r *= s; g *= s; b *= s; }
+        if (mx > 0 && mx < 188) { const s = 188 / mx; r *= s; g *= s; b *= s; }
+        // Blue-dominant covers tend to come out periwinkle (red sits too high). Pull
+        // red down so they read as a clean blue, not purple. Warm/green covers (red
+        // or green dominant) are untouched.
+        if (b >= r && b >= g) r *= 0.7;
         const cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
         const hx = (c) => cl(c).toString(16).padStart(2, '0');
         const th = deriveThemeFromAccent(`#${hx(r)}${hx(g)}${hx(b)}`);
