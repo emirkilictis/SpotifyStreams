@@ -74,6 +74,7 @@ async function upsertStreamStat(client, songId, streamCount) {
      ORDER BY recorded_date DESC LIMIT 1`,
     [songId]
   );
+  const hasPrior  = lastRes.rows.length > 0;     // any earlier snapshot for this song?
   const lastCount = lastRes.rows[0]?.stream_count
     ? parseInt(lastRes.rows[0].stream_count, 10) : 0;
 
@@ -82,13 +83,18 @@ async function upsertStreamStat(client, songId, streamCount) {
     return false;
   }
 
+  // First-EVER snapshot → stamp yesterday so a new artist added before Spotify's
+  // daily rollover gets a baseline instead of a double-day spike (see the batch
+  // version for the full rationale).
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
-     VALUES ($1, $2, ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date, NOW())
+     VALUES ($1, $2,
+             (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date - $3::int),
+             NOW())
      ON CONFLICT (song_id, recorded_date) DO UPDATE
        SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
            recorded_at  = NOW()`,
-    [songId, streamCount]
+    [songId, streamCount, hasPrior ? 0 : 1]
   );
   return true;
 }
@@ -179,16 +185,26 @@ async function upsertStreamStatsBatch(client, items) {
   const params = [];
   let p = 0;
   for (const [songId, streamCount] of byId) {
+    const hasPrior  = last.has(songId);          // any earlier snapshot for this song?
     const lastCount = last.get(songId) || 0;
     if (lastCount > 0 && streamCount <= lastCount) continue; // stale → skip (same rule)
-    values.push(`($${++p}, $${++p})`);
-    params.push(songId, streamCount);
+    // First-EVER snapshot → stamp YESTERDAY, not today. A brand-new artist scraped
+    // before Spotify's daily rollover shows the PREVIOUS day's playcounts; stamping
+    // those today and then today's real values tomorrow produced a double-day spike
+    // (we had to re-date Christina by hand). Back-dating the first row makes it a
+    // baseline (no day-1 gain) so the next scrape computes a correct 1-day gain.
+    // Safe regardless of when the artist is added — if added after rollover the only
+    // effect is a 0 gain on day 1.
+    values.push(`($${++p}, $${++p}, $${++p})`);
+    params.push(songId, streamCount, hasPrior ? 0 : 1);
   }
   if (!values.length) return 0;
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
-     SELECT v.song_id::text, v.stream_count::bigint, ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date, NOW()
-     FROM (VALUES ${values.join(', ')}) AS v(song_id, stream_count)
+     SELECT v.song_id::text, v.stream_count::bigint,
+            (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date - v.first_snap::int),
+            NOW()
+     FROM (VALUES ${values.join(', ')}) AS v(song_id, stream_count, first_snap)
      ON CONFLICT (song_id, recorded_date) DO UPDATE
        SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
            recorded_at  = NOW()`,
