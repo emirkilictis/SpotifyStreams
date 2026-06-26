@@ -3227,8 +3227,8 @@ select.tc-input { cursor: pointer; }
 }
 
 .artist-hero-avatar {
-  width: 120px;
-  height: 120px;
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
   object-fit: cover;
   border: 3px solid var(--accent-green);
@@ -3297,51 +3297,69 @@ select.tc-input { cursor: pointer; }
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
+/* Right-of-photo stats column: monthly listeners + followers. (Streams stay in
+   the grid below since they split into lead/solo/featured and won't fit here.) */
 .artist-hero-stats {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #e2e8f0;
-  font-size: 0.95rem;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 18px;
 }
 
-.artist-hero-stats strong {
-  font-family: 'Outfit', sans-serif;
-  color: #ffffff;
+.hero-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hero-stat-label {
+  font-size: 0.72rem;
   font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #94a3b8;
 }
 
-.hero-stat-sep {
-  opacity: 0.4;
+.hero-stat p {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.9rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #ffffff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+}
+
+.hero-stat .stat-delta {
+  font-size: 0.8rem;
+  margin-top: 1px;
 }
 
 @media (max-width: 768px) {
+  /* Keep the hero as a ROW on mobile: photo on the left, listeners/followers on
+     the right, so the portrait no longer dominates the whole first screen. */
   .artist-hero-card {
-    padding: 24px;
-    text-align: center;
+    padding: 18px;
+    min-height: 0;
   }
   .artist-hero-card::before {
-    background: linear-gradient(180deg, rgba(8, 12, 20, 0.95) 0%, rgba(8, 12, 20, 0.75) 100%);
+    background: linear-gradient(90deg, rgba(8, 12, 20, 0.92) 0%, rgba(8, 12, 20, 0.6) 65%, rgba(8, 12, 20, 0.3) 100%);
   }
   .artist-hero-content {
-    flex-direction: column;
-    gap: 20px;
+    flex-direction: row;
+    align-items: center;
+    gap: 18px;
   }
   .artist-hero-avatar {
-    width: 110px;
-    height: 110px;
+    width: 104px;
+    height: 104px;
   }
   .artist-name-title {
     font-size: 2rem;
   }
-  .artist-hero-info {
-    align-items: center;
-  }
   .artist-hero-stats {
-    justify-content: center;
-    font-size: 0.85rem;
+    gap: 14px;
+  }
+  .hero-stat p {
+    font-size: 1.55rem;
   }
 }
 

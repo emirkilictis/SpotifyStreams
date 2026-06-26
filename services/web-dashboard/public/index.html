@@ -195,11 +195,23 @@
 
   <main class="dashboard-container">
     <!-- Artist Profile Hero Section (image-only) -->
-    <section class="artist-hero-card glass artist-hero-card--image-only" id="artist-profile-card">
+    <section class="artist-hero-card glass" id="artist-profile-card">
       <div class="artist-hero-banner" id="artist-hero-banner"></div>
       <div class="artist-hero-content">
         <div class="artist-hero-avatar-wrap">
           <img src="" alt="" class="artist-hero-avatar" id="artist-hero-avatar">
+        </div>
+        <div class="artist-hero-stats">
+          <div class="hero-stat">
+            <span class="hero-stat-label">Monthly Listeners</span>
+            <p id="monthly-listeners">-</p>
+            <span id="monthly-listeners-change" class="stat-delta"></span>
+          </div>
+          <div class="hero-stat">
+            <span class="hero-stat-label">Followers</span>
+            <p id="followers">-</p>
+            <span id="followers-change" class="stat-delta"></span>
+          </div>
         </div>
       </div>
     </section>
@@ -221,25 +233,6 @@
           <div class="breakdown-row"><span class="breakdown-label">Lead</span><span id="lead-streams">-</span></div>
           <div class="breakdown-row"><span class="breakdown-label">Solo</span><span id="solo-streams">-</span></div>
           <div class="breakdown-row"><span class="breakdown-label">Featured</span><span id="feat-streams">-</span></div>
-        </div>
-      </div>
-
-      <!-- Monthly Listeners + Followers merged -->
-      <div class="stat-card glass stat-card-dual">
-        <div class="stat-info">
-          <h3>Listeners &amp; Followers</h3>
-          <div class="dual-stat">
-            <div class="dual-stat-item">
-              <span class="dual-label">Monthly Listeners</span>
-              <p id="monthly-listeners">-</p>
-              <span id="monthly-listeners-change" class="stat-delta"></span>
-            </div>
-            <div class="dual-stat-item">
-              <span class="dual-label">Followers</span>
-              <p id="followers">-</p>
-              <span id="followers-change" class="stat-delta"></span>
-            </div>
-          </div>
         </div>
       </div>
 
