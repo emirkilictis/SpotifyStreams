@@ -122,6 +122,16 @@ const FORCE_CANONICAL = {
   '1QonoQ0WvX2xYX5BNhTIeQ': '5CanskmqatfFbm9O9Epavt', // ErrTime (feat. Latto) [Remix] — Ultimate → standalone Latto remix
   '712SSg5i3QMK2yA7v2oV1D': '5CanskmqatfFbm9O9Epavt', // ErrTime (feat. Latto) [Remix] — Snow Mix → standalone Latto remix
   '6CbbaIFRxszOfvFN9ljlTk': '1dtdgZK7egg2fBVoeC0T5i', // ErrTime (feat. Jeezy) [Remix] — Ultimate → standalone Jeezy remix
+
+  // Christina Aguilera "Moves Like Jagger": the "- Radio Edit" copy (1qIX, on a
+  // junk comp) is the SAME linked recording as the "Studio Recording From The
+  // Voice Performance" cluster (identical 2,190,350,928 play count). Admin merges
+  // folded the Studio copies together but left the Radio Edit as its own head, so
+  // the 2.19B recording was counted TWICE. Re-point it onto the Studio head; the
+  // chain-flatten step then collapses the whole group (incl. the admin-rule 2-cycle)
+  // onto one root, so it counts once. Drops Christina's bucket ~15.5B → ~11.1B
+  // (kworb 10.97B). The 5 silent Studio dupes already fold here automatically.
+  '1qIX1lGLyeCb2kxrb1ftRf': '1YsMJDSKkkyHcEvs52GXAe',
 };
 
 /**
@@ -441,25 +451,47 @@ function shouldKeepSeparate(title) {
     manualCount += r.rowCount;
   }
 
-  // Flatten canonical chains so every alias points STRAIGHT at a root. A manual
-  // rule or FORCE_CANONICAL can re-root a canonical that the title pass had
-  // already merged copies into (X→Y, then Y→Z), leaving X→Y→Z. The view resolves
-  // only one level, so the intermediate Y becomes a phantom canonical — counted
-  // in the stat total but absent from the representative list (tile > list).
-  // Resolve each alias to its ultimate root in one pass; the `seen` guard also
-  // makes this safe against any residual 2-cycle.
-  let flattened = 0;
+  // Flatten canonical chains so every alias points STRAIGHT at a root, AND break
+  // any canonical_id cycle (A→B→…→A). A manual rule or FORCE_CANONICAL can re-root
+  // a canonical the title pass already merged into (X→Y, then Y→Z), leaving X→Y→Z;
+  // the view resolves only one level, so the intermediate Y becomes a phantom
+  // canonical — counted in the stat total but absent from the representative list.
+  //
+  // A pure 2-cycle (A→B, B→A) is worse: neither member is a NULL root, so the old
+  // walk returned the cycle itself (root === canon) and left both pointing at each
+  // other. Both then count in the stat total → the recording is double-counted.
+  // This is exactly what tripled Christina's "Moves Like Jagger" (Radio Edit head
+  // + a 0Hqe↔1YsMJ Studio cycle, all the same 2.19B linked count) and inflated her
+  // bucket by ~4.4B. Now: when a walk re-enters a node, pick a deterministic head
+  // for that cycle, detach it (canonical_id → NULL) and collapse every member and
+  // any downstream alias onto it.
+  let flattened = 0, cyclesBroken = 0;
   try {
     const all = await client.query(`SELECT id, canonical_id FROM songs WHERE canonical_id IS NOT NULL`);
     const canonOf = new Map(all.rows.map(r => [r.id, r.canonical_id]));
-    const rootOf = (start) => {
-      let cur = start; const seen = new Set();
-      while (canonOf.has(cur) && !seen.has(cur)) { seen.add(cur); cur = canonOf.get(cur); }
-      return cur;
+    const cycleHeadOf = new Map(); // any node sitting in a cycle -> chosen head id
+    const resolve = (start) => {
+      let cur = start; const path = []; const idx = new Map();
+      while (canonOf.has(cur)) {
+        if (cycleHeadOf.has(cur)) return cycleHeadOf.get(cur);
+        if (idx.has(cur)) {                       // chain looped back → cycle
+          const members = path.slice(idx.get(cur));
+          const head = members.slice().sort()[0]; // deterministic representative
+          for (const m of members) cycleHeadOf.set(m, head);
+          return head;
+        }
+        idx.set(cur, path.length);
+        path.push(cur);
+        cur = canonOf.get(cur);
+      }
+      return cur;                                 // canonical_id IS NULL → real root
     };
     for (const [id, canon] of canonOf) {
-      const root = rootOf(canon);
-      if (root !== canon && root !== id) {
+      const root = resolve(id);
+      if (root === id) {                          // chosen cycle head → become a root
+        await client.query(`UPDATE songs SET canonical_id = NULL WHERE id = $1`, [id]);
+        cyclesBroken++;
+      } else if (root !== canon) {                // chain/cycle member → straight to root
         await client.query(`UPDATE songs SET canonical_id = $1 WHERE id = $2`, [root, id]);
         flattened++;
       }
@@ -468,7 +500,7 @@ function shouldKeepSeparate(title) {
     console.warn('[dedup] chain-flatten step failed:', e.code || e.message);
   }
 
-  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (${exactCount} exact-count auto-merge dahil; önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced, ${manualCount} manual merge, ${manualSplit.size} manual split, ${flattened} chain flattened.`);
+  console.log(`[dedup] ${canonicalCount} canonical, ${aliasCount} alias bağlandı (${exactCount} exact-count auto-merge dahil; önceki ${resetCount} sıfırlandı). ${Object.keys(FORCE_CANONICAL).length} forced, ${manualCount} manual merge, ${manualSplit.size} manual split, ${flattened} chain flattened, ${cyclesBroken} cycle broken.`);
   return { canonicalCount, aliasCount };
 }
 
