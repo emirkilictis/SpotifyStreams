@@ -609,7 +609,8 @@
     let sortDesc = true; // newest first
 
     const esc = (s) => String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;'); // also safe inside attributes (e.g. linkifyContact's mailto href)
 
     // Highlight the search term inside already-escaped text.
     function highlight(escaped) {

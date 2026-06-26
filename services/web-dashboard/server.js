@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const { Pool } = require('pg');
 const { groupSameStreamDuplicates } = require('./lib/dups');
@@ -11,6 +12,24 @@ const PORT = process.env.PORT || 3000;
 
 // Behind Render's proxy — trust X-Forwarded-* so req.protocol is https (used for absolute OG urls).
 app.set('trust proxy', true);
+
+// Don't advertise the framework/version.
+app.disable('x-powered-by');
+
+// Conservative security headers on every response. Deliberately NO Content-Security-
+// Policy and NO Cross-Origin-Resource-Policy: a CSP would risk breaking inline
+// scripts/html2canvas blobs, and CORP would stop Twitter/Facebook from fetching the
+// OG share image. These headers are safe and don't change how the page renders.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');           // no MIME sniffing
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');               // clickjacking guard
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), browsing-topics=()');
+  if (req.secure) {                                             // HTTPS only (Render), never localhost
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  }
+  next();
+});
 
 
 
@@ -49,11 +68,17 @@ const isArtistLockedById = (artistId) =>
 // Admin passcode for reading visitor feedback/requests. Set ADMIN_PASSCODE in the
 // environment (Render dashboard); falls back to a dev default so local runs work.
 const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || 'pairofwings';
-const isAdmin = (passcode) => typeof passcode === 'string' && passcode.length > 0 && passcode === ADMIN_PASSCODE;
+// Constant-time compare so the response time can't leak how many leading chars of
+// the passcode are correct. Hashing both sides first keeps it constant-time even
+// when the lengths differ (timingSafeEqual requires equal-length buffers).
+const _passHash = (s) => crypto.createHash('sha256').update(String(s)).digest();
+const _adminHash = _passHash(ADMIN_PASSCODE);
+const isAdmin = (passcode) =>
+  typeof passcode === 'string' && passcode.length > 0 &&
+  crypto.timingSafeEqual(_passHash(passcode), _adminHash);
 
 // Salt for hashing submitter IPs (abuse tracking without storing raw IPs).
 const IP_HASH_SECRET = process.env.IP_HASH_SECRET || 'spotify-streams-ip-salt';
-const crypto = require('crypto');
 const hashIp = (ip) => crypto.createHash('sha256').update(String(ip) + IP_HASH_SECRET).digest('hex').slice(0, 32);
 
 // In-memory throttle: one submission per IP-hash per 30s (best-effort, resets on redeploy).
@@ -1198,9 +1223,34 @@ app.post('/api/feedback', async (req, res) => {
 });
 
 // Admin: list submissions. Auth via X-Admin-Passcode header or ?key= query.
+// Brute-force guard: the passcode is short and there's no account system, so after
+// a burst of wrong guesses from one IP we lock that IP out for a while. Counts only
+// FAILURES and a correct passcode clears the counter, so the real admin is never
+// locked out by their own successful access.
+const adminFails = new Map(); // ip -> { count, until }
+const ADMIN_MAX_FAILS = 10;
+const ADMIN_LOCK_MS = 15 * 60 * 1000;
+const clientIp = (req) =>
+  (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'unknown';
 const requireAdmin = (req, res, next) => {
+  const ip = clientIp(req);
+  const now = Date.now();
+  if (adminFails.size > 5000) {                 // bound memory under a distributed flood
+    for (const [k, v] of adminFails) if (v.until < now && v.count === 0) adminFails.delete(k);
+  }
+  const rec = adminFails.get(ip);
+  if (rec && rec.until > now) {
+    return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+  }
   const key = req.headers['x-admin-passcode'] || req.query.key;
-  if (!isAdmin(key)) return res.status(403).json({ error: 'Forbidden' });
+  if (!isAdmin(key)) {
+    const r = rec || { count: 0, until: 0 };
+    r.count += 1;
+    if (r.count >= ADMIN_MAX_FAILS) { r.until = now + ADMIN_LOCK_MS; r.count = 0; }
+    adminFails.set(ip, r);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  adminFails.delete(ip);                          // success clears the counter
   next();
 };
 
