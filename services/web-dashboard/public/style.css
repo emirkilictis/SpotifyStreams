@@ -2199,14 +2199,14 @@ body.modal-open {
   box-shadow: 0 0 20px rgba(30, 215, 96, 0.15);
 }
 
-.picker-search-wrapper .search-icon {
+.picker-search-wrapper .picker-search-icon {
   color: var(--text-secondary);
   margin-right: 12px;
   flex-shrink: 0;
   transition: color 0.3s ease;
 }
 
-.picker-search-wrapper:focus-within .search-icon {
+.picker-search-wrapper:focus-within .picker-search-icon {
   color: var(--accent-green);
 }
 
