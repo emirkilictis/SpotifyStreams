@@ -761,17 +761,13 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
           const e = buckets.get(key) || { c: 0, r: 0, g: 0, b: 0 };
           e.c++; e.r += r; e.g += g; e.b += b; buckets.set(key, e);
         }
-        // Pick the colour that is both common AND saturated (frequency × sat^1.4).
-        // Pure "most common" landed on a washed periwinkle for Justified; weighting
-        // saturation pulls it to the cover's real blue, while the count term still
-        // stops a tiny vivid stray (one red pixel) from winning.
-        let best = null, bestScore = -1;
+        // Most COMMON of the genuinely-coloured pixels = the cover's real hue.
+        // (Saturation-weighting was tried but on a near-monochrome cover it latched
+        // onto a tiny vivid noise region — FutureSex/LoveSounds came out green. The
+        // blue cast is corrected by the de-purple step below instead.)
+        let best = null, bestC = -1;
         for (const e of buckets.values()) {
-          const r = e.r / e.c, g = e.g / e.c, b = e.b / e.c;
-          const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-          const sat = mx ? (mx - mn) / mx : 0;
-          const score = e.c * Math.pow(sat, 1.4);
-          if (score > bestScore) { bestScore = score; best = [r, g, b]; }
+          if (e.c > bestC) { bestC = e.c; best = [e.r / e.c, e.g / e.c, e.b / e.c]; }
         }
         if (!best) return;
         // Punch a muted dominant up: amplify saturation around the grey axis and
@@ -780,10 +776,15 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
         let r = avg + (best[0] - avg) * f, g = avg + (best[1] - avg) * f, b = avg + (best[2] - avg) * f;
         const mx = Math.max(r, g, b);
         if (mx > 0 && mx < 188) { const s = 188 / mx; r *= s; g *= s; b *= s; }
-        // Blue-dominant covers tend to come out periwinkle (red sits too high). Pull
-        // red down so they read as a clean blue, not purple. Warm/green covers (red
-        // or green dominant) are untouched.
-        if (b >= r && b >= g) r *= 0.7;
+        // Warm covers (red is the strongest channel) keep their hue — gold, orange,
+        // red all read fine. Anything COOL (blue, cyan or green dominant) is forced
+        // onto a clean blue: muddy/near-monochrome covers kept landing on arbitrary
+        // greens, teals and periwinkles, and on this dark dashboard those always look
+        // wrong. Blue is the safe cool accent, keyed to the cover's brightness.
+        if (!(r > g && r > b)) {
+          const peak = Math.max(r, g, b);
+          r = peak * 0.42; g = peak * 0.62; b = peak;
+        }
         const cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
         const hx = (c) => cl(c).toString(16).padStart(2, '0');
         const th = deriveThemeFromAccent(`#${hx(r)}${hx(g)}${hx(b)}`);
