@@ -743,9 +743,12 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
         cx.drawImage(modalCover, 0, 0, n, n);
         const d = cx.getImageData(0, 0, n, n).data;
         const buckets = new Map(); // coarse colour -> { c, r, g, b }
+        let totalPixels = 0;
+        let coloredPixels = 0;
         for (let i = 0; i < d.length; i += 4) {
           const r = d[i], g = d[i + 1], b = d[i + 2];
           if (d[i + 3] < 128) continue;
+          totalPixels++;
           const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
           // Skip shadows/near-black, blown highlights, and greys with no real hue.
           // They punch up into muddy noise — a dark grey jacket on Justified's blue
@@ -757,37 +760,36 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
           const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
           const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
           if (cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) continue;
+          coloredPixels++;
           const key = (r >> 4) + ',' + (g >> 4) + ',' + (b >> 4);
           const e = buckets.get(key) || { c: 0, r: 0, g: 0, b: 0 };
           e.c++; e.r += r; e.g += g; e.b += b; buckets.set(key, e);
         }
-        // Most COMMON of the genuinely-coloured pixels = the cover's real hue.
-        // (Saturation-weighting was tried but on a near-monochrome cover it latched
-        // onto a tiny vivid noise region — FutureSex/LoveSounds came out green. The
-        // blue cast is corrected by the de-purple step below instead.)
-        let best = null, bestC = -1;
-        for (const e of buckets.values()) {
-          if (e.c > bestC) { bestC = e.c; best = [e.r / e.c, e.g / e.c, e.b / e.c]; }
+        const coloredRatio = totalPixels > 0 ? (coloredPixels / totalPixels) : 0;
+        console.log('Album theme extraction stats:', { albumId, title, totalPixels, coloredPixels, coloredRatio });
+        let th;
+        if (coloredRatio < 0.05 || coloredPixels === 0) {
+          th = deriveThemeFromAccent('#ffffff');
+        } else {
+          // Most COMMON of the genuinely-coloured pixels = the cover's real hue.
+          let best = null, bestC = -1;
+          for (const e of buckets.values()) {
+            if (e.c > bestC) { bestC = e.c; best = [e.r / e.c, e.g / e.c, e.b / e.c]; }
+          }
+          if (!best) {
+            th = deriveThemeFromAccent('#ffffff');
+          } else {
+            // Punch a muted dominant up: amplify saturation around the grey axis and
+            // lift brightness, keeping the hue, so e.g. a grey-blue sky reads as blue.
+            const avg = (best[0] + best[1] + best[2]) / 3, f = 1.35;
+            let r = avg + (best[0] - avg) * f, g = avg + (best[1] - avg) * f, b = avg + (best[2] - avg) * f;
+            const mx = Math.max(r, g, b);
+            if (mx > 0 && mx < 188) { const s = 188 / mx; r *= s; g *= s; b *= s; }
+            const cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
+            const hx = (c) => cl(c).toString(16).padStart(2, '0');
+            th = deriveThemeFromAccent(`#${hx(r)}${hx(g)}${hx(b)}`);
+          }
         }
-        if (!best) return;
-        // Punch a muted dominant up: amplify saturation around the grey axis and
-        // lift brightness, keeping the hue, so e.g. a grey-blue sky reads as blue.
-        const avg = (best[0] + best[1] + best[2]) / 3, f = 1.35;
-        let r = avg + (best[0] - avg) * f, g = avg + (best[1] - avg) * f, b = avg + (best[2] - avg) * f;
-        const mx = Math.max(r, g, b);
-        if (mx > 0 && mx < 188) { const s = 188 / mx; r *= s; g *= s; b *= s; }
-        // Warm covers (red is the strongest channel) keep their hue — gold, orange,
-        // red all read fine. Anything COOL (blue, cyan or green dominant) is forced
-        // onto a clean blue: muddy/near-monochrome covers kept landing on arbitrary
-        // greens, teals and periwinkles, and on this dark dashboard those always look
-        // wrong. Blue is the safe cool accent, keyed to the cover's brightness.
-        if (!(r > g && r > b)) {
-          const peak = Math.max(r, g, b);
-          r = peak * 0.42; g = peak * 0.62; b = peak;
-        }
-        const cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
-        const hx = (c) => cl(c).toString(16).padStart(2, '0');
-        const th = deriveThemeFromAccent(`#${hx(r)}${hx(g)}${hx(b)}`);
         modalCard.style.setProperty('--album-accent', th.accent);
         modalCard.style.setProperty('--album-accent-rgb', hexToRgbTriplet(th.accent));
         modalCard.style.setProperty('--album-glow', th.accentGlow);
