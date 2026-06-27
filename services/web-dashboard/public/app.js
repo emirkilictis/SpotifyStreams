@@ -1251,11 +1251,13 @@ async function downloadModalAsImage() {
           // Drop the themed neon glow (0 0 80px accentGlow) — html2canvas renders it
           // as a smeared neon halo (especially on mobile). Keep only a clean drop shadow.
           clonedCard.style.setProperty('box-shadow', '0 25px 60px rgba(0, 0, 0, 0.6)', 'important');
-          // Disable the per-artist theme tint in the capture. The colored radial
-          // gradient (Christina's washed the card out — "siyahlığı yok, fazla
-          // beyazlamış") robs the shared card of the deep-black look it should have.
-          // Force a flat near-black background so every artist's save-card is dark.
-          clonedCard.style.setProperty('background', '#070b11', 'important');
+          // Preserve the original background gradient of the album/artist theme in the capture
+          const origBg = modalCard.style.background;
+          if (origBg) {
+            clonedCard.style.setProperty('background', origBg, 'important');
+          } else {
+            clonedCard.style.setProperty('background', '#070b11', 'important');
+          }
         }
 
         // Force desktop-level sizes inside the cloned modal header for capture
