@@ -114,7 +114,7 @@ function isCoverOrTribute(title) {
   return false;
 }
 
-async function processAlbum(page, client, album, artistUri, stats) {
+async function processAlbum(page, client, album, artistUri, stats, backdateFirst = false) {
   const tracks = await fetchAlbumTracks(page, album.id);
   let kept = 0;
   // Collect rows and flush in two batched writes at the end of the album instead
@@ -182,14 +182,23 @@ async function processAlbum(page, client, album, artistUri, stats) {
   // Two round-trips for the whole album (songs must land before their stream
   // stats — stream_stats.song_id references songs.id).
   await upsertSongsBatch(client, songRows);
-  const written = await upsertStreamStatsBatch(client, streamRows);
+  const written = await upsertStreamStatsBatch(client, streamRows, backdateFirst);
   stats.streamsUpdated += written;
   return kept;
 }
 
 async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds = [], isForce = false, albumOnly = false) {
   const artistUri = `spotify:artist:${artistId}`;
-  console.log(`\n[scraper] Discovering albums for artist: ${artistId}...`);
+  // Back-date the first-ever snapshot to "yesterday" ONLY for a brand-new artist
+  // (zero prior snapshots) — that prevents the new-artist double-day spike. For an
+  // established artist, a newly-discovered edition of an existing song must NOT be
+  // back-dated: stamping today's playcount on yesterday zeroes the song's daily
+  // gain via the canonical MAX (this broke LISA "Goals").
+  const artistIsNew = !(await client.query(
+    `SELECT 1 FROM stream_stats ss JOIN songs s ON s.id = ss.song_id
+     WHERE s.primary_artist = $1 LIMIT 1`, [artistUri]
+  )).rows.length;
+  console.log(`\n[scraper] Discovering albums for artist: ${artistId}...${artistIsNew ? ' (new artist → baseline back-date)' : ''}`);
   let { albums: discoveredAlbums, own_count, feat_count, stats: artistStats } = await discoverAllAlbumsPuppeteer(page, artistId, { includeAppearsOn: !albumOnly });
 
   // Persist artist-level stats (monthly listeners, followers, world rank) as a daily snapshot.
@@ -553,7 +562,7 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
     const tag = isFeatured ? 'feat' : 'own ';
     console.log(`[${tag} ${i+1}/${albumsToScrape.length}] "${a.title}"`);
     try {
-      const n = await processAlbum(page, client, { ...a, is_featured: isFeatured }, artistUri, stats);
+      const n = await processAlbum(page, client, { ...a, is_featured: isFeatured }, artistUri, stats, artistIsNew);
       console.log(`           ${n} track`);
     } catch (err) { console.warn('  Hata:', err.message); }
     await sleep(DELAY_MS);

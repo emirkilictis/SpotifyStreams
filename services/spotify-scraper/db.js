@@ -160,7 +160,7 @@ async function upsertSongsBatch(client, songs) {
  * 2 round-trips per album instead of 2 per track: one SELECT for the latest
  * counts, one multi-row INSERT for the non-stale rows. Returns rows written.
  */
-async function upsertStreamStatsBatch(client, items) {
+async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
   if (!items || !items.length) return 0;
   // Collapse to one entry per song (max count) so the INSERT never hits the same
   // (song_id, today) conflict twice.
@@ -188,15 +188,14 @@ async function upsertStreamStatsBatch(client, items) {
     const hasPrior  = last.has(songId);          // any earlier snapshot for this song?
     const lastCount = last.get(songId) || 0;
     if (lastCount > 0 && streamCount <= lastCount) continue; // stale → skip (same rule)
-    // First-EVER snapshot → stamp YESTERDAY, not today. A brand-new artist scraped
-    // before Spotify's daily rollover shows the PREVIOUS day's playcounts; stamping
-    // those today and then today's real values tomorrow produced a double-day spike
-    // (we had to re-date Christina by hand). Back-dating the first row makes it a
-    // baseline (no day-1 gain) so the next scrape computes a correct 1-day gain.
-    // Safe regardless of when the artist is added — if added after rollover the only
-    // effect is a 0 gain on day 1.
+    // First-EVER snapshot of a brand-new ARTIST → stamp YESTERDAY, not today, so a
+    // new artist scraped before Spotify's daily rollover gets a baseline instead of
+    // a double-day spike. Gated on backdateFirst (artist had zero prior snapshots):
+    // back-dating a new EDITION of an existing song would put today's playcount on
+    // yesterday and, through the canonical MAX, zero out that song's daily gain
+    // (this is what killed LISA "Goals").
     values.push(`($${++p}, $${++p}, $${++p})`);
-    params.push(songId, streamCount, hasPrior ? 0 : 1);
+    params.push(songId, streamCount, (backdateFirst && !hasPrior) ? 1 : 0);
   }
   if (!values.length) return 0;
   await client.query(
