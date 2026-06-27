@@ -2619,6 +2619,9 @@ if (artistSelector) {
 const pickerSection = document.getElementById('artist-picker');
 const dashboardWrapper = document.getElementById('dashboard-wrapper');
 const backToPickerBtn = document.getElementById('back-to-picker-btn');
+const artistSearchInput = document.getElementById('artist-search-input');
+const clearSearchBtn = document.getElementById('clear-search-btn');
+let artistSearchQuery = '';
 
 // Enter dashboard for a specific artist
 async function enterDashboard(artistId, artistName) {
@@ -2676,6 +2679,15 @@ function showPicker() {
   pickerSection.classList.remove('hidden');
   applyArtistTheme('31TPClRtHm23RisEBtV3X7'); // Reset to default Spotify green on the picker
   window.scrollTo(0, 0);
+
+  if (artistSearchInput) {
+    artistSearchInput.value = '';
+    artistSearchQuery = '';
+  }
+  if (clearSearchBtn) {
+    clearSearchBtn.classList.add('hidden');
+  }
+  renderPickerRoster();
 }
 
 // Function to dynamically add JC Chasez to the dropdown selector
@@ -2746,42 +2758,55 @@ function renderPickerRoster() {
   if (grid) {
     grid.classList.add('roster-ready');   // reveal now that we have the live roster
     grid.innerHTML = '';
-    roster.forEach(a => {
-      const locked = isArtistLocked(a.artist_id);
-      const card = document.createElement('button');
-      card.className = locked ? 'picker-card locked-card' : 'picker-card';
-      card.dataset.artist = a.artist_id;
-      card.dataset.realName = a.name;
-      card.dataset.name = locked ? 'Locked Artist' : a.name;
 
-      if (locked) {
-        card.innerHTML = `
-          <div class="picker-card-img-wrap locked-img-wrap">
-            <div class="lock-placeholder">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lock-svg">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-              </svg>
-            </div>
-            <div class="picker-card-overlay"></div>
-          </div>
-          <div class="picker-card-info">
-            <h3>Locked Artist</h3>
-          </div>
-        `;
-      } else {
-        card.innerHTML = `
-          <div class="picker-card-img-wrap">
-            <img src="${a.image_url || '/images/default.jpg'}" alt="${a.name}" class="picker-card-img" loading="eager">
-            <div class="picker-card-overlay"></div>
-          </div>
-          <div class="picker-card-info">
-            <h3>${a.name}</h3>
-          </div>
-        `;
-      }
-      grid.appendChild(card);
+    const filteredRoster = roster.filter(a => {
+      const query = artistSearchQuery.toLowerCase().trim();
+      if (!query) return true;
+      const nameMatch = a.name.toLowerCase().includes(query);
+      const lockedMatch = isArtistLocked(a.artist_id) && 'locked artist'.includes(query);
+      return nameMatch || lockedMatch;
     });
+
+    if (filteredRoster.length === 0) {
+      grid.innerHTML = `<div class="picker-no-results">No artists found matching "${artistSearchQuery}"</div>`;
+    } else {
+      filteredRoster.forEach(a => {
+        const locked = isArtistLocked(a.artist_id);
+        const card = document.createElement('button');
+        card.className = locked ? 'picker-card locked-card' : 'picker-card';
+        card.dataset.artist = a.artist_id;
+        card.dataset.realName = a.name;
+        card.dataset.name = locked ? 'Locked Artist' : a.name;
+
+        if (locked) {
+          card.innerHTML = `
+            <div class="picker-card-img-wrap locked-img-wrap">
+              <div class="lock-placeholder">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lock-svg">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+              </div>
+              <div class="picker-card-overlay"></div>
+            </div>
+            <div class="picker-card-info">
+              <h3>Locked Artist</h3>
+            </div>
+          `;
+        } else {
+          card.innerHTML = `
+            <div class="picker-card-img-wrap">
+              <img src="${a.image_url || '/images/default.jpg'}" alt="${a.name}" class="picker-card-img" loading="eager">
+              <div class="picker-card-overlay"></div>
+            </div>
+            <div class="picker-card-info">
+              <h3>${a.name}</h3>
+            </div>
+          `;
+        }
+        grid.appendChild(card);
+      });
+    }
   }
 
   const artistSelector = document.getElementById('artist-selector');
@@ -2802,6 +2827,34 @@ function renderPickerRoster() {
 // Back to picker button
 if (backToPickerBtn) {
   backToPickerBtn.addEventListener('click', showPicker);
+}
+
+// Search input filter binding
+if (artistSearchInput) {
+  artistSearchInput.addEventListener('input', (e) => {
+    artistSearchQuery = e.target.value;
+    if (clearSearchBtn) {
+      if (artistSearchQuery) {
+        clearSearchBtn.classList.remove('hidden');
+      } else {
+        clearSearchBtn.classList.add('hidden');
+      }
+    }
+    renderPickerRoster();
+  });
+}
+
+// Clear search button binding
+if (clearSearchBtn) {
+  clearSearchBtn.addEventListener('click', () => {
+    if (artistSearchInput) {
+      artistSearchInput.value = '';
+      artistSearchQuery = '';
+      clearSearchBtn.classList.add('hidden');
+      renderPickerRoster();
+      artistSearchInput.focus();
+    }
+  });
 }
 
 // ---- Apply the admin-managed roster (/api/artists) over the static picker,

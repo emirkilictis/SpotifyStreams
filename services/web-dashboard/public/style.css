@@ -2172,6 +2172,98 @@ body.modal-open {
   font-weight: 400;
 }
 
+/* Artist search on landing page */
+.picker-search-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+  margin-bottom: 8px;
+}
+
+.picker-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  max-width: 400px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 0 16px;
+  transition: all 0.3s ease;
+}
+
+.picker-search-wrapper:focus-within {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(30, 215, 96, 0.5);
+  box-shadow: 0 0 20px rgba(30, 215, 96, 0.15);
+}
+
+.picker-search-wrapper .search-icon {
+  color: var(--text-secondary);
+  margin-right: 12px;
+  flex-shrink: 0;
+  transition: color 0.3s ease;
+}
+
+.picker-search-wrapper:focus-within .search-icon {
+  color: var(--accent-green);
+}
+
+#artist-search-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.95rem;
+  padding: 12px 0;
+}
+
+#artist-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.clear-search-btn {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-secondary);
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 4px;
+  margin-left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  transition: all 0.2s ease;
+}
+
+.clear-search-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.clear-search-btn.hidden {
+  display: none;
+}
+
+.picker-no-results {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-secondary);
+  font-family: 'Inter', sans-serif;
+  font-size: 1.05rem;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+}
+
 /* Artist Cards Grid */
 .picker-grid {
   display: grid;
