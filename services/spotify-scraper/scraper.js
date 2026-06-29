@@ -486,6 +486,23 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
     }
   }
 
+  // Melanie Martinez — the "Dollhouse (The Remixes)" EP never surfaced in her
+  // appears-on, so its four official remixes (each its own track id + stream
+  // count, ~12.1M total) were never scraped. Found via audit-kworb.js. They are
+  // distinct recordings, not duplicates of Dollhouse, so they count separately
+  // like kworb. The track-level filter keeps only her tracks on the album.
+  if (artistId === '63yrD80RY3RNEM2YDpUpO8') {
+    const extraAlbums = [
+      { id: '64ZcJOwakn1tWxDFRIE4M3', title: 'Dollhouse (The Remixes)', release_date: '2014-07-24', is_featured: true }, // Jai Wolf / Kiely Rich / One Love / Treasure Fingers remixes ~12.1M
+    ];
+    for (const extra of extraAlbums) {
+      if (!albumMap.has(extra.id)) {
+        await upsertAlbum(client, extra);
+        albumMap.set(extra.id, extra);
+      }
+    }
+  }
+
 
   let albumsToScrape = Array.from(albumMap.values());
 

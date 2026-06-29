@@ -479,6 +479,7 @@
       <button class="modal-close" id="song-modal-close-btn">&times;</button>
       <div class="modal-header">
         <div class="modal-header-flex">
+          <img id="modal-song-cover" src="" alt="Song Cover" class="modal-song-cover-img" crossorigin="anonymous">
           <div class="modal-header-details">
             <h2 id="modal-song-title">Song Title</h2>
             <p class="modal-subtitle" id="modal-song-subtitle">Album Title</p>
@@ -532,11 +533,15 @@
           <div id="song-chart" class="chart-container"></div>
         </div>
 
-        <div style="margin-top: 24px; text-align: center;">
-          <a href="" id="song-modal-spotify-link" target="_blank" rel="noopener noreferrer" class="btn-primary" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; padding: 12px 24px;">
+        <div style="margin-top: 24px; text-align: center; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: center;">
+          <a href="" id="song-modal-spotify-link" target="_blank" rel="noopener noreferrer" class="btn-primary" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; padding: 12px 24px; width: auto; margin: 0;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.438-5.305-1.764-8.788-.97-.336.077-.67-.135-.746-.47-.077-.337.135-.67.472-.747 3.81-.87 7.078-.5 9.71 1.114.294.18.385.563.209.857zm1.226-2.72c-.226.367-.707.487-1.074.26-2.69-1.654-6.79-2.135-9.97-1.17-.413.125-.847-.11-1.97-.523-.125-.413.11-.847.522-.97 3.63-1.102 8.14-.567 11.23 1.33.367.226.487.707.26 1.074zm.106-2.833C14.384 8.782 8.543 8.588 5.176 9.61c-.516.156-1.053-.137-1.21-.653-.156-.516.137-1.053.653-1.21 3.864-1.173 10.32-.95 14.38 1.46.46.273.61.874.337 1.336-.273.463-.874.61-1.336.337z"/></svg>
             Open in Spotify
           </a>
+          <button id="open-song-card-btn" class="btn-secondary" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-primary); padding: 12px 24px; border-radius: 8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>
+            <span>Daily Card</span>
+          </button>
         </div>
       </div>
     </div>
@@ -553,6 +558,22 @@
         <button id="daily-card-close-btn" class="btn-secondary" type="button">Close</button>
       </div>
       <div id="daily-card" class="daily-card">
+        <!-- Generated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Song Share Card Modal -->
+  <div class="modal-backdrop hidden" id="song-card-modal">
+    <div class="daily-card-shell">
+      <div class="daily-card-actions">
+        <button id="song-card-download-btn" class="btn-primary" type="button" style="display:inline-flex;align-items:center;gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>Save PNG</span>
+        </button>
+        <button id="song-card-close-btn" class="btn-secondary" type="button">Close</button>
+      </div>
+      <div id="song-card" class="daily-card song-card">
         <!-- Generated dynamically -->
       </div>
     </div>

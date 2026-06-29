@@ -16,6 +16,7 @@ const SONGS_COLLAPSED_LIMIT = 15;
 let currentArtist = null; // set when artist is picked
 let currentArtistName = ''; // display name of picked artist
 let currentAlbumMeta = null; // { albumId, title, releaseDate, coverUrl } of open album modal
+let currentSongMeta = null; // { songId, title, albumTitle, coverUrl, cumulative, dailyGain, avg7d, yearEndProj, nextMilestone, etaText, percent } of open song modal
 let activeSongChart = null;
 let activeAlbumChart = null;
 let activeSongHistory = [];
@@ -101,6 +102,7 @@ const modalDownloadBtn = document.getElementById('modal-download-btn');
 // Song Modal Elements
 const songModal = document.getElementById('song-modal');
 const songModalCloseBtn = document.getElementById('song-modal-close-btn');
+const modalSongCover = document.getElementById('modal-song-cover');
 const modalSongTitle = document.getElementById('modal-song-title');
 const modalSongSubtitle = document.getElementById('modal-song-subtitle');
 const modalSongStreams = document.getElementById('modal-song-streams');
@@ -111,6 +113,13 @@ const songModalMilestoneEta = document.getElementById('song-modal-milestone-eta'
 const songModalMilestoneProgress = document.getElementById('song-modal-milestone-progress');
 const songModalMilestonePercent = document.getElementById('song-modal-milestone-percent');
 const songModalSpotifyLink = document.getElementById('song-modal-spotify-link');
+const openSongCardBtn = document.getElementById('open-song-card-btn');
+
+// Song Card Modal Elements
+const songCardModal = document.getElementById('song-card-modal');
+const songCardEl = document.getElementById('song-card');
+const songCardCloseBtn = document.getElementById('song-card-close-btn');
+const songCardDownloadBtn = document.getElementById('song-card-download-btn');
 
 // Milestones Section Elements
 const milestonesSection = document.getElementById('milestones-section');
@@ -1690,6 +1699,154 @@ if (dailyCardCloseBtn) dailyCardCloseBtn.addEventListener('click', () => dailyCa
 if (dailyCardDownloadBtn) dailyCardDownloadBtn.addEventListener('click', downloadDailyCard);
 if (dailyCardModal) dailyCardModal.addEventListener('click', (e) => { if (e.target === dailyCardModal) dailyCardModal.classList.add('hidden'); });
 
+// ===== Song Share Card =====
+async function openSongCard() {
+  if (!currentSongMeta || !songCardEl) return;
+  const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
+
+  songCardModal.classList.remove('hidden');
+  songCardEl.style.setProperty('--dc-accent', theme.accent);
+  songCardEl.style.setProperty('--dc-accent-rgb', hexToRgbTriplet(theme.accent));
+  songCardEl.style.background = theme.bgGradient;
+  songCardEl.style.borderColor = theme.accent + '40';
+  songCardEl.style.boxShadow = `0 25px 60px rgba(0,0,0,0.6), 0 0 70px ${theme.accentGlow}`;
+  songCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">Loading…</div>`;
+
+  let percentChange = 0;
+  let changeClass = 'dc-muted';
+  let badgeArrow = '●';
+  let badgeClass = 'flat';
+  
+  if (Array.isArray(activeSongHistory) && activeSongHistory.length >= 2) {
+    const today = activeSongHistory[activeSongHistory.length - 1];
+    const yesterday = activeSongHistory[activeSongHistory.length - 2];
+    const todayGain = Number(today.daily_gain || 0);
+    const yesterdayGain = Number(yesterday.daily_gain || 0);
+    const change = todayGain - yesterdayGain;
+    
+    if (yesterdayGain > 0) {
+      percentChange = (change / yesterdayGain) * 100;
+    }
+    
+    if (change > 0) {
+      changeClass = 'dc-pos';
+      badgeArrow = '▲';
+      badgeClass = 'up';
+    } else if (change < 0) {
+      changeClass = 'dc-neg';
+      badgeArrow = '▼';
+      badgeClass = 'down';
+    }
+  }
+
+  let recordedDate = null;
+  if (Array.isArray(activeSongHistory) && activeSongHistory.length) {
+    recordedDate = activeSongHistory[activeSongHistory.length - 1].recorded_date;
+  }
+
+  const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  
+  songCardEl.innerHTML = `
+    <div class="dc-header">
+      ${currentSongMeta.coverUrl ? `<img class="dc-cover" src="${currentSongMeta.coverUrl}" crossorigin="anonymous" alt="">` : ''}
+      <div class="dc-head-text">
+        <div class="dc-album">${esc(cleanTrackTitle(currentSongMeta.title))}</div>
+        <div class="dc-artist">${esc((currentArtistName || '').toUpperCase())}</div>
+        <div class="dc-date">${formatCardDate(recordedDate)}</div>
+      </div>
+    </div>
+    <div class="dc-divider"></div>
+    <div class="dc-big-label">DAILY STREAMS</div>
+    <div class="dc-big-row">
+      <div class="dc-daily-num">+${formatNumber(currentSongMeta.dailyGain)}</div>
+      <div class="dc-badge ${badgeClass}">${badgeArrow} ${Math.abs(percentChange).toFixed(2)}%</div>
+    </div>
+    <div class="dc-total" style="margin-bottom: 8px;">Total streams · <b>${formatNumber(currentSongMeta.cumulative)}</b></div>
+    
+    <div class="sc-stats-grid">
+      <div class="sc-stat-box">
+        <span class="sc-stat-label">7D Avg Pace</span>
+        <span class="sc-stat-val">+${formatNumber(currentSongMeta.avg7d)}</span>
+      </div>
+      <div class="sc-stat-box">
+        <span class="sc-stat-label">Year-End Proj.</span>
+        <span class="sc-stat-val">${formatNumber(currentSongMeta.yearEndProj)}</span>
+      </div>
+    </div>
+    
+    <div class="sc-milestone-section">
+      <div class="sc-milestone-header">
+        <span class="sc-milestone-label">Next Milestone: <b>${formatMilestoneName(currentSongMeta.nextMilestone)}</b></span>
+        <span class="sc-milestone-eta">${currentSongMeta.etaText}</span>
+      </div>
+      <div class="sc-progress-bar-container">
+        <div class="sc-progress-bar" style="width: ${Math.min(100, currentSongMeta.percent).toFixed(1)}%;"></div>
+      </div>
+      <div class="sc-progress-percent">${currentSongMeta.percent.toFixed(1)}% completed</div>
+    </div>
+    
+    <div class="dc-footer" style="margin-top: 24px;"><span class="dc-dot"></span><b>${esc(currentArtistName || '')}</b> Spotify Streams — Fan Dashboard</div>
+  `;
+}
+
+async function downloadSongCard() {
+  if (!songCardEl) return;
+  const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
+  const cover = songCardEl.querySelector('.dc-cover');
+  if (cover && cover.src) {
+    try { await cover.decode(); } catch (e) { cover.style.visibility = 'hidden'; }
+    if (cover.style.visibility !== 'hidden' && !cover.naturalWidth) cover.style.visibility = 'hidden';
+  }
+  try {
+    const canvas = await html2canvas(songCardEl, {
+      backgroundColor: '#080c14',
+      scale: 2,
+      useCORS: true,
+      imageTimeout: 15000,
+      logging: false,
+      width: 600,
+      windowWidth: 700,
+      onclone: (clonedDoc) => {
+        const card = clonedDoc.getElementById('song-card');
+        if (card) {
+          card.style.setProperty('width', '600px', 'important');
+          card.style.setProperty('max-width', '600px', 'important');
+          card.style.setProperty('padding', '26px 28px', 'important');
+        }
+      }
+    });
+    const name = (currentSongMeta?.title || 'song').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+    const fileName = `daily_${name}.png`;
+
+    let url = null;
+    if (canvas.toBlob) {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (blob) url = URL.createObjectURL(blob);
+    }
+    if (!url) url = canvas.toDataURL('image/png');
+
+    if (isMobile) {
+      showMobileImageOverlay(url, currentSongMeta?.title || 'song');
+    } else {
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = url;
+      link.click();
+      if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+  } catch (e) {
+    console.error('Song card export failed:', e);
+    alert('Could not generate the image. Please try again.');
+  } finally {
+    if (cover) cover.style.visibility = 'visible';
+  }
+}
+
+if (openSongCardBtn) openSongCardBtn.addEventListener('click', openSongCard);
+if (songCardCloseBtn) songCardCloseBtn.addEventListener('click', () => songCardModal.classList.add('hidden'));
+if (songCardDownloadBtn) songCardDownloadBtn.addEventListener('click', downloadSongCard);
+if (songCardModal) songCardModal.addEventListener('click', (e) => { if (e.target === songCardModal) songCardModal.classList.add('hidden'); });
+
 // Centralized view switcher: shows exactly one of songs / albums / milestones
 // and syncs the toggle buttons' active state.
 function setActiveView(view) {
@@ -2247,6 +2404,9 @@ window.openSongById = async function(songId) {
   songModalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${theme.accentGlow}`;
 
   // Populate basic info
+  if (modalSongCover) {
+    modalSongCover.src = song.album_cover_url || theme.img || '/images/default.jpg';
+  }
   modalSongTitle.textContent = song.title;
   modalSongSubtitle.textContent = song.album_title || 'Single';
   modalSongStreams.textContent = formatNumber(song.cumulative);
@@ -2282,6 +2442,21 @@ window.openSongById = async function(songId) {
   songModalMilestoneEta.textContent = etaText;
   songModalMilestoneProgress.style.width = `${percent.toFixed(1)}%`;
   songModalMilestonePercent.textContent = `${percent.toFixed(1)}% completed`;
+
+  // Store metadata for card rendering
+  currentSongMeta = {
+    songId: song.id,
+    title: song.title,
+    albumTitle: song.album_title || 'Single',
+    coverUrl: song.album_cover_url || theme.img || '/images/default.jpg',
+    cumulative: cumulative,
+    dailyGain: dailyGain,
+    avg7d: Number(song.daily_avg_7d || dailyGain || 0),
+    yearEndProj: Math.round(songProj),
+    nextMilestone: nextMilestone,
+    etaText: etaText,
+    percent: percent
+  };
 
   // Show modal
   songModal.classList.remove('hidden');
@@ -2540,8 +2715,20 @@ const ARTIST_THEMES = {
   }
 };
 
+// Neutral landing/default look — the original style.css :root values. Kept
+// SEPARATE from any artist's theme so editing an artist (e.g. JT → blue) can't
+// leak onto the picker or onto artists that don't have their own theme. Used
+// both as the unknown-artist fallback and when returning to the picker.
+const LANDING_THEME = {
+  accent: '#1ed760',
+  accentHover: '#1db954',
+  accentGlow: 'rgba(30, 215, 96, 0.4)',
+  borderGlow: 'rgba(30, 215, 96, 0.3)',
+  bgGradient: 'radial-gradient(circle at 50% 0%, #111a2e 0%, #080c14 100%)'
+};
+
 function applyArtistTheme(artistId) {
-  const theme = ARTIST_THEMES[artistId] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
+  const theme = ARTIST_THEMES[artistId] || LANDING_THEME;
   document.documentElement.style.setProperty('--accent-green', theme.accent);
   document.documentElement.style.setProperty('--accent-green-hover', theme.accentHover);
   document.documentElement.style.setProperty('--accent-green-glow', theme.accentGlow);
@@ -2677,7 +2864,7 @@ async function enterDashboard(artistId, artistName) {
 function showPicker() {
   dashboardWrapper.classList.add('hidden');
   pickerSection.classList.remove('hidden');
-  applyArtistTheme('31TPClRtHm23RisEBtV3X7'); // Reset to default Spotify green on the picker
+  applyArtistTheme(null); // Reset to the neutral landing theme (NOT any artist's theme)
   window.scrollTo(0, 0);
 
   if (artistSearchInput) {

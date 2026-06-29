@@ -4320,3 +4320,114 @@ select.tc-input { cursor: pointer; }
   .cc-mval { font-size: 0.9rem; }
   .cc-mlabel { font-size: 0.58rem; }
 }
+
+/* ==========================================================================
+   Song Share Card Styles
+   ========================================================================== */
+.modal-song-cover-img {
+  width: 130px;
+  height: 130px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+}
+
+@media (max-width: 600px) {
+  .modal-song-cover-img {
+    width: 64px;
+    height: 64px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+}
+
+.song-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.sc-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.sc-stat-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sc-stat-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sc-stat-val {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.sc-milestone-section {
+  background: rgba(var(--dc-accent-rgb, 30, 215, 96), 0.05);
+  border: 1px solid rgba(var(--dc-accent-rgb, 30, 215, 96), 0.15);
+  border-radius: 14px;
+  padding: 16px;
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sc-milestone-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+}
+
+.sc-milestone-label {
+  color: var(--text-primary);
+}
+
+.sc-milestone-label b {
+  color: var(--dc-accent);
+}
+
+.sc-milestone-eta {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.sc-progress-bar-container {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.sc-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--dc-accent) 0%, var(--accent-green-hover, #1db954) 100%);
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+.sc-progress-percent {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
