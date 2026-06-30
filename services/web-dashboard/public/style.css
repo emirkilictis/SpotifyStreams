@@ -1639,6 +1639,13 @@ body.modal-open {
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
   animation: modalFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  /* A backdrop-filter on a tall scroll container forces the browser to
+     re-rasterize the blur on every scroll frame → janky scrolling. The fixed
+     .modal-backdrop already blurs the page behind, so the card's own blur is
+     redundant; drop it (overriding .glass) and use a near-solid surface. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(16, 23, 36, 0.97);
 }
 
 @keyframes modalFadeIn {
@@ -3586,6 +3593,11 @@ select.tc-input { cursor: pointer; }
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
   animation: feedback-pop 0.22s ease;
+  /* Drop the .glass backdrop-filter (redundant over the blurred backdrop) so
+     the panel paints cheaply — see .modal-card note. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(16, 23, 36, 0.97);
 }
 @keyframes feedback-pop {
   from { opacity: 0; transform: translateY(12px) scale(0.97); }
