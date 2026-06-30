@@ -189,11 +189,11 @@
       </div>
       <div class="user-actions">
         <span class="last-update-chip" title="Last updated"><span class="lu-dot"></span><span id="last-update">—</span></span>
-        <button id="twitter-post-btn" class="btn-primary" title="Generate Twitter Post" style="width: auto; padding: 8px 16px; border-radius: 20px; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px var(--accent-green-glow);">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+        <button id="twitter-post-btn" class="btn-secondary btn-share" title="Share to X / Twitter">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
           </svg>
-          <span>Twitter Post</span>
+          <span>Share</span>
         </button>
         <button id="back-to-picker-btn" class="btn-secondary" title="Switch Artist">← Artists</button>
         <a href="/logout" class="btn-secondary">Log Out</a>
@@ -567,6 +567,10 @@
   <div class="modal-backdrop hidden" id="song-card-modal">
     <div class="daily-card-shell">
       <div class="daily-card-actions">
+        <label class="card-toggle" title="Show the projected year-end total on the card">
+          <input type="checkbox" id="sc-yearend-toggle">
+          <span>Year-end projection</span>
+        </label>
         <button id="song-card-download-btn" class="btn-primary" type="button" style="display:inline-flex;align-items:center;gap:8px;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Save PNG</span>

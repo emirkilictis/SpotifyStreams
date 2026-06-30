@@ -1703,6 +1703,11 @@ if (dailyCardModal) dailyCardModal.addEventListener('click', (e) => { if (e.targ
 async function openSongCard() {
   if (!currentSongMeta || !songCardEl) return;
   const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
+  // Year-end projection is opt-in (off by default) — it's a noisy estimate, so
+  // most fans share the cleaner card without it. The toggle in the action bar
+  // re-renders the card when flipped.
+  const yearEndToggle = document.getElementById('sc-yearend-toggle');
+  const showYearEndProj = !!(yearEndToggle && yearEndToggle.checked);
 
   songCardModal.classList.remove('hidden');
   songCardEl.style.setProperty('--dc-accent', theme.accent);
@@ -1763,15 +1768,16 @@ async function openSongCard() {
     </div>
     <div class="dc-total" style="margin-bottom: 8px;">Total streams · <b>${formatNumber(currentSongMeta.cumulative)}</b></div>
     
-    <div class="sc-stats-grid">
+    <div class="sc-stats-grid" style="${showYearEndProj ? '' : 'grid-template-columns: 1fr;'}">
       <div class="sc-stat-box">
         <span class="sc-stat-label">7D Avg Pace</span>
         <span class="sc-stat-val">+${formatNumber(currentSongMeta.avg7d)}</span>
       </div>
+      ${showYearEndProj ? `
       <div class="sc-stat-box">
         <span class="sc-stat-label">Year-End Proj.</span>
         <span class="sc-stat-val">${formatNumber(currentSongMeta.yearEndProj)}</span>
-      </div>
+      </div>` : ''}
     </div>
     
     <div class="sc-milestone-section">
@@ -1843,6 +1849,8 @@ async function downloadSongCard() {
 }
 
 if (openSongCardBtn) openSongCardBtn.addEventListener('click', openSongCard);
+const scYearEndToggle = document.getElementById('sc-yearend-toggle');
+if (scYearEndToggle) scYearEndToggle.addEventListener('change', () => { if (currentSongMeta) openSongCard(); });
 if (songCardCloseBtn) songCardCloseBtn.addEventListener('click', () => songCardModal.classList.add('hidden'));
 if (songCardDownloadBtn) songCardDownloadBtn.addEventListener('click', downloadSongCard);
 if (songCardModal) songCardModal.addEventListener('click', (e) => { if (e.target === songCardModal) songCardModal.classList.add('hidden'); });
@@ -2730,6 +2738,7 @@ const LANDING_THEME = {
 function applyArtistTheme(artistId) {
   const theme = ARTIST_THEMES[artistId] || LANDING_THEME;
   document.documentElement.style.setProperty('--accent-green', theme.accent);
+  document.documentElement.style.setProperty('--accent-green-rgb', hexToRgbTriplet(theme.accent));
   document.documentElement.style.setProperty('--accent-green-hover', theme.accentHover);
   document.documentElement.style.setProperty('--accent-green-glow', theme.accentGlow);
   document.documentElement.style.setProperty('--card-border-glow', theme.borderGlow);

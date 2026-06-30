@@ -335,6 +335,7 @@ a {
   border-radius: 20px;
   font-size: 0.9rem;
   font-weight: 500;
+  color: var(--text-primary); /* <button> doesn't inherit color — set it so the label isn't UA-default black */
   background: rgba(255, 255, 255, 0.05);
   transition: var(--transition-smooth);
 }
@@ -342,6 +343,23 @@ a {
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Share-to-X button: same footprint as the other header pills (so it no longer
+   dominates as a bright accent blob), with a subtle accent tint + icon so it's
+   still discoverable as the share CTA. */
+.btn-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  border-color: rgba(var(--accent-green-rgb, 30, 215, 96), 0.35);
+  background: rgba(var(--accent-green-rgb, 30, 215, 96), 0.10);
+}
+.btn-share svg { color: var(--accent-green); flex-shrink: 0; }
+.btn-share:hover {
+  background: rgba(var(--accent-green-rgb, 30, 215, 96), 0.20);
+  border-color: rgba(var(--accent-green-rgb, 30, 215, 96), 0.55);
 }
 
 .user-actions {
@@ -985,7 +1003,29 @@ tbody tr.featured-row:hover {
   display: flex;
   gap: 12px;
   justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
 }
+
+/* Opt-in toggle (e.g. "Year-end projection") that sits next to the card's
+   Save/Close buttons. Lives in the UI only — never rendered into the PNG. */
+.card-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+  transition: var(--transition-smooth);
+}
+.card-toggle:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.08); }
+.card-toggle input { accent-color: var(--accent-green); cursor: pointer; margin: 0; }
 
 .daily-card {
   --dc-accent: var(--accent-green);
@@ -4345,6 +4385,34 @@ select.tc-input { cursor: pointer; }
 .song-card {
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Soft accent sheen across the top of the share card — gives it a premium,
+   "designed" feel. Linear-gradient + pseudo-element both render in html2canvas,
+   so the exported PNG keeps it (box-shadow would NOT export). */
+.song-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 130px;
+  background: linear-gradient(180deg, rgba(var(--dc-accent-rgb, 30, 215, 96), 0.14) 0%, rgba(var(--dc-accent-rgb, 30, 215, 96), 0) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+.song-card > * { position: relative; z-index: 1; }
+
+/* Bigger, crisper cover now that real album art is backfilled. */
+.song-card .dc-cover {
+  width: 96px;
+  height: 96px;
+}
+
+/* Make the hero daily number the focal point with a subtle accent glow
+   (text-shadow exports cleanly in html2canvas). */
+.song-card .dc-daily-num {
+  text-shadow: 0 0 22px rgba(30, 215, 96, 0.30);
 }
 
 .sc-stats-grid {
