@@ -380,6 +380,46 @@
     .merge-sample b { color: var(--text); font-weight: 600; }
     .merge-sample .ms-num { font-family: monospace; color: var(--amber); }
 
+    /* God mode */
+    .god-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; margin-bottom: 8px; }
+    .gcard { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+    .gcard .gv { font-size: 1.12rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .gcard .gl { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--faint); margin-top: 3px; }
+    .gcard.accent .gv { color: var(--green); }
+    .mover-row {
+      display: flex; align-items: center; gap: 10px; background: var(--card);
+      border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 6px;
+    }
+    .mover-rank { color: var(--faint); font-size: 0.75rem; min-width: 20px; text-align: right; font-variant-numeric: tabular-nums; }
+    .mover-main { flex: 1; min-width: 0; }
+    .mover-title { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mover-sub { font-size: 0.72rem; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mover-gain { color: var(--green); font-weight: 700; font-family: ui-monospace, Menlo, monospace; font-size: 0.85rem; flex-shrink: 0; }
+    .sql-input {
+      width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.84rem; padding: 12px 14px; resize: vertical; min-height: 110px; line-height: 1.55;
+    }
+    .sql-input:focus { outline: none; border-color: var(--green); }
+    .sql-results { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; max-height: 460px; overflow-y: auto; }
+    .sql-results:empty { display: none; }
+    .sql-results table { border-collapse: collapse; font-size: 0.78rem; width: 100%; }
+    .sql-results th {
+      position: sticky; top: 0; background: var(--card-2); text-align: left;
+      padding: 8px 10px; color: var(--muted); font-weight: 600; white-space: nowrap;
+    }
+    .sql-results td {
+      padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-family: ui-monospace, Menlo, monospace; white-space: nowrap;
+      max-width: 380px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sql-results tr:hover td { background: rgba(255,255,255,0.02); }
+    .sql-null { color: var(--faint); font-style: italic; }
+    .dz-card {
+      border: 1px solid rgba(248,113,113,0.35); border-radius: 12px;
+      background: rgba(248,113,113,0.05); padding: 14px 16px;
+    }
+
     /* ---- Mobile (≤560px) ---- */
     @media (max-width: 560px) {
       .wrap { padding: 16px 12px 64px; }
@@ -443,6 +483,55 @@
       <button class="tab" data-view="artists">Artists</button>
       <button class="tab" data-view="songs">Songs</button>
       <button class="tab" data-view="status">Status</button>
+      <button class="tab" data-view="god">⚡ God</button>
+    </div>
+
+    <!-- God mode view -->
+    <div id="god-view" class="hidden">
+      <div class="toolbar">
+        <button id="god-refresh" class="tool-btn" title="Reload">⟳ Refresh</button>
+        <button id="god-caches" class="tool-btn" style="margin-left:auto" title="Reload roster + hidden-song caches from the DB without a redeploy">♻ Refresh caches</button>
+      </div>
+      <div id="god-cards" class="god-cards"></div>
+
+      <div class="songs-section">
+        <h3 class="songs-h">Top movers — last scraped day</h3>
+        <div id="god-movers" style="margin-top:10px"></div>
+      </div>
+
+      <div class="songs-section">
+        <div class="toolbar">
+          <h3 class="songs-h">SQL console <span class="runs-sub">(read-only)</span></h3>
+          <select id="sql-presets" class="tool-btn" style="margin-left:auto;max-width:260px">
+            <option value="">Presets…</option>
+          </select>
+        </div>
+        <p class="songs-hint">Single SELECT/WITH statement, 10s timeout, 500 rows max. Runs inside a read-only transaction, so write attempts are rejected by Postgres itself. ⌘⏎ runs.</p>
+        <textarea id="sql-input" class="sql-input" rows="5" spellcheck="false" placeholder="SELECT s.title, s.primary_artist FROM songs s LIMIT 20"></textarea>
+        <div class="toolbar" style="margin-top:10px">
+          <button id="sql-run" class="btn-primary" style="width:auto;padding:9px 18px">▶ Run</button>
+          <button id="sql-csv" class="tool-btn hidden">⬇ CSV</button>
+          <span id="sql-meta" class="songs-hint" style="margin:auto 0 auto auto"></span>
+        </div>
+        <p id="sql-err" class="gate-err" style="text-align:left"></p>
+        <div id="sql-results" class="sql-results"></div>
+      </div>
+
+      <div class="songs-section">
+        <h3 class="songs-h" style="color:var(--red)">Danger zone — delete a snapshot day</h3>
+        <p class="songs-hint">Removes every stream_stats row recorded on that date (optionally only one artist's bucket). For double-day / partial-scrape incidents. Preview shows the row count first; Delete only unlocks after a preview.</p>
+        <div class="dz-card">
+          <div class="toolbar" style="margin-bottom:0">
+            <input id="dz-date" class="search" type="date" style="max-width:180px;flex:none">
+            <select id="dz-artist" class="search" style="max-width:230px;flex:none">
+              <option value="">All artists</option>
+            </select>
+            <button id="dz-preview" class="tool-btn">Preview</button>
+            <button id="dz-delete" class="act del" disabled>Delete rows</button>
+          </div>
+          <p id="dz-out" class="songs-hint" style="margin-bottom:0"></p>
+        </div>
+      </div>
     </div>
 
     <!-- Songs view (hide/unhide tracks) -->
@@ -867,10 +956,12 @@
       statusView.classList.toggle('hidden', v !== 'status');
       document.getElementById('health-view').classList.toggle('hidden', v !== 'health');
       document.getElementById('songs-view').classList.toggle('hidden', v !== 'songs');
+      document.getElementById('god-view').classList.toggle('hidden', v !== 'god');
       if (v === 'artists' && !artistsLoaded) loadArtists();
       if (v === 'status') loadScraperStatus();
       if (v === 'health') loadHealth();
       if (v === 'songs') { loadHiddenSongs(); loadManualMerges(); }
+      if (v === 'god') loadGod();
     }));
 
     // ---- Songs: hide / unhide tracks ----
@@ -902,6 +993,7 @@
             </div>
             <div class="ar-actions">
               <button class="act" data-snapshots="${esc(s.id)}" data-title="${esc(s.title)}">📈 Snapshots</button>
+              <button class="act" data-bucket="${esc(s.id)}" data-pa="${esc((s.primary_artist || '').replace('spotify:artist:', ''))}" title="Move this song to another tracked artist's dashboard bucket">↔ Bucket</button>
               ${s.hidden
                 ? `<button class="act ok" data-unhide="${esc(s.id)}">Un-hide</button>`
                 : `<button class="act del" data-hide="${esc(s.id)}">Hide</button>`}
@@ -936,6 +1028,41 @@
       const unhideBtn = e.target.closest('button[data-unhide]');
       const snapBtn = e.target.closest('button[data-snapshots]');
       const delSnap = e.target.closest('button[data-del-snap]');
+      const bucketBtn = e.target.closest('button[data-bucket]');
+      const bucketSave = e.target.closest('button[data-bucket-save]');
+      const bucketCancel = e.target.closest('button[data-bucket-cancel]');
+      // Move a song to another tracked artist's bucket: the row's actions turn
+      // into a select of tracked artists + Save/Cancel.
+      if (bucketBtn) {
+        const actions = bucketBtn.closest('.ar-actions');
+        const cur = bucketBtn.dataset.pa;
+        const opts = Object.entries(ARTIST_NAMES)
+          .sort((a, b) => a[1].localeCompare(b[1]))
+          .map(([id, name]) => `<option value="${esc(id)}" ${id === cur ? 'selected' : ''}>${esc(name)}</option>`)
+          .join('');
+        actions.innerHTML = `
+          <select class="search" style="padding:6px 8px;min-width:160px" data-bucket-select>${opts}</select>
+          <button class="act ok" data-bucket-save="${esc(bucketBtn.dataset.bucket)}">Save</button>
+          <button class="act" data-bucket-cancel="1">✕</button>`;
+        return;
+      }
+      if (bucketSave) {
+        const sel = bucketSave.closest('.ar-actions').querySelector('[data-bucket-select]');
+        bucketSave.disabled = true;
+        const res = await api('/api/admin/songs/' + bucketSave.dataset.bucketSave, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ primary_artist: sel.value }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { alert(d.error || 'Failed to move song.'); bucketSave.disabled = false; return; }
+        if (d.is_featured) alert('Moved. Heads-up: this song is flagged “featured”, so a future scrape that finds it on an own album can reassign its bucket.');
+        if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
+        return;
+      }
+      if (bucketCancel) {
+        if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
+        return;
+      }
       if (snapBtn) {
         await loadSnapshots(snapBtn.dataset.snapshots, snapBtn.dataset.title || '');
         document.getElementById('snapshot-panel').scrollIntoView({ block: 'nearest' });
@@ -1554,6 +1681,240 @@
         }
         await loadArtists();
       }
+    });
+
+    // ---- God mode: overview cards + top movers ----
+    const godCardsEl = document.getElementById('god-cards');
+    const godMoversEl = document.getElementById('god-movers');
+
+    async function loadGod() {
+      fillDzArtists();
+      godCardsEl.innerHTML = '<div class="loading">Loading…</div>';
+      try {
+        const res = await api('/api/admin/overview');
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error();
+        const d = await res.json();
+        const fmtSize = (b) => { const n = Number(b); return n >= 1e9 ? (n / 1e9).toFixed(2) + ' GB' : (n / 1e6).toFixed(1) + ' MB'; };
+        const cards = [
+          ['accent', fmtCount(d.total_streams), 'total streams'],
+          ['accent', '+' + fmtCount(d.today_gain), 'gain · ' + (d.last_date || '—')],
+          ['', Number(d.songs).toLocaleString(), `songs (${Number(d.merged_songs).toLocaleString()} merged)`],
+          ['', fmtCount(d.snapshots), 'snapshots'],
+          ['', `${d.active_artists} / ${d.tracked_artists}`, 'active / tracked'],
+          ['', fmtSize(d.db_bytes), 'database size'],
+          ['', d.first_date || '—', 'tracking since'],
+        ];
+        godCardsEl.innerHTML = cards.map(([cls, v, l]) =>
+          `<div class="gcard ${cls}"><div class="gv">${esc(v)}</div><div class="gl">${esc(l)}</div></div>`).join('');
+        godMoversEl.innerHTML = (d.movers || []).map((m, i) => `
+          <div class="mover-row">
+            <span class="mover-rank">${i + 1}</span>
+            <div class="mover-main">
+              <div class="mover-title">${esc(m.title)}</div>
+              <div class="mover-sub">${esc(artistName(m.primary_artist) || 'Collab / other')}${m.album ? ' · ' + esc(m.album) : ''} · ${fmtCount(m.cumulative)} total</div>
+            </div>
+            <span class="mover-gain">+${Number(m.daily_gain).toLocaleString()}</span>
+          </div>`).join('') || '<div class="empty">No data.</div>';
+      } catch {
+        godCardsEl.innerHTML = '<div class="empty">Could not load overview.</div>';
+        godMoversEl.innerHTML = '';
+      }
+    }
+    document.getElementById('god-refresh').addEventListener('click', loadGod);
+
+    document.getElementById('god-caches').addEventListener('click', async (e) => {
+      const btn = e.target;
+      btn.disabled = true;
+      try {
+        const res = await api('/api/admin/refresh-caches', { method: 'POST' });
+        const d = await res.json().catch(() => ({}));
+        alert(res.ok ? `Caches reloaded: ${d.artists} artists, ${d.hidden_songs} hidden songs.` : (d.error || 'Failed.'));
+        if (res.ok) await loadArtistNames();
+      } catch { alert('Connection error.'); }
+      finally { btn.disabled = false; }
+    });
+
+    // ---- God mode: read-only SQL console ----
+    const SQL_PRESETS = [
+      ['Top 25 songs (all-time)',
+`SELECT s.title, s.primary_artist, x.cumulative
+FROM (SELECT DISTINCT ON (canonical_id) canonical_id, cumulative
+      FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC) x
+JOIN songs s ON s.id = x.canonical_id
+ORDER BY x.cumulative DESC
+LIMIT 25`],
+      ['Top movers (last day)',
+`SELECT s.title, s.primary_artist, d.daily_gain, d.cumulative
+FROM daily_streams_canonical d
+JOIN songs s ON s.id = d.canonical_id
+WHERE d.recorded_date = (SELECT MAX(recorded_date) FROM daily_streams_canonical)
+ORDER BY d.daily_gain DESC
+LIMIT 25`],
+      ['Artist bucket totals',
+`SELECT s.primary_artist, COUNT(*) AS songs, SUM(x.cumulative) AS total
+FROM (SELECT DISTINCT ON (canonical_id) canonical_id, cumulative
+      FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC) x
+JOIN songs s ON s.id = x.canonical_id
+GROUP BY s.primary_artist
+ORDER BY total DESC
+LIMIT 50`],
+      ['Suspicious snapshots (≤0 delta, last 7d)',
+`SELECT * FROM (
+  SELECT ss.song_id, s.title, ss.recorded_date, ss.stream_count,
+         ss.stream_count - LAG(ss.stream_count) OVER (PARTITION BY ss.song_id ORDER BY ss.recorded_date) AS delta
+  FROM stream_stats ss JOIN songs s ON s.id = ss.song_id
+  WHERE ss.recorded_date > CURRENT_DATE - 8
+) t
+WHERE delta <= 0
+ORDER BY recorded_date DESC, delta
+LIMIT 100`],
+      ['Rows per scrape day (last 14)',
+`SELECT recorded_date, COUNT(*) AS rows_written
+FROM stream_stats
+WHERE recorded_date > CURRENT_DATE - 14
+GROUP BY recorded_date
+ORDER BY recorded_date DESC`],
+      ['Table sizes',
+`SELECT relname AS table_name, n_live_tup AS approx_rows,
+       pg_size_pretty(pg_total_relation_size(relid)) AS total_size
+FROM pg_stat_user_tables
+ORDER BY pg_total_relation_size(relid) DESC`],
+      ['Manual merge rules',
+`SELECT m.alias_id, sa.title AS alias, m.canonical_id, sc.title AS canonical, m.reason, m.created_at::date AS added
+FROM manual_merges m
+LEFT JOIN songs sa ON sa.id = m.alias_id
+LEFT JOIN songs sc ON sc.id = m.canonical_id
+ORDER BY m.created_at DESC`],
+    ];
+    const sqlPresetsEl = document.getElementById('sql-presets');
+    const sqlInputEl = document.getElementById('sql-input');
+    SQL_PRESETS.forEach(([label], i) => {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = label;
+      sqlPresetsEl.appendChild(o);
+    });
+    sqlPresetsEl.addEventListener('change', () => {
+      if (sqlPresetsEl.value === '') return;
+      sqlInputEl.value = SQL_PRESETS[Number(sqlPresetsEl.value)][1];
+      sqlPresetsEl.value = '';
+      sqlInputEl.focus();
+    });
+
+    let lastSql = null; // { columns, rows } of the latest successful run (for CSV export)
+    async function runSql() {
+      const q = sqlInputEl.value.trim();
+      const errEl = document.getElementById('sql-err');
+      const metaEl = document.getElementById('sql-meta');
+      const resEl = document.getElementById('sql-results');
+      const csvBtn = document.getElementById('sql-csv');
+      if (!q) return;
+      errEl.textContent = '';
+      metaEl.textContent = 'Running…';
+      try {
+        const res = await api('/api/admin/sql', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q }),
+        });
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          errEl.textContent = d.error || 'Query failed.';
+          metaEl.textContent = '';
+          resEl.innerHTML = '';
+          csvBtn.classList.add('hidden');
+          lastSql = null;
+          return;
+        }
+        lastSql = d;
+        metaEl.textContent = `${d.rows.length} row${d.rows.length === 1 ? '' : 's'}${d.truncated ? ' (capped at 500)' : ''} · ${d.ms} ms`;
+        csvBtn.classList.toggle('hidden', !d.rows.length);
+        resEl.innerHTML = d.rows.length
+          ? `<table><thead><tr>${d.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+             <tbody>${d.rows.map(r => `<tr>${r.map(v => v === null
+                ? '<td class="sql-null">null</td>'
+                : `<td title="${esc(v)}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+          : '<div class="empty">No rows.</div>';
+      } catch {
+        errEl.textContent = 'Connection error.';
+        metaEl.textContent = '';
+      }
+    }
+    document.getElementById('sql-run').addEventListener('click', runSql);
+    sqlInputEl.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runSql(); }
+    });
+    document.getElementById('sql-csv').addEventListener('click', () => {
+      if (!lastSql) return;
+      const cell = (v) => {
+        const s = v === null ? '' : String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const csv = [lastSql.columns.map(cell).join(','), ...lastSql.rows.map(r => r.map(cell).join(','))].join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = 'query-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    // ---- God mode: danger zone (delete one snapshot day) ----
+    const dzDate = document.getElementById('dz-date');
+    const dzArtist = document.getElementById('dz-artist');
+    const dzPreviewBtn = document.getElementById('dz-preview');
+    const dzDeleteBtn = document.getElementById('dz-delete');
+    const dzOut = document.getElementById('dz-out');
+    let dzArtistsFilled = false;
+    function fillDzArtists() {
+      if (dzArtistsFilled) return;
+      const entries = Object.entries(ARTIST_NAMES).sort((a, b) => a[1].localeCompare(b[1]));
+      for (const [id, name] of entries) {
+        const o = document.createElement('option');
+        o.value = id; o.textContent = name;
+        dzArtist.appendChild(o);
+      }
+      dzArtistsFilled = entries.length > 0;
+    }
+    const dzKey = () => dzDate.value + '|' + dzArtist.value;
+    let dzPreviewedKey = ''; // Delete only unlocks for the exact previewed selection
+    [dzDate, dzArtist].forEach(el => el.addEventListener('change', () => {
+      dzDeleteBtn.disabled = true;
+      dzOut.textContent = '';
+    }));
+    dzPreviewBtn.addEventListener('click', async () => {
+      if (!dzDate.value) { dzOut.textContent = 'Pick a date first.'; return; }
+      dzPreviewBtn.disabled = true;
+      try {
+        const res = await api('/api/admin/snapshots/delete-day', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: dzDate.value, artist_id: dzArtist.value || undefined, preview: true }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { dzOut.textContent = d.error || 'Preview failed.'; return; }
+        dzPreviewedKey = dzKey();
+        const scope = dzArtist.value ? ` for ${ARTIST_NAMES[dzArtist.value] || dzArtist.value}` : '';
+        dzOut.textContent = `${d.rows} snapshot row(s) recorded on ${dzDate.value}${scope}.`;
+        dzDeleteBtn.disabled = d.rows === 0;
+      } catch { dzOut.textContent = 'Connection error.'; }
+      finally { dzPreviewBtn.disabled = false; }
+    });
+    dzDeleteBtn.addEventListener('click', async () => {
+      if (dzKey() !== dzPreviewedKey) {
+        dzOut.textContent = 'Selection changed — preview again.';
+        dzDeleteBtn.disabled = true;
+        return;
+      }
+      const scope = dzArtist.value ? ` for ${ARTIST_NAMES[dzArtist.value] || dzArtist.value}` : '';
+      if (!confirm(`Really delete ALL snapshot rows recorded on ${dzDate.value}${scope}? Daily totals recompute right after; a same-day re-scrape re-adds today's rows. This cannot be undone.`)) return;
+      dzDeleteBtn.disabled = true;
+      try {
+        const res = await api('/api/admin/snapshots/delete-day', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: dzDate.value, artist_id: dzArtist.value || undefined, confirm: dzDate.value }),
+        });
+        const d = await res.json().catch(() => ({}));
+        dzOut.textContent = res.ok ? `Deleted ${d.rows} row(s).` : (d.error || 'Delete failed.');
+      } catch { dzOut.textContent = 'Connection error.'; }
     });
 
     // Auto-unlock if we already have a passcode from this session.

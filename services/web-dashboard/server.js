@@ -2100,6 +2100,170 @@ app.delete('/api/admin/manual-merges/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// ═══════════════════════ God-mode admin endpoints ═══════════════════════
+
+// Admin: global overview — headline numbers, top daily movers, per-table DB
+// sizes. Read-only; backs the God tab's stat cards.
+app.get('/api/admin/overview', requireAdmin, async (req, res) => {
+  try {
+    const [head, streams, movers, tables] = await Promise.all([
+      dbQuery(`SELECT
+          (SELECT COUNT(*) FROM songs)::int AS songs,
+          (SELECT COUNT(*) FROM songs WHERE canonical_id IS NOT NULL)::int AS merged_songs,
+          (SELECT COUNT(*) FROM stream_stats)::bigint AS snapshots,
+          (SELECT MIN(recorded_date)::text FROM stream_stats) AS first_date,
+          (SELECT MAX(recorded_date)::text FROM stream_stats) AS last_date,
+          pg_database_size(current_database())::bigint AS db_bytes`),
+      dbQuery(`SELECT COALESCE(SUM(cumulative),0)::bigint AS total,
+                      COALESCE(SUM(daily_gain) FILTER (WHERE recorded_date =
+                        (SELECT MAX(recorded_date) FROM daily_streams_canonical)),0)::bigint AS today
+               FROM (SELECT DISTINCT ON (canonical_id) canonical_id, cumulative, daily_gain, recorded_date
+                     FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC) x`),
+      dbQuery(`SELECT s.title, s.primary_artist, alb.title AS album,
+                      d.daily_gain::bigint AS daily_gain, d.cumulative::bigint AS cumulative
+               FROM daily_streams_canonical d
+               JOIN songs s ON s.id = d.canonical_id
+               LEFT JOIN albums alb ON alb.id = s.album_id
+               WHERE d.recorded_date = (SELECT MAX(recorded_date) FROM daily_streams_canonical)
+                 AND s.id NOT IN (${hiddenTrackIdsSql()})
+               ORDER BY d.daily_gain DESC
+               LIMIT 15`),
+      dbQuery(`SELECT relname AS table_name, n_live_tup::bigint AS approx_rows,
+                      pg_total_relation_size(relid)::bigint AS bytes
+               FROM pg_stat_user_tables
+               ORDER BY pg_total_relation_size(relid) DESC
+               LIMIT 12`),
+    ]);
+    res.json({
+      ...head.rows[0],
+      total_streams: streams.rows[0].total,
+      today_gain: streams.rows[0].today,
+      tracked_artists: allArtistsCache.length,
+      active_artists: activeArtistsCache.length,
+      movers: movers.rows,
+      tables: tables.rows,
+    });
+  } catch (err) {
+    console.error('Admin overview error:', err);
+    res.status(500).json({ error: 'Failed to load overview.' });
+  }
+});
+
+// Admin: read-only SQL console. The real teeth are the READ ONLY transaction
+// and the statement_timeout — Postgres itself rejects any write attempt. The
+// regex checks just catch accidents before they hit the DB. Single statement,
+// SELECT/WITH only, capped at 500 rows via a wrapping subquery.
+const SQL_ROW_CAP = 500;
+app.post('/api/admin/sql', requireAdmin, async (req, res) => {
+  const raw = String(req.body?.query || '').trim().replace(/;\s*$/, '');
+  if (!raw) return res.status(400).json({ error: 'Empty query.' });
+  if (raw.includes(';')) return res.status(400).json({ error: 'Single statement only (no semicolons).' });
+  if (!/^(select|with)\b/i.test(raw)) return res.status(400).json({ error: 'Only SELECT / WITH queries are allowed.' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN TRANSACTION READ ONLY');
+    await client.query(`SET LOCAL statement_timeout = '10s'`);
+    const started = Date.now();
+    const r = await client.query({
+      text: `SELECT * FROM (${raw}) __god LIMIT ${SQL_ROW_CAP + 1}`,
+      rowMode: 'array',
+    });
+    await client.query('ROLLBACK');
+    const truncated = r.rows.length > SQL_ROW_CAP;
+    const fields = r.fields || [];
+    // pg parses date/timestamp columns to JS Dates at LOCAL midnight — a naive
+    // toISOString() shifts them back a day (UTC+3 → previous day). Format in
+    // local time instead; DATE columns (OID 1082) drop the time part.
+    const fmtVal = (v, i) => {
+      if (v === null) return null;
+      if (v instanceof Date) {
+        const day = `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+        return fields[i]?.dataTypeID === 1082 ? day : `${day} ${v.toTimeString().slice(0, 8)}`;
+      }
+      if (typeof v === 'object') return JSON.stringify(v);
+      return v;
+    };
+    res.json({
+      columns: fields.map(f => f.name),
+      rows: (truncated ? r.rows.slice(0, SQL_ROW_CAP) : r.rows).map(row => row.map(fmtVal)),
+      truncated,
+      ms: Date.now() - started,
+    });
+  } catch (err) {
+    if (client) { try { await client.query('ROLLBACK'); } catch {} }
+    res.status(400).json({ error: err.message });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// Admin: wipe every stream_stats row recorded on one date, optionally scoped to
+// one artist's primary bucket — the cleanup for double-day / partial-scrape
+// incidents. Two-step: preview:true returns the count only; the real delete
+// must echo the date back in `confirm`.
+app.post('/api/admin/snapshots/delete-day', requireAdmin, async (req, res) => {
+  const date = String(req.body?.date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date (YYYY-MM-DD).' });
+  const artistId = String(req.body?.artist_id || '').replace('spotify:artist:', '').trim();
+  if (artistId && !/^[A-Za-z0-9]{22}$/.test(artistId)) return res.status(400).json({ error: 'Invalid artist id.' });
+  const params = [date];
+  let where = `recorded_date = $1`;
+  if (artistId) {
+    params.push(`spotify:artist:${artistId}`);
+    where += ` AND song_id IN (SELECT id FROM songs WHERE primary_artist = $2)`;
+  }
+  try {
+    if (req.body?.preview) {
+      const r = await dbQuery(`SELECT COUNT(*)::int AS n FROM stream_stats WHERE ${where}`, params);
+      return res.json({ preview: true, rows: r.rows[0].n });
+    }
+    if (String(req.body?.confirm || '') !== date) {
+      return res.status(400).json({ error: 'Confirmation mismatch — nothing deleted.' });
+    }
+    const r = await dbQuery(`DELETE FROM stream_stats WHERE ${where}`, params);
+    console.log(`[delete-day] ${date}${artistId ? ' / ' + artistId : ''}: ${r.rowCount} rows removed.`);
+    res.json({ success: true, rows: r.rowCount });
+  } catch (err) {
+    console.error('Admin delete-day error:', err);
+    res.status(500).json({ error: 'Failed to delete snapshots.' });
+  }
+});
+
+// Admin: reload the in-memory roster + hidden-song caches from the DB without a
+// redeploy (e.g. after fixing rows straight in Neon).
+app.post('/api/admin/refresh-caches', requireAdmin, async (req, res) => {
+  try {
+    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache()]);
+    res.json({ success: true, artists: allArtistsCache.length, hidden_songs: hiddenSongsCache.length });
+  } catch (err) {
+    console.error('Admin refresh-caches error:', err);
+    res.status(500).json({ error: 'Failed to refresh caches.' });
+  }
+});
+
+// Admin: move a song to another artist's dashboard bucket (fix collab
+// attribution without a redeploy). If the song is still flagged is_featured a
+// later scrape that sees it as an own-album track can reassign it — the
+// response surfaces that flag so the panel can warn.
+app.patch('/api/admin/songs/:id', requireAdmin, async (req, res) => {
+  const id = String(req.params.id).replace('spotify:track:', '').trim();
+  if (!/^[A-Za-z0-9]{22}$/.test(id)) return res.status(400).json({ error: 'Invalid song id.' });
+  const target = String(req.body?.primary_artist || '').replace('spotify:artist:', '').trim();
+  if (!/^[A-Za-z0-9]{22}$/.test(target)) return res.status(400).json({ error: 'Invalid artist id.' });
+  try {
+    const r = await dbQuery(
+      `UPDATE songs SET primary_artist = $1 WHERE id = $2 RETURNING is_featured`,
+      [`spotify:artist:${target}`, id]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'Song not found.' });
+    res.json({ success: true, is_featured: r.rows[0].is_featured });
+  } catch (err) {
+    console.error('Admin song-bucket error:', err);
+    res.status(500).json({ error: 'Failed to move song.' });
+  }
+});
+
 // Serve index.html with cache-busting query strings on app.js/style.css so that a new
 // deploy is always picked up — even by aggressive mobile caches (iOS Safari bfcache).
 // The version token is derived from the asset mtimes, so it changes only on real updates.
