@@ -37,6 +37,20 @@ const ALBUM_ONLY_ARTISTS = new Set([
   '66CXWjxzNUsdJxJ2JdwvnR', // Ariana Grande
 ]);
 
+// Escape a string for safe HTML interpolation (element text or attribute
+// values). Titles like `… From "Toy Story 5"` otherwise terminate the
+// attribute early and leak garbage attributes / break inline handlers.
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+// Escape a string for a single-quoted JS literal inside an inline handler.
+// The handler string must still go through escHtml when placed in an attribute.
+function escJs(s) {
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 // Elements
 const tbody = document.getElementById('songs-tbody');
 const searchInput = document.getElementById('search-input');
@@ -658,20 +672,21 @@ function renderAlbums() {
   albumsContainer.innerHTML = filteredAlbums.map(album => {
     const totalStreams = Number(album.total_streams);
     const dailyGain = Number(album.daily_gain);
-    const albumTitleEscaped = album.album_title.replace(/'/g, "\\'");
     const dateFormatted = album.release_date || '';
     const coverUrl = album.image_url || ALBUM_COVERS[album.album_id] || '';
-    const coverUrlEscaped = coverUrl ? coverUrl.replace(/'/g, "\\'") : '';
-    const fallbackSvg = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 24 24' fill='none' stroke='%231db954' stroke-width='1.5' style='background:%23181818'><circle cx='12' cy='12' r='10'/><circle cx='12' cy='12' r='3'/><path d='M12 9v6'/></svg>`;
+    // Quotes are %-encoded so the data URI survives both the src attribute and
+    // the single-quoted JS string inside onerror (raw ' broke the fallback).
+    const fallbackSvg = `data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%2756%27 height=%2756%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%231db954%27 stroke-width=%271.5%27 style=%27background:%23181818%27><circle cx=%2712%27 cy=%2712%27 r=%2710%27/><circle cx=%2712%27 cy=%2712%27 r=%273%27/><path d=%27M12 9v6%27/></svg>`;
     const gainClass = dailyGain > 0 ? 'gain-positive' : (dailyGain < 0 ? 'gain-negative' : 'gain-neutral');
+    const clickHandler = `openAlbumById('${album.album_id}', '${escJs(album.album_title)}', '${dateFormatted}', '${escJs(coverUrl)}')`;
 
     return `
-      <div class="album-row glass" onclick="openAlbumById('${album.album_id}', '${albumTitleEscaped}', '${dateFormatted}', '${coverUrlEscaped}')">
+      <div class="album-row glass" onclick="${escHtml(clickHandler)}">
         <div class="album-row-cover">
-          <img src="${coverUrl || fallbackSvg}" alt="${album.album_title}" class="album-row-cover-img" onerror="this.onerror=null;this.src='${fallbackSvg}'">
+          <img src="${escHtml(coverUrl) || fallbackSvg}" alt="${escHtml(album.album_title)}" class="album-row-cover-img" onerror="this.onerror=null;this.src='${fallbackSvg}'">
         </div>
         <div class="album-row-info">
-          <h3 class="album-row-title">${album.album_title}</h3>
+          <h3 class="album-row-title">${escHtml(album.album_title)}</h3>
           <span class="album-row-sub">${formatDate(album.release_date)} · ${album.track_count} songs</span>
         </div>
         <div class="album-row-stats">
@@ -2121,14 +2136,14 @@ function renderMilestones() {
       : `<span class="milestone-type-badge type-song">🎵 Song</span>`;
       
     const clickHandler = isAlbum
-      ? `openAlbumById('${item.id}', '${item.title.replace(/'/g, "\\'")}', '${item.release_date}', '${item.image_url.replace(/'/g, "\\'")}')`
+      ? `openAlbumById('${item.id}', '${escJs(item.title)}', '${item.release_date}', '${escJs(item.image_url)}')`
       : `openSongById('${item.id}')`;
-    
+
     const projectedVal = getYearEndProjection(item.cumulative, item.daily_gain);
     return `
-      <div class="milestone-card glass" onclick="${clickHandler}" style="cursor: pointer;">
+      <div class="milestone-card glass" onclick="${escHtml(clickHandler)}" style="cursor: pointer;">
         <div class="milestone-card-header">
-          <h4 title="${item.title}">${item.title}</h4>
+          <h4 title="${escHtml(item.title)}">${escHtml(item.title)}</h4>
           <span class="eta-badge">${etaText}</span>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: -4px;">
@@ -2357,11 +2372,13 @@ function renderAchievedMilestones(rows) {
     return;
   }
   
-  // Filter by milestoneFilter
-  const filtered = rows.filter(r => {
-    if (milestoneFilter === 'all') return true;
-    return r.type === milestoneFilter;
-  });
+  // Filter by milestoneFilter. The buttons use plural values ('songs'/'albums')
+  // while the API rows carry singular types ('song'/'album') — map before
+  // comparing, otherwise the filtered list is always empty and the whole
+  // section vanishes when a filter is active.
+  const wantType = milestoneFilter === 'songs' ? 'song'
+    : milestoneFilter === 'albums' ? 'album' : null;
+  const filtered = wantType ? rows.filter(r => r.type === wantType) : rows;
   
   if (filtered.length === 0) {
     achievedSection.classList.add('hidden');
@@ -2381,7 +2398,7 @@ function renderAchievedMilestones(rows) {
       <div class="achieved-row">
         <span class="achieved-milestone">${formatMilestoneName(Number(r.milestone))}</span>
         ${badgeHtml}
-        <span class="achieved-song" title="${r.title}">${r.title}</span>
+        <span class="achieved-song" title="${escHtml(r.title)}">${escHtml(r.title)}</span>
         <span class="achieved-date">${formatDate(r.reached_date)}</span>
       </div>
     `;
@@ -2768,6 +2785,46 @@ function setDashboardLoading(on) {
   if (dashboardMain) dashboardMain.classList.toggle('is-loading', on);
 }
 
+// Reset every per-artist control back to its default when the artist changes,
+// so one artist's picks never leak into the next: the songs search / Solo-
+// Featured filter / column sort, the album search + sort, the milestone
+// filter, and the Target Calculator's picked item (its box used to keep the
+// previous artist's song title).
+function resetArtistScopedControls() {
+  // Songs list controls
+  searchFilter = '';
+  if (searchInput) searchInput.value = '';
+  typeFilter = 'all';
+  filterButtons.forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+  songsExpanded = false;
+  currentSortField = 'streams';
+  currentSortDirection = 'desc';
+  sortHeaders.forEach(th => {
+    th.classList.toggle('active', th.dataset.sort === 'streams');
+    const icon = th.querySelector('.sort-icon');
+    if (icon) icon.textContent = th.dataset.sort === 'streams' ? '▼' : '';
+  });
+
+  // Album list controls
+  albumSearchFilter = '';
+  albumSortField = 'streams-desc';
+  if (albumSearchInput) albumSearchInput.value = '';
+  if (albumSortSelect) albumSortSelect.value = 'streams-desc';
+
+  // Milestone filter buttons
+  milestoneFilter = 'all';
+  if (milestoneFilterButtons) {
+    milestoneFilterButtons.forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+  }
+
+  // Target Calculator
+  tcSelected = '';
+  if (tcItemEl) tcItemEl.value = '';
+  if (tcValueEl) tcValueEl.value = '';
+  if (tcResultEl) tcResultEl.innerHTML = '';
+  hideTcOptions();
+}
+
 // Artist Selector Handler
 const artistSelector = document.getElementById('artist-selector');
 const dashboardTitle = document.getElementById('dashboard-title');
@@ -2776,11 +2833,7 @@ if (artistSelector) {
     currentArtist = e.target.value;
     currentArtistName = e.target.options[e.target.selectedIndex]?.text || currentArtistName;
 
-    // Reset album controls
-    albumSearchFilter = '';
-    albumSortField = 'streams-desc';
-    if (albumSearchInput) albumSearchInput.value = '';
-    if (albumSortSelect) albumSortSelect.value = 'streams-desc';
+    resetArtistScopedControls();
 
     // Apply dynamic artist theme colors
     applyArtistTheme(currentArtist);
@@ -2824,12 +2877,8 @@ async function enterDashboard(artistId, artistName) {
   currentArtist = artistId;
   currentArtistName = artistName || '';
 
-  // Reset album controls
-  albumSearchFilter = '';
-  albumSortField = 'streams-desc';
-  if (albumSearchInput) albumSearchInput.value = '';
-  if (albumSortSelect) albumSortSelect.value = 'streams-desc';
-  
+  resetArtistScopedControls();
+
   // Apply dynamic artist theme colors
   applyArtistTheme(artistId);
   // Patch OG meta tags for the selected artist
