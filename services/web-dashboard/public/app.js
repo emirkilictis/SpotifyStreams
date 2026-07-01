@@ -273,6 +273,11 @@ function emptyState(title, sub, accentColor) {
 
 // Fetch Songs and Stats
 async function fetchData() {
+  // Capture the artist this load is for. Every await below is a window for the
+  // user to switch artists; a stale response landing late would overwrite the
+  // new artist's data (Taylor's songs shown under Olivia's header) — so bail
+  // whenever the selection changed mid-flight.
+  const artist = currentArtist;
   try {
     const headers = {};
     if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
@@ -282,12 +287,13 @@ async function fetchData() {
     if (songsTbodyEl) songsTbodyEl.innerHTML = skeletonRows(8, 5);
 
     // Fetch stats
-    const statsRes = await fetch(`/api/stats?artist=${currentArtist}`, { headers });
+    const statsRes = await fetch(`/api/stats?artist=${artist}`, { headers });
     if (statsRes.status === 401) {
       window.location.href = '/login';
       return;
     }
     const statsData = await statsRes.json();
+    if (artist !== currentArtist) return; // switched away while loading
     currentArtistRawStats = statsData;
     totalStreamsEl.textContent = formatNumber(statsData.total_streams);
     leadStreamsEl.textContent = formatNumber(statsData.lead_streams);
@@ -313,7 +319,8 @@ async function fetchData() {
 
     // Fetch artist-level stats (monthly listeners)
     try {
-      const artistStatsRes = await fetch(`/api/artist-stats?artist=${currentArtist}`, { headers });
+      const artistStatsRes = await fetch(`/api/artist-stats?artist=${artist}`, { headers });
+      if (artist !== currentArtist) return; // switched away while loading
       if (artistStatsRes.ok) {
         const artistStats = await artistStatsRes.json();
         currentArtistStats = artistStats;
@@ -366,9 +373,10 @@ async function fetchData() {
     fetchAchievedMilestones(headers);
 
     // Fetch songs
-    const songsRes = await fetch(`/api/songs?artist=${currentArtist}`, { headers });
+    const songsRes = await fetch(`/api/songs?artist=${artist}`, { headers });
     const songsData = await songsRes.json();
-    
+    if (artist !== currentArtist) return; // switched away while loading
+
     // Sort initially by cumulative streams desc and assign a global rank
     songsData.sort((a, b) => Number(b.cumulative) - Number(a.cumulative));
     allSongs = songsData.map((song, index) => ({
@@ -386,15 +394,18 @@ async function fetchData() {
 
 // Fetch Albums
 async function fetchAlbumsData() {
+  const artist = currentArtist; // same stale-response guard as fetchData
   try {
     albumsContainer.innerHTML = skeletonAlbumRows(6);
-    
+
     const headers = {};
     if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
-    
-    const res = await fetch(`/api/albums?artist=${currentArtist}`, { headers });
-    allAlbums = await res.json();
-    
+
+    const res = await fetch(`/api/albums?artist=${artist}`, { headers });
+    const albums = await res.json();
+    if (artist !== currentArtist) return; // switched away while loading
+    allAlbums = albums;
+
     if (viewToggleBar) {
       // Album-only artists have no songs list, but they still get a Milestones
       // tab — so show the bar (Albums + Milestones) and just hide "Songs List".
@@ -555,9 +566,6 @@ function renderSongs() {
       gainHtml += `<span class="real-drop" title="Gerçek son-gün değişimi (running-max kalkanı olmadan) — bu şarkıda stream düşüşü tespit edildi">▼ ${formatNumber(Math.abs(realChange))}</span>`;
     }
 
-    const albumEscaped = song.album_title ? song.album_title.replace(/'/g, "\\'") : '';
-    const dateFormatted = song.release_date || '';
-
     let badgeClass = 'badge-lead';
     let badgeText = 'Lead';
     if (isFeatured) {
@@ -573,7 +581,7 @@ function renderSongs() {
         <td><strong>${idx + 1}</strong></td>
         <td>
           <div class="song-title-cell">
-            <span class="song-title song-link" onclick="openSongById('${song.id}')">${song.title}</span>
+            <span class="song-title song-link" onclick="openSongById('${song.id}')">${escHtml(song.title)}</span>
             <div class="badge-wrapper">
               <span class="badge ${badgeClass}">
                 ${badgeText}
@@ -2375,10 +2383,12 @@ if (tcValueEl) tcValueEl.addEventListener('input', () => {
 // ===== Achieved Milestones (separate collapsible log) =====
 async function fetchAchievedMilestones(headers) {
   if (!achievedSection) return;
+  const artist = currentArtist; // same stale-response guard as fetchData
   try {
-    const res = await fetch(`/api/milestones-reached?artist=${currentArtist}`, { headers });
+    const res = await fetch(`/api/milestones-reached?artist=${artist}`, { headers });
     if (!res.ok) { achievedSection.classList.add('hidden'); return; }
     const rows = await res.json();
+    if (artist !== currentArtist) return; // switched away while loading
     lastAchievedMilestonesRawData = rows;
     renderAchievedMilestones(rows);
   } catch (e) {
