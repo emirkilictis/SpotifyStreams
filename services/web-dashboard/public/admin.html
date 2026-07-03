@@ -518,6 +518,25 @@
       </div>
 
       <div class="songs-section">
+        <h3 class="songs-h" style="color:#fbbf24">Move a snapshot day (late Spotify update)</h3>
+        <p class="songs-hint">Re-stamps every snapshot row recorded on one date onto another (optionally only one artist's bucket). Use when Spotify ships a daily update late and it lands on the wrong day — e.g. yesterday's playcounts arriving after the noon rollover get stamped today, leaving a hole that halves the daily gains. If a song already has a row on the target date the two merge (max count wins). Covers stream stats and artist stats.</p>
+        <div class="dz-card">
+          <div class="toolbar" style="margin-bottom:0">
+            <label class="songs-hint" style="margin:auto 0">From</label>
+            <input id="mv-from" class="search" type="date" style="max-width:180px;flex:none">
+            <label class="songs-hint" style="margin:auto 0">→ To</label>
+            <input id="mv-to" class="search" type="date" style="max-width:180px;flex:none">
+            <select id="mv-artist" class="search" style="max-width:230px;flex:none">
+              <option value="">All artists</option>
+            </select>
+            <button id="mv-preview" class="tool-btn">Preview</button>
+            <button id="mv-move" class="act del" disabled>Move rows</button>
+          </div>
+          <p id="mv-out" class="songs-hint" style="margin-bottom:0"></p>
+        </div>
+      </div>
+
+      <div class="songs-section">
         <h3 class="songs-h" style="color:var(--red)">Danger zone — delete a snapshot day</h3>
         <p class="songs-hint">Removes every stream_stats row recorded on that date (optionally only one artist's bucket). For double-day / partial-scrape incidents. Preview shows the row count first; Delete only unlocks after a preview.</p>
         <div class="dz-card">
@@ -1869,9 +1888,11 @@ ORDER BY m.created_at DESC`],
       if (dzArtistsFilled) return;
       const entries = Object.entries(ARTIST_NAMES).sort((a, b) => a[1].localeCompare(b[1]));
       for (const [id, name] of entries) {
-        const o = document.createElement('option');
-        o.value = id; o.textContent = name;
-        dzArtist.appendChild(o);
+        for (const sel of [dzArtist, mvArtist]) {
+          const o = document.createElement('option');
+          o.value = id; o.textContent = name;
+          sel.appendChild(o);
+        }
       }
       dzArtistsFilled = entries.length > 0;
     }
@@ -1915,6 +1936,59 @@ ORDER BY m.created_at DESC`],
         const d = await res.json().catch(() => ({}));
         dzOut.textContent = res.ok ? `Deleted ${d.rows} row(s).` : (d.error || 'Delete failed.');
       } catch { dzOut.textContent = 'Connection error.'; }
+    });
+
+    // ---- God mode: move a snapshot day (late Spotify update fix) ----
+    const mvFrom = document.getElementById('mv-from');
+    const mvTo = document.getElementById('mv-to');
+    const mvArtist = document.getElementById('mv-artist');
+    const mvPreviewBtn = document.getElementById('mv-preview');
+    const mvMoveBtn = document.getElementById('mv-move');
+    const mvOut = document.getElementById('mv-out');
+    const mvKey = () => mvFrom.value + '|' + mvTo.value + '|' + mvArtist.value;
+    let mvPreviewedKey = ''; // Move only unlocks for the exact previewed selection
+    [mvFrom, mvTo, mvArtist].forEach(el => el.addEventListener('change', () => {
+      mvMoveBtn.disabled = true;
+      mvOut.textContent = '';
+    }));
+    mvPreviewBtn.addEventListener('click', async () => {
+      if (!mvFrom.value || !mvTo.value) { mvOut.textContent = 'Pick both dates first.'; return; }
+      if (mvFrom.value === mvTo.value) { mvOut.textContent = 'From and To are the same day.'; return; }
+      mvPreviewBtn.disabled = true;
+      try {
+        const res = await api('/api/admin/snapshots/move-day', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: mvFrom.value, to: mvTo.value, artist_id: mvArtist.value || undefined, preview: true }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { mvOut.textContent = d.error || 'Preview failed.'; return; }
+        mvPreviewedKey = mvKey();
+        const scope = mvArtist.value ? ` for ${ARTIST_NAMES[mvArtist.value] || mvArtist.value}` : '';
+        mvOut.textContent = `${d.stream_rows} stream row(s) + ${d.artist_rows} artist-stat row(s) on ${mvFrom.value}${scope}`
+          + (d.merged_rows ? ` — ${d.merged_rows} song(s) already have a row on ${mvTo.value} and will be merged (max count wins).` : '.');
+        mvMoveBtn.disabled = (d.stream_rows + d.artist_rows) === 0;
+      } catch { mvOut.textContent = 'Connection error.'; }
+      finally { mvPreviewBtn.disabled = false; }
+    });
+    mvMoveBtn.addEventListener('click', async () => {
+      if (mvKey() !== mvPreviewedKey) {
+        mvOut.textContent = 'Selection changed — preview again.';
+        mvMoveBtn.disabled = true;
+        return;
+      }
+      const scope = mvArtist.value ? ` for ${ARTIST_NAMES[mvArtist.value] || mvArtist.value}` : '';
+      if (!confirm(`Move ALL snapshot rows recorded on ${mvFrom.value}${scope} to ${mvTo.value}? Daily gains recompute right after. Rows merged into an existing ${mvTo.value} row cannot be un-merged.`)) return;
+      mvMoveBtn.disabled = true;
+      try {
+        const res = await api('/api/admin/snapshots/move-day', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: mvFrom.value, to: mvTo.value, artist_id: mvArtist.value || undefined, confirm: mvFrom.value }),
+        });
+        const d = await res.json().catch(() => ({}));
+        mvOut.textContent = res.ok
+          ? `Moved ${d.stream_rows} stream row(s) + ${d.artist_rows} artist-stat row(s) to ${mvTo.value}.`
+          : (d.error || 'Move failed.');
+      } catch { mvOut.textContent = 'Connection error.'; }
     });
 
     // Auto-unlock if we already have a passcode from this session.

@@ -2230,6 +2230,131 @@ app.post('/api/admin/snapshots/delete-day', requireAdmin, async (req, res) => {
   }
 });
 
+// Admin: re-stamp every snapshot row recorded on one date onto another date —
+// the fix for Spotify shipping a daily update late. Playcounts that arrive
+// after the noon-Istanbul rollover get stamped a day too late, which leaves a
+// hole on the real day and makes daily_gain divide the two-day jump in half
+// (the views divide by the recorded_date gap). Moving the rows back to the day
+// the update actually belongs to restores the true gains.
+// Covers stream_stats AND artist_stats. If a row already exists on the target
+// date, the pair is merged (stream_stats keeps the max count; artist_stats
+// keeps the moved row's values) so the unique indexes are never violated.
+// Two-step like delete-day: preview:true returns counts only; the real move
+// must echo the source date back in `confirm`. Transactional.
+app.post('/api/admin/snapshots/move-day', requireAdmin, async (req, res) => {
+  const from = String(req.body?.from || '').trim();
+  const to   = String(req.body?.to || '').trim();
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRe.test(from) || !dateRe.test(to)) return res.status(400).json({ error: 'Invalid date (YYYY-MM-DD).' });
+  if (from === to) return res.status(400).json({ error: 'Source and target dates are the same.' });
+  const artistId = String(req.body?.artist_id || '').replace('spotify:artist:', '').trim();
+  if (artistId && !/^[A-Za-z0-9]{22}$/.test(artistId)) return res.status(400).json({ error: 'Invalid artist id.' });
+
+  // $1 = from, $2 = to, $3 = 'spotify:artist:<id>' or NULL (scope for songs).
+  // Preview adds $4 = bare artist id or NULL (artist_stats stores it unprefixed).
+  const sParams = [from, to, artistId ? `spotify:artist:${artistId}` : null];
+  const songScope = `($3::text IS NULL OR s.song_id IN (SELECT id FROM songs WHERE primary_artist = $3::text))`;
+
+  let client;
+  try {
+    if (req.body?.preview) {
+      const hasArtistStats =
+        (await dbQuery(`SELECT to_regclass('public.artist_stats') AS t`)).rows[0].t != null;
+      const r = await dbQuery(
+        `SELECT
+           (SELECT COUNT(*) FROM stream_stats s
+             WHERE s.recorded_date = $1 AND ${songScope})::int AS stream_rows,
+           (SELECT COUNT(*) FROM stream_stats s
+             JOIN stream_stats t ON t.song_id = s.song_id AND t.recorded_date = $2
+             WHERE s.recorded_date = $1 AND ${songScope})::int AS merged_rows,
+           ${hasArtistStats
+             ? `(SELECT COUNT(*) FROM artist_stats a
+                  WHERE a.recorded_date = $1 AND ($4::text IS NULL OR a.artist_id = $4::text))::int`
+             : `(LENGTH(COALESCE($4::text, '')) * 0)::int`} AS artist_rows`,
+        [...sParams, artistId || null]
+      );
+      return res.json({ preview: true, ...r.rows[0] });
+    }
+    if (String(req.body?.confirm || '') !== from) {
+      return res.status(400).json({ error: 'Confirmation mismatch — nothing moved.' });
+    }
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // 1) Songs that already have a row on the target date: fold the source row
+    //    into it (max count wins, same rule as the scraper's upsert), then drop
+    //    the source copy so step 3's re-stamp can't hit the unique index.
+    await client.query(
+      `UPDATE stream_stats t
+          SET stream_count = GREATEST(t.stream_count, s.stream_count),
+              recorded_at  = GREATEST(t.recorded_at, s.recorded_at)
+         FROM stream_stats s
+        WHERE t.recorded_date = $2 AND s.recorded_date = $1
+          AND t.song_id = s.song_id AND ${songScope}`,
+      sParams
+    );
+    await client.query(
+      `DELETE FROM stream_stats s
+        USING stream_stats t
+        WHERE s.recorded_date = $1 AND t.recorded_date = $2
+          AND t.song_id = s.song_id AND ${songScope}`,
+      sParams
+    );
+    // 3) Re-stamp everything left on the source date.
+    const moved = await client.query(
+      `UPDATE stream_stats s SET recorded_date = $2
+        WHERE s.recorded_date = $1 AND ${songScope}`,
+      sParams
+    );
+
+    // artist_stats mirrors the same merge-then-move, keeping the moved (newer)
+    // values on conflict. Table is optional on old DBs — guard like purge does.
+    let artistMoved = 0;
+    const hasArtistStats =
+      (await client.query(`SELECT to_regclass('public.artist_stats') AS t`)).rows[0].t != null;
+    if (hasArtistStats) {
+      const aParams = [from, to, artistId || null];
+      const aScope = `($3::text IS NULL OR s.artist_id = $3::text)`;
+      await client.query(
+        `UPDATE artist_stats t
+            SET monthly_listeners = COALESCE(s.monthly_listeners, t.monthly_listeners),
+                followers         = COALESCE(s.followers, t.followers),
+                world_rank        = COALESCE(s.world_rank, t.world_rank),
+                artist_name       = COALESCE(s.artist_name, t.artist_name),
+                recorded_at       = GREATEST(t.recorded_at, s.recorded_at)
+           FROM artist_stats s
+          WHERE t.recorded_date = $2 AND s.recorded_date = $1
+            AND t.artist_id = s.artist_id AND ${aScope}`,
+        aParams
+      );
+      await client.query(
+        `DELETE FROM artist_stats s
+          USING artist_stats t
+          WHERE s.recorded_date = $1 AND t.recorded_date = $2
+            AND t.artist_id = s.artist_id AND ${aScope}`,
+        aParams
+      );
+      const ar = await client.query(
+        `UPDATE artist_stats s SET recorded_date = $2
+          WHERE s.recorded_date = $1 AND ${aScope}`,
+        aParams
+      );
+      artistMoved = ar.rowCount;
+    }
+
+    await client.query('COMMIT');
+    console.log(`[move-day] ${from} → ${to}${artistId ? ' / ' + artistId : ''}: ${moved.rowCount} stream rows, ${artistMoved} artist rows.`);
+    res.json({ success: true, stream_rows: moved.rowCount, artist_rows: artistMoved });
+  } catch (err) {
+    if (client) { try { await client.query('ROLLBACK'); } catch {} }
+    console.error('Admin move-day error:', err);
+    res.status(500).json({ error: 'Move failed — rolled back, nothing changed.' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 // Admin: reload the in-memory roster + hidden-song caches from the DB without a
 // redeploy (e.g. after fixing rows straight in Neon).
 app.post('/api/admin/refresh-caches', requireAdmin, async (req, res) => {
