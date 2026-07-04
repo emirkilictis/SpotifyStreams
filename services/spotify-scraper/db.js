@@ -102,18 +102,34 @@ async function upsertStreamStat(client, songId, streamCount) {
 /**
  * Artist stat upsert — bir sanatçı için günlük snapshot (monthly listeners, followers, world rank).
  * stream_stats'tan farklı: monthly listeners hem artar hem azalır, bu yüzden GREATEST kullanmaz, üzerine yazar.
+ *
+ * Same late-update catch-up as upsertStreamStatsBatch: lands on the oldest day
+ * still missing since this artist's last snapshot (capped at today) instead of
+ * always "today", so a delayed Spotify refresh fills the real gap instead of
+ * skipping past it.
  */
 async function upsertArtistStat(client, s) {
+  const priorRes = await client.query(
+    `SELECT recorded_date::text AS recorded_date FROM artist_stats
+     WHERE artist_id = $1 ORDER BY recorded_date DESC LIMIT 1`,
+    [s.artist_id]
+  );
+  const priorDate = priorRes.rows[0]?.recorded_date || null;
   await client.query(
     `INSERT INTO artist_stats (artist_id, artist_name, monthly_listeners, followers, world_rank, recorded_date, recorded_at)
-     VALUES ($1, $2, $3, $4, $5, ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date, NOW())
+     VALUES ($1, $2, $3, $4, $5,
+             LEAST(
+               (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date),
+               COALESCE($6::date + 1, (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date))
+             ),
+             NOW())
      ON CONFLICT (artist_id, recorded_date) DO UPDATE
        SET artist_name       = COALESCE(EXCLUDED.artist_name, artist_stats.artist_name),
            monthly_listeners = EXCLUDED.monthly_listeners,
            followers         = EXCLUDED.followers,
            world_rank        = EXCLUDED.world_rank,
            recorded_at       = NOW()`,
-    [s.artist_id, s.name ?? null, s.monthly_listeners ?? null, s.followers ?? null, s.world_rank ?? null]
+    [s.artist_id, s.name ?? null, s.monthly_listeners ?? null, s.followers ?? null, s.world_rank ?? null, priorDate]
   );
 }
 
@@ -159,6 +175,17 @@ async function upsertSongsBatch(client, songs) {
  * upsertStreamStat (only write when Spotify's count actually increased) but in
  * 2 round-trips per album instead of 2 per track: one SELECT for the latest
  * counts, one multi-row INSERT for the non-stale rows. Returns rows written.
+ *
+ * Late-update catch-up: a song's row normally lands on "today" (the Istanbul
+ * calendar date). But if Spotify's daily refresh itself arrives late — after
+ * today's date has already rolled over past this song's last snapshot by more
+ * than one day — stamping it "today" leaves a hole on the day the update
+ * actually belongs to, and the calendar-diff daily_gain (see migration 015)
+ * ends up averaging that jump over the gap, i.e. it looks halved. So instead
+ * of always using today, we use the OLDEST day still missing since the song's
+ * last snapshot (last_date + 1), capped at today. Normal case (last snapshot
+ * = yesterday) resolves to exactly today, same as before; a multi-day gap
+ * catches up one day per scrape instead of jumping straight to today.
  */
 async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
   if (!items || !items.length) return 0;
@@ -173,37 +200,45 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
   if (!byId.size) return 0;
   const ids = [...byId.keys()];
   const lastRes = await client.query(
-    `SELECT DISTINCT ON (song_id) song_id, stream_count
+    `SELECT DISTINCT ON (song_id) song_id, stream_count, recorded_date::text AS recorded_date
      FROM stream_stats WHERE song_id = ANY($1)
      ORDER BY song_id, recorded_date DESC`,
     [ids]
   );
   const last = new Map();
-  for (const r of lastRes.rows) last.set(r.song_id, parseInt(r.stream_count, 10) || 0);
+  for (const r of lastRes.rows) {
+    last.set(r.song_id, { count: parseInt(r.stream_count, 10) || 0, date: r.recorded_date });
+  }
 
   const values = [];
   const params = [];
   let p = 0;
   for (const [songId, streamCount] of byId) {
-    const hasPrior  = last.has(songId);          // any earlier snapshot for this song?
-    const lastCount = last.get(songId) || 0;
-    if (lastCount > 0 && streamCount <= lastCount) continue; // stale → skip (same rule)
+    const prior     = last.get(songId);          // any earlier snapshot for this song?
+    const hasPrior  = !!prior;
+    if (hasPrior && streamCount <= prior.count) continue; // stale → skip (same rule)
     // First-EVER snapshot of a brand-new ARTIST → stamp YESTERDAY, not today, so a
     // new artist scraped before Spotify's daily rollover gets a baseline instead of
     // a double-day spike. Gated on backdateFirst (artist had zero prior snapshots):
     // back-dating a new EDITION of an existing song would put today's playcount on
     // yesterday and, through the canonical MAX, zero out that song's daily gain
     // (this is what killed LISA "Goals").
-    values.push(`($${++p}, $${++p}, $${++p})`);
-    params.push(songId, streamCount, (backdateFirst && !hasPrior) ? 1 : 0);
+    values.push(`($${++p}, $${++p}, $${++p}::date, $${++p}::int)`);
+    params.push(songId, streamCount, hasPrior ? prior.date : null, (backdateFirst && !hasPrior) ? 1 : 0);
   }
   if (!values.length) return 0;
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
      SELECT v.song_id::text, v.stream_count::bigint,
-            (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date - v.first_snap::int),
+            LEAST(
+              (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date),
+              COALESCE(
+                v.last_date + 1,
+                (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date - v.first_snap::int)
+              )
+            ),
             NOW()
-     FROM (VALUES ${values.join(', ')}) AS v(song_id, stream_count, first_snap)
+     FROM (VALUES ${values.join(', ')}) AS v(song_id, stream_count, last_date, first_snap)
      ON CONFLICT (song_id, recorded_date) DO UPDATE
        SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
            recorded_at  = NOW()`,
