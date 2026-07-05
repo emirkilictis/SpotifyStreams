@@ -106,8 +106,16 @@ const FELIX_EXTRA_TRACK_IDS = [
   '1Iu7bqGwYVB6OGq4uLt2ak', // Because (Changbin, Felix)
   '3VMeAc0SlgLaS9RzA8TSxH', // Deep end (Felix)
   '0bxB5Jie9fGKTIibfYVfei', // Up All Night (Bang Chan, Changbin, Felix, Seungmin)
+  '3B1kVUGFALavXUt8s9L65V', // GENIE (HAN, Felix, I.N) — primary_artist is HAN
 ];
 const FELIX_EXTRA_TRACK_IDS_SQL = FELIX_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
+// I.N is credited (sub-unit / featured) on these Stray Kids tracks whose
+// primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
+const IN_EXTRA_TRACK_IDS = [
+  '3B1kVUGFALavXUt8s9L65V', // GENIE (HAN, Felix, I.N) — primary_artist is HAN
+];
+const IN_EXTRA_TRACK_IDS_SQL = IN_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
 
 // Cardi B guest features that the full-disc scrape attributed to a CO-TRACKED
 // lead artist's bucket (a track has exactly one primary_artist), so they never
@@ -147,7 +155,7 @@ function artistBucketMatchSQL(s, a) {
 
   // Per-artist viewing clauses only apply to currently-active artists.
   const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
-  const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W', '4kYSro6naA4h99UJvo89HB'];
+  const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W', '4kYSro6naA4h99UJvo89HB', '1odvXbzhdzNajv6un9x5Mc'];
   const normalClauses = nonJtArtists
     .filter(item => !specialIds.includes(item.artist_id))
     .map(item => `OR ($1 = 'spotify:artist:${item.artist_id}' AND ${s}.primary_artist = 'spotify:artist:${item.artist_id}')`)
@@ -158,6 +166,7 @@ function artistBucketMatchSQL(s, a) {
     ${normalClauses}
     OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR ${s}.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
     OR ($1 = 'spotify:artist:4kYSro6naA4h99UJvo89HB' AND (${s}.primary_artist = 'spotify:artist:4kYSro6naA4h99UJvo89HB' OR ${s}.id IN (${CARDI_EXTRA_TRACK_IDS_SQL})))
+    OR ($1 = 'spotify:artist:1odvXbzhdzNajv6un9x5Mc' AND (${s}.primary_artist = 'spotify:artist:1odvXbzhdzNajv6un9x5Mc' OR ${s}.id IN (${IN_EXTRA_TRACK_IDS_SQL})))
     OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))
     OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))
   )`;
