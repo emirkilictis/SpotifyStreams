@@ -116,6 +116,9 @@ const IN_EXTRA_TRACK_IDS = [
   '3B1kVUGFALavXUt8s9L65V', // GENIE (HAN, Felix, I.N) — primary_artist is HAN
   '5gXUFmE5AKFiInKyHVVEnL', // Hug Me (I.N) — primary_artist is Stray Kids
   '1J0qupz0gVGSB5jcRY35tL', // Maknae On Top (I.N) — primary_artist is Stray Kids
+  '4fdxYCWRK0YXkxepMKsCDG', // START! — primary_artist is Lee Know, fan-reported I.N is also credited
+  '0tXaDUdlhJHC3NyO843wTi', // START! (dup copy) — primary_artist is Lee Know
+  '7xUu5XhIGzuZspFp5v3VqG', // START! - Instrumental — primary_artist is Lee Know
   // My Universe removed — a fan reported it's not actually credited to I.N on
   // Spotify (only to Stray Kids as the group), matching an identical report
   // from Seungmin's page (see SEUNGMIN_EXTRA_TRACK_IDS below).
