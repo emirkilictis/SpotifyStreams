@@ -114,8 +114,75 @@ const FELIX_EXTRA_TRACK_IDS_SQL = FELIX_EXTRA_TRACK_IDS.map(id => `'${id}'`).joi
 // primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
 const IN_EXTRA_TRACK_IDS = [
   '3B1kVUGFALavXUt8s9L65V', // GENIE (HAN, Felix, I.N) — primary_artist is HAN
+  '5gXUFmE5AKFiInKyHVVEnL', // Hug Me (I.N) — primary_artist is Stray Kids
+  '1J0qupz0gVGSB5jcRY35tL', // Maknae On Top (I.N) — primary_artist is Stray Kids
+  '4a2TlUwtrzLwjcHe1vPvj9', // My Universe (Seungmin, I.N) — primary_artist is Stray Kids
 ];
 const IN_EXTRA_TRACK_IDS_SQL = IN_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
+// Changbin is credited (sub-unit / featured) on these Stray Kids tracks whose
+// primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
+const CHANGBIN_EXTRA_TRACK_IDS = [
+  '1Iu7bqGwYVB6OGq4uLt2ak', // Because (Changbin, Felix) — primary_artist is Stray Kids
+  '786A4mxiKmPGHA7z7dPA9K', // DOODLE (Changbin) — primary_artist is Stray Kids
+  '56uBQujWiOiFMFg1R3TZUJ', // Piece of a Puzzle (Changbin, Seungmin) — primary_artist is Stray Kids
+  '1Z6NmeYIfN4e8TuEYLFTKL', // Streetlight (Changbin) — primary_artist is Stray Kids
+  '0bxB5Jie9fGKTIibfYVfei', // Up All Night (Bang Chan, Changbin, Felix, Seungmin) — primary_artist is Stray Kids
+  '56ZpFy1kLsXwtbHWX1CgJ4', // ZONE (Bang Chan, Changbin, HAN) — primary_artist is Stray Kids
+];
+const CHANGBIN_EXTRA_TRACK_IDS_SQL = CHANGBIN_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
+// Bang Chan is credited (sub-unit / featured) on these Stray Kids tracks whose
+// primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
+const BANGCHAN_EXTRA_TRACK_IDS = [
+  '3vGSv4l4czTve9jZoYeIWk', // Connected (Bang Chan) — primary_artist is Stray Kids
+  '0hLvtmoexLKl14LrzxOYRt', // Drive (Bang Chan, Lee Know) — primary_artist is Stray Kids
+  '0XABJLloqjHsF4mY4tGIOH', // i hate to admit (Bang Chan) — primary_artist is Stray Kids
+  '0bxB5Jie9fGKTIibfYVfei', // Up All Night (Bang Chan, Changbin, Felix, Seungmin) — primary_artist is Stray Kids
+  '56ZpFy1kLsXwtbHWX1CgJ4', // ZONE (Bang Chan, Changbin, HAN) — primary_artist is Stray Kids
+];
+const BANGCHAN_EXTRA_TRACK_IDS_SQL = BANGCHAN_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
+// HAN is credited (sub-unit / featured) on these Stray Kids tracks whose
+// primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
+const HAN_EXTRA_TRACK_IDS = [
+  '3czfvJgfEDfBT5OKA5qAU5', // Alien (HAN) — primary_artist is Stray Kids
+  '7jcpg7osgYWffx9LmLEoZ4', // Close (HAN) — primary_artist is Stray Kids
+  '4atsZkGtoHHPugKK5wzAE1', // I GOT IT (HAN) — primary_artist is Stray Kids
+  '1ifB8sqR8gd09DSEloo4Du', // Wish You Back (HAN) — primary_artist is Stray Kids
+  '56ZpFy1kLsXwtbHWX1CgJ4', // ZONE (Bang Chan, Changbin, HAN) — primary_artist is Stray Kids
+];
+const HAN_EXTRA_TRACK_IDS_SQL = HAN_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
+// Lee Know is credited (sub-unit / featured) on these Stray Kids tracks whose
+// primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
+const LEEKNOW_EXTRA_TRACK_IDS = [
+  '0hLvtmoexLKl14LrzxOYRt', // Drive (Bang Chan, Lee Know) — primary_artist is Stray Kids
+  '0nuXhivBOFDiriWCpdyU93', // Limbo (Lee Know) — primary_artist is Stray Kids
+];
+const LEEKNOW_EXTRA_TRACK_IDS_SQL = LEEKNOW_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
+// Hyunjin is credited (sub-unit / featured) on these Stray Kids tracks whose
+// primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
+const HYUNJIN_EXTRA_TRACK_IDS = [
+  '1SrsEuRiRoopW2pZDaHgVA', // Love Untold (Hyunjin) — primary_artist is Stray Kids
+  '07x9Jr01lqjlFycZsfKBae', // ice.cream (Hyunjin) — primary_artist is Stray Kids
+  '1BwFLLe233S6HR1ravS3yi', // miss you (Hyunjin) — primary_artist is Stray Kids
+];
+const HYUNJIN_EXTRA_TRACK_IDS_SQL = HYUNJIN_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
+
+// Seungmin is credited (sub-unit / featured) on these Stray Kids tracks whose
+// primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
+const SEUNGMIN_EXTRA_TRACK_IDS = [
+  '4FopzmRUfn8Ob8xlYVZqe8', // Close to You (SEUNGMIN of Stray Kids) — primary_artist is Stray Kids
+  '4a2TlUwtrzLwjcHe1vPvj9', // My Universe (Seungmin, I.N) — primary_artist is Stray Kids
+  '16Xt6aWyMW5Ugb3nfsInJ3', // Phobia (alias copy) — primary_artist is Stray Kids
+  '1KC5Y3kIiHvEDdinY0OcRL', // Phobia (canonical head) — primary_artist is Stray Kids
+  '56uBQujWiOiFMFg1R3TZUJ', // Piece of a Puzzle (Changbin, Seungmin) — primary_artist is Stray Kids
+  '5kFGqKqHzVVMMI7V7uoID1', // Stars and Raindrops (Seungmin) — primary_artist is Stray Kids
+  '0bxB5Jie9fGKTIibfYVfei', // Up All Night (Bang Chan, Changbin, Felix, Seungmin) — primary_artist is Stray Kids
+];
+const SEUNGMIN_EXTRA_TRACK_IDS_SQL = SEUNGMIN_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', ');
 
 // Cardi B guest features that the full-disc scrape attributed to a CO-TRACKED
 // lead artist's bucket (a track has exactly one primary_artist), so they never
@@ -155,7 +222,10 @@ function artistBucketMatchSQL(s, a) {
 
   // Per-artist viewing clauses only apply to currently-active artists.
   const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
-  const specialIds = ['1HY2Jd0NmPuamShAr6KMms', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W', '4kYSro6naA4h99UJvo89HB', '1odvXbzhdzNajv6un9x5Mc'];
+  const specialIds = [
+    '1HY2Jd0NmPuamShAr6KMms', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W', '4kYSro6naA4h99UJvo89HB', '1odvXbzhdzNajv6un9x5Mc',
+    '3XSid6KaiKoMAVZs2ug3yw', '5jRUIqBSxmsBPNiEwKUjgZ', '46YvTuKiPBUu5KP9818J2F', '04jivE3Ek7Xu8WSGVmEqUn', '0ymFDpsRImjK673AGgFBcg', '2nTtulf6WM0raQcIbzYJuf',
+  ];
   const normalClauses = nonJtArtists
     .filter(item => !specialIds.includes(item.artist_id))
     .map(item => `OR ($1 = 'spotify:artist:${item.artist_id}' AND ${s}.primary_artist = 'spotify:artist:${item.artist_id}')`)
@@ -167,6 +237,12 @@ function artistBucketMatchSQL(s, a) {
     OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR ${s}.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
     OR ($1 = 'spotify:artist:4kYSro6naA4h99UJvo89HB' AND (${s}.primary_artist = 'spotify:artist:4kYSro6naA4h99UJvo89HB' OR ${s}.id IN (${CARDI_EXTRA_TRACK_IDS_SQL})))
     OR ($1 = 'spotify:artist:1odvXbzhdzNajv6un9x5Mc' AND (${s}.primary_artist = 'spotify:artist:1odvXbzhdzNajv6un9x5Mc' OR ${s}.id IN (${IN_EXTRA_TRACK_IDS_SQL})))
+    OR ($1 = 'spotify:artist:3XSid6KaiKoMAVZs2ug3yw' AND (${s}.primary_artist = 'spotify:artist:3XSid6KaiKoMAVZs2ug3yw' OR ${s}.id IN (${CHANGBIN_EXTRA_TRACK_IDS_SQL})))
+    OR ($1 = 'spotify:artist:5jRUIqBSxmsBPNiEwKUjgZ' AND (${s}.primary_artist = 'spotify:artist:5jRUIqBSxmsBPNiEwKUjgZ' OR ${s}.id IN (${BANGCHAN_EXTRA_TRACK_IDS_SQL})))
+    OR ($1 = 'spotify:artist:46YvTuKiPBUu5KP9818J2F' AND (${s}.primary_artist = 'spotify:artist:46YvTuKiPBUu5KP9818J2F' OR ${s}.id IN (${HAN_EXTRA_TRACK_IDS_SQL})))
+    OR ($1 = 'spotify:artist:04jivE3Ek7Xu8WSGVmEqUn' AND (${s}.primary_artist = 'spotify:artist:04jivE3Ek7Xu8WSGVmEqUn' OR ${s}.id IN (${LEEKNOW_EXTRA_TRACK_IDS_SQL})))
+    OR ($1 = 'spotify:artist:0ymFDpsRImjK673AGgFBcg' AND (${s}.primary_artist = 'spotify:artist:0ymFDpsRImjK673AGgFBcg' OR ${s}.id IN (${HYUNJIN_EXTRA_TRACK_IDS_SQL})))
+    OR ($1 = 'spotify:artist:2nTtulf6WM0raQcIbzYJuf' AND (${s}.primary_artist = 'spotify:artist:2nTtulf6WM0raQcIbzYJuf' OR ${s}.id IN (${SEUNGMIN_EXTRA_TRACK_IDS_SQL})))
     OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))
     OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))
   )`;
