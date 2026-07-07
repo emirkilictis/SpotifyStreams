@@ -451,4 +451,39 @@ async function fetchArtistAppearsOn(page, artistId) {
   return allAlbums;
 }
 
-module.exports = { launchBrowser, fetchArtistAlbums, fetchAlbumTracks, fetchArtistAppearsOn };
+/**
+ * Fetches an artist's profile photo straight from the intercepted artistUnion
+ * GraphQL response on their open.spotify.com page — same technique as
+ * backfill-album-covers.js's albumCover(), just keyed on artistUnion.visuals
+ * instead of albumUnion.coverArt. No separate API credentials needed.
+ */
+async function fetchArtistAvatar(page, artistId) {
+  let avatar = null;
+  const targetUri = `spotify:artist:${artistId}`;
+  const handler = async (res) => {
+    try {
+      if (!res.url().includes('pathfinder/v2')) return;
+      const body = await res.json().catch(() => null);
+      const au = body?.data?.artistUnion;
+      const sources = au?.visuals?.avatarImage?.sources;
+      if (au?.uri === targetUri && sources?.length && !avatar) {
+        // pick the largest source (last is usually the biggest)
+        avatar = sources[sources.length - 1].url || sources[0].url;
+      }
+    } catch {}
+  };
+  page.on('response', handler);
+  try {
+    await page.goto(`https://open.spotify.com/artist/${artistId}`, {
+      waitUntil: 'networkidle2', timeout: 15000,
+    });
+  } catch (e) { /* response may already be intercepted despite a late asset timeout */ }
+  for (let i = 0; i < 12; i++) {
+    if (avatar) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  page.off('response', handler);
+  return avatar;
+}
+
+module.exports = { launchBrowser, fetchArtistAlbums, fetchAlbumTracks, fetchArtistAppearsOn, fetchArtistAvatar };
