@@ -2348,7 +2348,29 @@ if (tcOptionsEl) {
     selectTcItem(Number(opt.dataset.idx));
   });
 }
-if (tcValueEl) tcValueEl.addEventListener('input', computeTargetEta);
+// Live-format tc-value as thousands-grouped digits while typing (750000000 -> 750,000,000).
+// Only applies to plain integer input — "500m"/"1.5b" suffixed shorthand is left untouched
+// since grouping doesn't make sense there. parseTargetInput already strips commas back out.
+function formatTcValueDigits(raw) {
+  const stripped = raw.replace(/,/g, '');
+  return /^[0-9]+$/.test(stripped) ? Number(stripped).toLocaleString('en-US') : stripped;
+}
+if (tcValueEl) tcValueEl.addEventListener('input', () => {
+  const before = tcValueEl.value;
+  const caret = tcValueEl.selectionStart;
+  const digitsBeforeCaret = before.slice(0, caret).replace(/[^0-9]/g, '').length;
+  const formatted = formatTcValueDigits(before);
+  if (formatted !== before) {
+    tcValueEl.value = formatted;
+    let count = 0, pos = formatted.length;
+    for (let i = 0; i < formatted.length; i++) {
+      if (/[0-9]/.test(formatted[i])) count++;
+      if (count >= digitsBeforeCaret) { pos = i + 1; break; }
+    }
+    tcValueEl.setSelectionRange(pos, pos);
+  }
+  computeTargetEta();
+});
 
 // ===== Achieved Milestones (separate collapsible log) =====
 async function fetchAchievedMilestones(headers) {
