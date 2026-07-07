@@ -113,15 +113,18 @@ const FORCE_CANONICAL = {
   '2odDiXqmvqGNKzHUoEGTHB': '3hdGyxmW0eNskNwTwmXOIQ', // LISA Goals (FIFA WC 2026 standard, frozen) → Opening Ceremony Edition canonical
   '5GP8vMD6WaOffDeJfbit0m': '6ic8OlLUNEATToEFU3xmaH', // Gimme More ("Kimme More" Remix) (feat. Lil' Kim) → Gimme More (original)
 
-  // Cardi B "ErrTime" remixes on AM I THE DRAMA (Ultimate Edition)/(The Snow Mix):
-  // Spotify links these remix tracks to the ORIGINAL's playcount (byte-identical
-  // count + duration), so Pass 2 merged them into the wrong canonical (plain
-  // ErrTime / the Jeezy&Latto version) and the album view collapsed them away.
-  // Re-point each to its OWN standalone-remix canonical so it shows as a distinct
-  // row with its own streams. No total change — the targets are already counted heads.
-  '1QonoQ0WvX2xYX5BNhTIeQ': '5CanskmqatfFbm9O9Epavt', // ErrTime (feat. Latto) [Remix] — Ultimate → standalone Latto remix
-  '712SSg5i3QMK2yA7v2oV1D': '5CanskmqatfFbm9O9Epavt', // ErrTime (feat. Latto) [Remix] — Snow Mix → standalone Latto remix
-  '6CbbaIFRxszOfvFN9ljlTk': '1dtdgZK7egg2fBVoeC0T5i', // ErrTime (feat. Jeezy) [Remix] — Ultimate → standalone Jeezy remix
+  // NOTE: an earlier fix here force-pointed Cardi B's "ErrTime" Ultimate
+  // Edition/Snow Mix remix copies (1QonoQ0, 712SSg, 6CbbaIF) onto the
+  // standalone-remix canonicals, on the assumption Spotify linked them there.
+  // Raw stream_stats proved that wrong: 1QonoQ0/712SSg are byte-identical to
+  // the SOLO track's daily count, and 6CbbaIF is byte-identical to the
+  // "ErrTime (feat. Jeezy & Latto)" cluster's count — not to the standalone
+  // remixes at all. Forcing them the wrong way merged two genuinely different
+  // recordings (the real standalone Jeezy remix, ~1.17M, and the Jeezy&Latto
+  // cluster, ~4.24M) into one canonical, hiding the real remix entirely.
+  // Pass 1's exact-linked-count check already clusters all six copies
+  // correctly on the actual data with no override needed, so the entries were
+  // removed rather than corrected to a different hardcoded target.
 
   // Christina Aguilera "Moves Like Jagger": the "- Radio Edit" copy (1qIX, on a
   // junk comp) is the SAME linked recording as the "Studio Recording From The
