@@ -8,7 +8,7 @@
 
 require('dotenv').config({ path: '../../.env' });
 
-const { launchBrowser, fetchAlbumTracks } = require('./spotify');
+const { launchBrowser, fetchAlbumTracks, fetchArtistAvatar } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
 const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, closePool } = require('./db');
 const { dedupCanonical } = require('./dedup');
@@ -770,6 +770,25 @@ async function run() {
       }
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
+
+      // Auto-backfill any active artist still missing a profile photo (e.g. a
+      // freshly added roster member) — no manual CDN-URL pasting needed.
+      try {
+        const missing = await client.query(
+          `SELECT artist_id, name FROM tracked_artists WHERE active = true AND (image_url IS NULL OR image_url = '')`
+        );
+        for (const art of missing.rows) {
+          const url = await fetchArtistAvatar(page, art.artist_id);
+          if (url) {
+            await client.query('UPDATE tracked_artists SET image_url = $1 WHERE artist_id = $2', [url, art.artist_id]);
+            console.log(`[scraper] 📷 Fetched profile photo for ${art.name}.`);
+          } else {
+            console.warn(`[scraper] 📷 Could not find a profile photo for ${art.name} yet.`);
+          }
+        }
+      } catch (avatarErr) {
+        console.warn('[scraper] Artist photo backfill failed:', avatarErr.message);
+      }
     } finally {
       try {
         console.log('[scraper] Running database deduplication step (transactional)...');
