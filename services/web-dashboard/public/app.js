@@ -3151,10 +3151,11 @@ function deriveThemeFromAccent(hex) {
   const dg = Math.max(0, Math.round(g * 0.88));
   const db = Math.max(0, Math.round(b * 0.88));
   const toHex = n => n.toString(16).padStart(2, '0');
-  // Background tint: very dark version of accent for the hero gradient
-  const tr = Math.min(255, Math.round(r * 0.18));
-  const tg = Math.min(255, Math.round(g * 0.18));
-  const tb = Math.min(255, Math.round(b * 0.18));
+  // Background tint: dark version of accent for the hero gradient. Bumped
+  // 0.18 -> 0.24 — the cover-extracted save-card background read a shade too dark.
+  const tr = Math.min(255, Math.round(r * 0.24));
+  const tg = Math.min(255, Math.round(g * 0.24));
+  const tb = Math.min(255, Math.round(b * 0.24));
   return {
     accent:      hex,
     accentHover: `#${toHex(dr)}${toHex(dg)}${toHex(db)}`,
