@@ -130,6 +130,7 @@ const IN_EXTRA_TRACK_IDS_SQL = IN_EXTRA_TRACK_IDS.map(id => `'${id}'`).join(', '
 const CHANGBIN_EXTRA_TRACK_IDS = [
   '1Iu7bqGwYVB6OGq4uLt2ak', // Because (Changbin, Felix) — primary_artist is Stray Kids
   '786A4mxiKmPGHA7z7dPA9K', // DOODLE (Changbin) — primary_artist is Stray Kids
+  '1J0qupz0gVGSB5jcRY35tL', // Maknae On Top (I.N) — Changbin is also a credited feature per Spotify
   '56uBQujWiOiFMFg1R3TZUJ', // Piece of a Puzzle (Changbin, Seungmin) — primary_artist is Stray Kids
   '1Z6NmeYIfN4e8TuEYLFTKL', // Streetlight (Changbin) — primary_artist is Stray Kids
   '0bxB5Jie9fGKTIibfYVfei', // Up All Night (Bang Chan, Changbin, Felix, Seungmin) — primary_artist is Stray Kids
@@ -143,6 +144,7 @@ const BANGCHAN_EXTRA_TRACK_IDS = [
   '3vGSv4l4czTve9jZoYeIWk', // Connected (Bang Chan) — primary_artist is Stray Kids
   '0hLvtmoexLKl14LrzxOYRt', // Drive (Bang Chan, Lee Know) — primary_artist is Stray Kids
   '0XABJLloqjHsF4mY4tGIOH', // i hate to admit (Bang Chan) — primary_artist is Stray Kids
+  '1J0qupz0gVGSB5jcRY35tL', // Maknae On Top (I.N) — Bang Chan is also a credited feature per Spotify
   '1Z6NmeYIfN4e8TuEYLFTKL', // Streetlight (Changbin) — Bang Chan is also a credited feature per Spotify
   '0bxB5Jie9fGKTIibfYVfei', // Up All Night (Bang Chan, Changbin, Felix, Seungmin) — primary_artist is Stray Kids
   '56ZpFy1kLsXwtbHWX1CgJ4', // ZONE (Bang Chan, Changbin, HAN) — primary_artist is Stray Kids
