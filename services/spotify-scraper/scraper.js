@@ -13,6 +13,30 @@ const { discoverAllAlbumsPuppeteer } = require('./discover');
 const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, closePool } = require('./db');
 const { dedupCanonical } = require('./dedup');
 
+// Auto-backfill any active artist still missing a profile photo (e.g. a freshly
+// added roster member) — no manual CDN-URL pasting needed. Called both on the
+// early-exit paths (most hourly runs, since Spotify only rolls over once a day)
+// and after a full scrape, so a newly added artist doesn't have to wait for the
+// next day's data rollover before getting a photo.
+async function backfillMissingArtistPhotos(page, client) {
+  try {
+    const missing = await client.query(
+      `SELECT artist_id, name FROM tracked_artists WHERE active = true AND (image_url IS NULL OR image_url = '')`
+    );
+    for (const art of missing.rows) {
+      const url = await fetchArtistAvatar(page, art.artist_id);
+      if (url) {
+        await client.query('UPDATE tracked_artists SET image_url = $1 WHERE artist_id = $2', [url, art.artist_id]);
+        console.log(`[scraper] 📷 Fetched profile photo for ${art.name}.`);
+      } else {
+        console.warn(`[scraper] 📷 Could not find a profile photo for ${art.name} yet.`);
+      }
+    }
+  } catch (avatarErr) {
+    console.warn('[scraper] Artist photo backfill failed:', avatarErr.message);
+  }
+}
+
 const ARTIST_ID  = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
 const ARTIST_URI = `spotify:artist:${ARTIST_ID}`;
 // Inter-album throttle. Lowered from 400ms → 175ms (still polite to Spotify's
@@ -734,6 +758,7 @@ async function run() {
 
         if (pendingArtists.length === 0) {
           console.log('[scraper] All artists already have today\'s data. Nothing to do. Exiting gracefully.');
+          await backfillMissingArtistPhotos(page, client);
           await setScraperStatus(client, 'idle');
           client.release();
           await closePool();
@@ -747,6 +772,7 @@ async function run() {
         // run since the canary's last positive detection, so we scrape them.)
         if (!spotifyUpdatedToday && pendingArtists.length === artistsToRun.length) {
           console.log('[scraper] No fresh update and no artist captured yet today. Exiting gracefully.');
+          await backfillMissingArtistPhotos(page, client);
           await setScraperStatus(client, 'idle');
           client.release();
           await closePool();
@@ -771,24 +797,7 @@ async function run() {
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
 
-      // Auto-backfill any active artist still missing a profile photo (e.g. a
-      // freshly added roster member) — no manual CDN-URL pasting needed.
-      try {
-        const missing = await client.query(
-          `SELECT artist_id, name FROM tracked_artists WHERE active = true AND (image_url IS NULL OR image_url = '')`
-        );
-        for (const art of missing.rows) {
-          const url = await fetchArtistAvatar(page, art.artist_id);
-          if (url) {
-            await client.query('UPDATE tracked_artists SET image_url = $1 WHERE artist_id = $2', [url, art.artist_id]);
-            console.log(`[scraper] 📷 Fetched profile photo for ${art.name}.`);
-          } else {
-            console.warn(`[scraper] 📷 Could not find a profile photo for ${art.name} yet.`);
-          }
-        }
-      } catch (avatarErr) {
-        console.warn('[scraper] Artist photo backfill failed:', avatarErr.message);
-      }
+      await backfillMissingArtistPhotos(page, client);
     } finally {
       try {
         console.log('[scraper] Running database deduplication step (transactional)...');
