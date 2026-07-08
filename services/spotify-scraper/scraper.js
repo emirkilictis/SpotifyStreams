@@ -651,6 +651,15 @@ async function run() {
   try {
     const pool   = getPool();
     const client = await pool.connect();
+    // Safety net for the dedup BEGIN/COMMIT below: a hard GHA cancel (job timeout)
+    // can SIGKILL this process mid-transaction, skipping our JS-level ROLLBACK.
+    // If Neon's pooler ever hands that abandoned "idle in transaction" backend to a
+    // later, unrelated session, every write on it inherits a frozen NOW() from the
+    // old BEGIN — writes silently land on a stale date (see incident: Britney/Janet/
+    // Vaelis/Taylor/Christina tracks stuck at 0 daily gain for days on a poisoned
+    // recorded_date). This makes Postgres itself kill any transaction left idle this
+    // long, so an abandoned one can never survive to be reused.
+    await client.query("SET idle_in_transaction_session_timeout = '120000'");
 
     try {
       await setScraperStatus(client, 'scraping');
