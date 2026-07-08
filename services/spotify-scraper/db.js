@@ -13,6 +13,43 @@ function getPool() {
   return pool;
 }
 
+// Late-update catch-up (see upsertStreamStatsBatch) only fills the missing day
+// ONE AT A TIME (last_date + 1) when the gap is small — that's the common "Spotify's
+// own refresh was a bit late" case. But a song that's structurally revisited less
+// than daily (e.g. an edition track on a shared compilation album only rediscovered
+// every few days via appears-on) never has a "small" gap: every visit advances the
+// date by exactly 1 and it permanently trails further behind. Because
+// daily_streams_canonical takes a running MAX per canonical_id across every edition,
+// a fresh (large) count landing under an old date poisons that date's max and
+// flatlines daily_gain for every day since — this is what froze Britney's Toxic/
+// Gimme More/Baby One More Time/Womanizer (and assorted Janet Jackson/Vaelis/Taylor
+// Swift/Christina Aguilera/cupcakke tracks) for 10+ days on 2026-07-08. Beyond this
+// many days of gap, snap straight to today instead of creeping — one coarse-gain day
+// is far safer than a permanently poisoned running max.
+const CATCHUP_CAP_DAYS = 2;
+
+function addDays(dateStr, n) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Target date for a snapshot: fills the oldest missing day (priorDate + 1) when the
+// gap since the last snapshot is small, otherwise snaps to today (see CATCHUP_CAP_DAYS).
+function nextSnapshotDate(todayStr, priorDateStr) {
+  if (!priorDateStr) return todayStr;
+  const gapDays = Math.round((new Date(`${todayStr}T00:00:00Z`) - new Date(`${priorDateStr}T00:00:00Z`)) / 86400000);
+  if (gapDays <= 0) return todayStr;
+  return gapDays <= CATCHUP_CAP_DAYS ? addDays(priorDateStr, 1) : todayStr;
+}
+
+async function todayIstanbul(client) {
+  const res = await client.query(
+    `SELECT (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)::text AS today`
+  );
+  return res.rows[0].today;
+}
+
 /**
  * Album upsert — varsa güncelle, yoksa ekle.
  */
@@ -104,32 +141,30 @@ async function upsertStreamStat(client, songId, streamCount) {
  * stream_stats'tan farklı: monthly listeners hem artar hem azalır, bu yüzden GREATEST kullanmaz, üzerine yazar.
  *
  * Same late-update catch-up as upsertStreamStatsBatch: lands on the oldest day
- * still missing since this artist's last snapshot (capped at today) instead of
- * always "today", so a delayed Spotify refresh fills the real gap instead of
- * skipping past it.
+ * still missing since this artist's last snapshot when the gap is small (capped at
+ * CATCHUP_CAP_DAYS), otherwise snaps to today instead of creeping indefinitely.
  */
 async function upsertArtistStat(client, s) {
-  const priorRes = await client.query(
-    `SELECT recorded_date::text AS recorded_date FROM artist_stats
-     WHERE artist_id = $1 ORDER BY recorded_date DESC LIMIT 1`,
-    [s.artist_id]
-  );
+  const [today, priorRes] = await Promise.all([
+    todayIstanbul(client),
+    client.query(
+      `SELECT recorded_date::text AS recorded_date FROM artist_stats
+       WHERE artist_id = $1 ORDER BY recorded_date DESC LIMIT 1`,
+      [s.artist_id]
+    ),
+  ]);
   const priorDate = priorRes.rows[0]?.recorded_date || null;
+  const targetDate = nextSnapshotDate(today, priorDate);
   await client.query(
     `INSERT INTO artist_stats (artist_id, artist_name, monthly_listeners, followers, world_rank, recorded_date, recorded_at)
-     VALUES ($1, $2, $3, $4, $5,
-             LEAST(
-               (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date),
-               COALESCE($6::date + 1, (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date))
-             ),
-             NOW())
+     VALUES ($1, $2, $3, $4, $5, $6::date, NOW())
      ON CONFLICT (artist_id, recorded_date) DO UPDATE
        SET artist_name       = COALESCE(EXCLUDED.artist_name, artist_stats.artist_name),
            monthly_listeners = EXCLUDED.monthly_listeners,
            followers         = EXCLUDED.followers,
            world_rank        = EXCLUDED.world_rank,
            recorded_at       = NOW()`,
-    [s.artist_id, s.name ?? null, s.monthly_listeners ?? null, s.followers ?? null, s.world_rank ?? null, priorDate]
+    [s.artist_id, s.name ?? null, s.monthly_listeners ?? null, s.followers ?? null, s.world_rank ?? null, targetDate]
   );
 }
 
@@ -183,9 +218,13 @@ async function upsertSongsBatch(client, songs) {
  * actually belongs to, and the calendar-diff daily_gain (see migration 015)
  * ends up averaging that jump over the gap, i.e. it looks halved. So instead
  * of always using today, we use the OLDEST day still missing since the song's
- * last snapshot (last_date + 1), capped at today. Normal case (last snapshot
- * = yesterday) resolves to exactly today, same as before; a multi-day gap
- * catches up one day per scrape instead of jumping straight to today.
+ * last snapshot (last_date + 1) — but only while the gap is small (see
+ * CATCHUP_CAP_DAYS): a song that's structurally revisited less than daily (e.g.
+ * an edition on a shared compilation album only rediscovered every few days)
+ * would otherwise creep 1 day per visit forever, and daily_streams_canonical's
+ * running MAX per canonical_id means a fresh count landing under a stale date
+ * poisons that date's max and flatlines daily_gain from then on. Beyond the
+ * cap we snap straight to today instead.
  */
 async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
   if (!items || !items.length) return 0;
@@ -199,12 +238,15 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
   }
   if (!byId.size) return 0;
   const ids = [...byId.keys()];
-  const lastRes = await client.query(
-    `SELECT DISTINCT ON (song_id) song_id, stream_count, recorded_date::text AS recorded_date
-     FROM stream_stats WHERE song_id = ANY($1)
-     ORDER BY song_id, recorded_date DESC`,
-    [ids]
-  );
+  const [today, lastRes] = await Promise.all([
+    todayIstanbul(client),
+    client.query(
+      `SELECT DISTINCT ON (song_id) song_id, stream_count, recorded_date::text AS recorded_date
+       FROM stream_stats WHERE song_id = ANY($1)
+       ORDER BY song_id, recorded_date DESC`,
+      [ids]
+    ),
+  ]);
   const last = new Map();
   for (const r of lastRes.rows) {
     last.set(r.song_id, { count: parseInt(r.stream_count, 10) || 0, date: r.recorded_date });
@@ -223,22 +265,17 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
     // back-dating a new EDITION of an existing song would put today's playcount on
     // yesterday and, through the canonical MAX, zero out that song's daily gain
     // (this is what killed LISA "Goals").
-    values.push(`($${++p}, $${++p}, $${++p}::date, $${++p}::int)`);
-    params.push(songId, streamCount, hasPrior ? prior.date : null, (backdateFirst && !hasPrior) ? 1 : 0);
+    const targetDate = hasPrior
+      ? nextSnapshotDate(today, prior.date)
+      : ((backdateFirst && !hasPrior) ? addDays(today, -1) : today);
+    values.push(`($${++p}, $${++p}, $${++p}::date)`);
+    params.push(songId, streamCount, targetDate);
   }
   if (!values.length) return 0;
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
-     SELECT v.song_id::text, v.stream_count::bigint,
-            LEAST(
-              (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date),
-              COALESCE(
-                v.last_date + 1,
-                (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date - v.first_snap::int)
-              )
-            ),
-            NOW()
-     FROM (VALUES ${values.join(', ')}) AS v(song_id, stream_count, last_date, first_snap)
+     SELECT v.song_id::text, v.stream_count::bigint, v.target_date, NOW()
+     FROM (VALUES ${values.join(', ')}) AS v(song_id, stream_count, target_date)
      ON CONFLICT (song_id, recorded_date) DO UPDATE
        SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
            recorded_at  = NOW()`,
