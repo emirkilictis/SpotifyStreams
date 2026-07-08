@@ -429,7 +429,15 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
       { id: '5uOBHR89JOzaZxuVZdhWWp', title: 'Heart Still Beating', release_date: '2023-10-27', is_featured: true }, // Heart Still Beating (Nathan Dawe)
       { id: '4EUf4YyNjuXypWY6W5wEDm', title: 'This Is Not A Drill', release_date: '2014-11-21', is_featured: true }, // This Is Not A Drill (Pitbull)
       { id: '3magxZAvx6F9hKyUQmFy3s', title: 'Battle Cry', release_date: '2014-04-14', is_featured: true }, // Battle Cry (Havana Brown)
-      { id: '0ZZSo8nObNWR7fTyRZARez', title: 'Dare You - Acoustic Version', release_date: '2014-01-24', is_featured: true } // Dare You Acoustic (Hardwell)
+      { id: '0ZZSo8nObNWR7fTyRZARez', title: 'Dare You - Acoustic Version', release_date: '2014-01-24', is_featured: true }, // Dare You Acoustic (Hardwell)
+      // Found via audit-kworb.js — remix/continuous-mix editions never surfaced
+      // in appears-on, ~45.1M total. Distinct tracks (own id, own streams).
+      { id: '3lLAW5J5IKH4SbENkAgRJT', title: 'Hey Mama (feat. Nicki Minaj, Bebe Rexha & Afrojack) [Boaz van de Beatz Remix]', release_date: '2015-06-05', is_featured: true }, // ~25.0M
+      { id: '7ukJ6QbV792h7V7aqZ8P8u', title: "That's How You Know (feat. Kid Ink & Bebe Rexha)", release_date: '2016-02-16', is_featured: true }, // Fucked up HEYHEY Remix ~8.2M
+      { id: '6vtJly9TCcV7BLzgtOdD8N', title: 'Family (feat. Bebe Rexha, Ty Dolla $ign & A Boogie Wit da Hoodie) [David Guetta Downtempo Dance Remix]', release_date: '2021-12-24', is_featured: true }, // ~3.7M
+      { id: '7bpWEp24oHgUs08ImjakfU', title: 'Listen Again', release_date: '2015-11-27', is_featured: true }, // 3 continuous-mix tracks ~5.5M combined
+      { id: '3Wmuoz86nQpKQYHLA3S7qH', title: "That's How You Know (feat. Kid Ink & Bebe Rexha) [Remixes]", release_date: '2015-10-09', is_featured: true }, // Wideboys + Danny Lee remixes ~1.5M
+      { id: '4FwF3viwUJiAzgSNohUI02', title: 'Happiest Season (Music from and Inspired by the Film)', release_date: '2020-11-06', is_featured: true } // Blame It on Christmas ~1.3M
     ];
 
     for (const extra of extraAlbums) {
