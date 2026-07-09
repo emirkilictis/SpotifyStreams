@@ -73,9 +73,31 @@ const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || 'pairofwings';
 // when the lengths differ (timingSafeEqual requires equal-length buffers).
 const _passHash = (s) => crypto.createHash('sha256').update(String(s)).digest();
 const _adminHash = _passHash(ADMIN_PASSCODE);
-const isAdmin = (passcode) =>
-  typeof passcode === 'string' && passcode.length > 0 &&
-  crypto.timingSafeEqual(_passHash(passcode), _adminHash);
+const SECADMIN_PASSCODE = process.env.SECADMIN_PASSCODE || 'pineapple';
+const _secHash = _passHash(SECADMIN_PASSCODE);
+
+const getAdminRole = (passcode) => {
+  if (typeof passcode !== 'string' || passcode.length === 0) return null;
+  const hashed = _passHash(passcode);
+  if (crypto.timingSafeEqual(hashed, _adminHash)) return 'admin';
+  if (crypto.timingSafeEqual(hashed, _secHash)) return 'secadmin';
+
+  if (passcode.includes(':')) {
+    const colonIdx = passcode.indexOf(':');
+    const user = passcode.slice(0, colonIdx);
+    const pass = passcode.slice(colonIdx + 1);
+    const passHashed = _passHash(pass);
+    if (user === 'secadmin' && crypto.timingSafeEqual(passHashed, _secHash)) {
+      return 'secadmin';
+    }
+    if (user === 'admin' && crypto.timingSafeEqual(passHashed, _adminHash)) {
+      return 'admin';
+    }
+  }
+  return null;
+};
+
+const isAdmin = (passcode) => getAdminRole(passcode) !== null;
 
 // Salt for hashing submitter IPs (abuse tracking without storing raw IPs).
 const IP_HASH_SECRET = process.env.IP_HASH_SECRET || 'spotify-streams-ip-salt';
@@ -1343,7 +1365,8 @@ const requireAdmin = (req, res, next) => {
     return res.status(429).json({ error: 'Too many attempts. Try again later.' });
   }
   const key = req.headers['x-admin-passcode'] || req.query.key;
-  if (!isAdmin(key)) {
+  const role = getAdminRole(key);
+  if (!role) {
     const r = rec || { count: 0, until: 0 };
     r.count += 1;
     if (r.count >= ADMIN_MAX_FAILS) { r.until = now + ADMIN_LOCK_MS; r.count = 0; }
@@ -1351,10 +1374,25 @@ const requireAdmin = (req, res, next) => {
     return res.status(403).json({ error: 'Forbidden' });
   }
   adminFails.delete(ip);                          // success clears the counter
+  req.adminRole = role;
   next();
 };
 
+const requireSuperAdmin = (req, res, next) => {
+  if (req.adminRole !== 'admin') {
+    return res.status(403).json({ error: 'God mode is restricted to the main admin.' });
+  }
+  next();
+};
+
+const isJtSong = async (songId) => {
+  const cleanId = String(songId).replace('spotify:track:', '').trim();
+  const r = await dbQuery('SELECT primary_artist FROM songs WHERE id = $1', [cleanId]);
+  return r.rowCount > 0 && r.rows[0].primary_artist === 'spotify:artist:31TPClRtHm23RisEBtV3X7';
+};
+
 app.get('/api/feedback', requireAdmin, async (req, res) => {
+  res.setHeader('X-Admin-Role', req.adminRole);
   try {
     const status = req.query.status;
     const params = [];
@@ -1477,6 +1515,11 @@ app.post('/api/admin/artists', requireAdmin, async (req, res) => {
     const b = req.body || {};
     const artistId = String(b.artist_id || '').replace('spotify:artist:', '').trim();
     const name = String(b.name || '').trim();
+    if (req.adminRole === 'secadmin') {
+      if (artistId === '31TPClRtHm23RisEBtV3X7' || name.toLowerCase().includes('justin timberlake')) {
+        return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+      }
+    }
     if (!/^[A-Za-z0-9]{22}$/.test(artistId)) return res.status(400).json({ error: 'Invalid Spotify artist id.' });
     if (!name) return res.status(400).json({ error: 'Name is required.' });
     await dbQuery(
@@ -1500,6 +1543,12 @@ app.post('/api/admin/artists', requireAdmin, async (req, res) => {
 app.patch('/api/admin/artists/:id', requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id).replace('spotify:artist:', '');
+    if (req.adminRole === 'secadmin') {
+      const targetName = String(req.body.name || '').trim().toLowerCase();
+      if (id === '31TPClRtHm23RisEBtV3X7' || targetName.includes('justin timberlake')) {
+        return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+      }
+    }
     const allowed = ['name', 'image_url', 'accent', 'sort_order', 'album_only', 'locked', 'active'];
     const sets = [], vals = [];
     for (const k of allowed) {
@@ -1525,6 +1574,11 @@ app.patch('/api/admin/artists/:id', requireAdmin, async (req, res) => {
 app.delete('/api/admin/artists/:id', requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id).replace('spotify:artist:', '');
+    if (req.adminRole === 'secadmin') {
+      if (id === '31TPClRtHm23RisEBtV3X7') {
+        return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+      }
+    }
     const songCheck = await dbQuery(
       `SELECT 1 FROM songs WHERE primary_artist = $1 LIMIT 1`,
       [`spotify:artist:${id}`]
@@ -1551,7 +1605,7 @@ app.delete('/api/admin/artists/:id', requireAdmin, async (req, res) => {
 // the songs. Guarded: JT is blocked (its bucket IS the catch-all) and the body
 // must echo the id back. Transactional — any failure rolls the whole thing back.
 const JT_ARTIST_ID = '31TPClRtHm23RisEBtV3X7';
-app.post('/api/admin/artists/:id/purge', requireAdmin, async (req, res) => {
+app.post('/api/admin/artists/:id/purge', requireAdmin, requireSuperAdmin, async (req, res) => {
   const id = String(req.params.id).replace('spotify:artist:', '').trim();
   if (!/^[A-Za-z0-9]{22}$/.test(id)) return res.status(400).json({ error: 'Invalid artist id.' });
   if (id === JT_ARTIST_ID) {
@@ -1739,7 +1793,7 @@ const GH_DISPATCH_TOKEN =
 
 // Admin: trigger a scrape by dispatching the GitHub Actions workflow
 // (optionally scoped to a single artist).
-app.post('/api/admin/scrape', requireAdmin, async (req, res) => {
+app.post('/api/admin/scrape', requireAdmin, requireSuperAdmin, async (req, res) => {
   const { artist_id } = req.body || {};
 
   let artists = '';
@@ -1875,7 +1929,7 @@ app.get('/api/admin/song-snapshots', requireAdmin, async (req, res) => {
 // Admin: delete a single bad snapshot row by its stream_stats id. The
 // daily_streams_canonical view recomputes automatically; the next scrape
 // re-adds today's row if it was today's. Guarded by an id echo in the body.
-app.delete('/api/admin/snapshots/:id', requireAdmin, async (req, res) => {
+app.delete('/api/admin/snapshots/:id', requireAdmin, requireSuperAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid snapshot id.' });
@@ -1897,7 +1951,7 @@ app.delete('/api/admin/snapshots/:id', requireAdmin, async (req, res) => {
 // mid-run failure rolls back instead of leaving the catalogue un-deduped.
 const { dedupCanonical } = require('../spotify-scraper/dedup');
 let dedupRunning = false;
-app.post('/api/admin/dedup', requireAdmin, async (req, res) => {
+app.post('/api/admin/dedup', requireAdmin, requireSuperAdmin, async (req, res) => {
   if (dedupRunning) return res.status(409).json({ error: 'Dedup is already running.' });
   dedupRunning = true;
   res.json({ started: true });
@@ -1962,6 +2016,12 @@ app.post('/api/admin/hidden-songs', requireAdmin, async (req, res) => {
   try {
     const id = String(req.body.song_id || '').replace('spotify:track:', '').trim();
     if (!/^[A-Za-z0-9]{22}$/.test(id)) return res.status(400).json({ error: 'Invalid track id.' });
+    if (req.adminRole === 'secadmin') {
+      const isJt = await isJtSong(id);
+      if (isJt) {
+        return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+      }
+    }
     await dbQuery(
       `INSERT INTO hidden_songs (song_id, reason) VALUES ($1, $2)
        ON CONFLICT (song_id) DO UPDATE SET reason = $2`,
@@ -1979,6 +2039,12 @@ app.post('/api/admin/hidden-songs', requireAdmin, async (req, res) => {
 app.delete('/api/admin/hidden-songs/:id', requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id).replace('spotify:track:', '');
+    if (req.adminRole === 'secadmin') {
+      const isJt = await isJtSong(id);
+      if (isJt) {
+        return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+      }
+    }
     await dbQuery(`DELETE FROM hidden_songs WHERE song_id = $1`, [id]);
     await refreshHiddenSongsCache();
     res.json({ success: true });
@@ -2127,7 +2193,7 @@ app.get('/api/admin/manual-merges', requireAdmin, async (req, res) => {
     const r = await dbQuery(
       `SELECT m.alias_id, m.canonical_id, m.reason, m.created_at,
               sa.title AS alias_title, sc.title AS canonical_title,
-              sa.primary_artist AS alias_artist
+              sa.primary_artist AS alias_artist, sc.primary_artist AS canonical_artist
        FROM manual_merges m
        LEFT JOIN songs sa ON sa.id = m.alias_id
        LEFT JOIN songs sc ON sc.id = m.canonical_id
@@ -2147,6 +2213,13 @@ app.post('/api/admin/manual-merges', requireAdmin, async (req, res) => {
   try {
     const alias = clean(req.body.alias_id);
     let canonical = clean(req.body.canonical_id) || null;
+    if (req.adminRole === 'secadmin') {
+      const aliasIsJt = await isJtSong(alias);
+      const canonicalIsJt = canonical ? await isJtSong(canonical) : false;
+      if (aliasIsJt || canonicalIsJt) {
+        return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+      }
+    }
     if (!/^[A-Za-z0-9]{22}$/.test(alias)) return res.status(400).json({ error: 'Invalid alias id.' });
     if (canonical && !/^[A-Za-z0-9]{22}$/.test(canonical)) return res.status(400).json({ error: 'Invalid canonical id.' });
     if (canonical && canonical === alias) return res.status(400).json({ error: 'A song cannot be its own canonical.' });
@@ -2184,6 +2257,13 @@ app.delete('/api/admin/manual-merges/:id', requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id).replace('spotify:track:', '');
     const prev = await dbQuery(`SELECT canonical_id FROM manual_merges WHERE alias_id = $1`, [id]);
+    if (req.adminRole === 'secadmin') {
+      const isJt = await isJtSong(id);
+      const prevJt = prev.rows[0]?.canonical_id ? await isJtSong(prev.rows[0].canonical_id) : false;
+      if (isJt || prevJt) {
+        return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+      }
+    }
     await dbQuery(`DELETE FROM manual_merges WHERE alias_id = $1`, [id]);
     if (prev.rows[0]?.canonical_id) {
       await dbQuery(`UPDATE songs SET canonical_id = NULL WHERE id = $1`, [id]);
@@ -2199,7 +2279,7 @@ app.delete('/api/admin/manual-merges/:id', requireAdmin, async (req, res) => {
 
 // Admin: global overview — headline numbers, top daily movers, per-table DB
 // sizes. Read-only; backs the God tab's stat cards.
-app.get('/api/admin/overview', requireAdmin, async (req, res) => {
+app.get('/api/admin/overview', requireAdmin, requireSuperAdmin, async (req, res) => {
   try {
     const [head, streams, movers, tables] = await Promise.all([
       dbQuery(`SELECT
@@ -2249,7 +2329,7 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
 // regex checks just catch accidents before they hit the DB. Single statement,
 // SELECT/WITH only, capped at 500 rows via a wrapping subquery.
 const SQL_ROW_CAP = 500;
-app.post('/api/admin/sql', requireAdmin, async (req, res) => {
+app.post('/api/admin/sql', requireAdmin, requireSuperAdmin, async (req, res) => {
   const raw = String(req.body?.query || '').trim().replace(/;\s*$/, '');
   if (!raw) return res.status(400).json({ error: 'Empty query.' });
   if (raw.includes(';')) return res.status(400).json({ error: 'Single statement only (no semicolons).' });
@@ -2297,7 +2377,7 @@ app.post('/api/admin/sql', requireAdmin, async (req, res) => {
 // one artist's primary bucket — the cleanup for double-day / partial-scrape
 // incidents. Two-step: preview:true returns the count only; the real delete
 // must echo the date back in `confirm`.
-app.post('/api/admin/snapshots/delete-day', requireAdmin, async (req, res) => {
+app.post('/api/admin/snapshots/delete-day', requireAdmin, requireSuperAdmin, async (req, res) => {
   const date = String(req.body?.date || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date (YYYY-MM-DD).' });
   const artistId = String(req.body?.artist_id || '').replace('spotify:artist:', '').trim();
@@ -2336,7 +2416,7 @@ app.post('/api/admin/snapshots/delete-day', requireAdmin, async (req, res) => {
 // keeps the moved row's values) so the unique indexes are never violated.
 // Two-step like delete-day: preview:true returns counts only; the real move
 // must echo the source date back in `confirm`. Transactional.
-app.post('/api/admin/snapshots/move-day', requireAdmin, async (req, res) => {
+app.post('/api/admin/snapshots/move-day', requireAdmin, requireSuperAdmin, async (req, res) => {
   const from = String(req.body?.from || '').trim();
   const to   = String(req.body?.to || '').trim();
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
@@ -2452,7 +2532,7 @@ app.post('/api/admin/snapshots/move-day', requireAdmin, async (req, res) => {
 
 // Admin: reload the in-memory roster + hidden-song caches from the DB without a
 // redeploy (e.g. after fixing rows straight in Neon).
-app.post('/api/admin/refresh-caches', requireAdmin, async (req, res) => {
+app.post('/api/admin/refresh-caches', requireAdmin, requireSuperAdmin, async (req, res) => {
   try {
     await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache()]);
     res.json({ success: true, artists: allArtistsCache.length, hidden_songs: hiddenSongsCache.length });
@@ -2471,6 +2551,15 @@ app.patch('/api/admin/songs/:id', requireAdmin, async (req, res) => {
   if (!/^[A-Za-z0-9]{22}$/.test(id)) return res.status(400).json({ error: 'Invalid song id.' });
   const target = String(req.body?.primary_artist || '').replace('spotify:artist:', '').trim();
   if (!/^[A-Za-z0-9]{22}$/.test(target)) return res.status(400).json({ error: 'Invalid artist id.' });
+  if (req.adminRole === 'secadmin') {
+    if (target === '31TPClRtHm23RisEBtV3X7') {
+      return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+    }
+    const isJt = await isJtSong(id);
+    if (isJt) {
+      return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+    }
+  }
   try {
     const r = await dbQuery(
       `UPDATE songs SET primary_artist = $1 WHERE id = $2 RETURNING is_featured`,

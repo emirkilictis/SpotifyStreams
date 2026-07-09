@@ -50,12 +50,13 @@
     }
     .gate h2 { margin: 0 0 6px; font-size: 1.3rem; }
     .gate p { color: var(--muted); font-size: 0.86rem; margin: 0 0 18px; }
-    .gate input {
+    .gate input, .gate select {
       width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border);
       border-radius: 10px; color: var(--text); font-size: 0.95rem; padding: 12px 14px;
       margin-bottom: 12px;
     }
-    .gate input:focus { outline: none; border-color: var(--green); }
+    .gate input:focus, .gate select:focus { outline: none; border-color: var(--green); }
+    .gate select option { background: #1f1f1f; color: var(--text); }
     .btn-primary {
       width: 100%; background: var(--green); color: #052e13; border: none;
       border-radius: 10px; padding: 12px; font-size: 0.95rem; font-weight: 700;
@@ -459,8 +460,12 @@
   <!-- Login gate -->
   <div id="gate" class="gate">
     <h2>Admin</h2>
-    <p>Enter the admin passcode to read submitted requests.</p>
+    <p>Enter your credentials to access the admin panel.</p>
     <form id="gate-form">
+      <select id="gate-user" autocomplete="username">
+        <option value="admin">admin</option>
+        <option value="secadmin">secadmin</option>
+      </select>
       <input id="gate-pass" type="password" placeholder="Passcode" autocomplete="current-password" autofocus>
       <button type="submit" id="gate-btn" class="btn-primary">Unlock</button>
       <p id="gate-err" class="gate-err"></p>
@@ -699,6 +704,7 @@
 
     const gate = document.getElementById('gate');
     const gateForm = document.getElementById('gate-form');
+    const gateUser = document.getElementById('gate-user');
     const gatePass = document.getElementById('gate-pass');
     const gateBtn = document.getElementById('gate-btn');
     const gateErr = document.getElementById('gate-err');
@@ -711,6 +717,7 @@
     const refreshBtn = document.getElementById('refresh-btn');
 
     let passcode = sessionStorage.getItem('admin_pass') || '';
+    let adminRole = sessionStorage.getItem('admin_role') || '';
     let currentFilter = 'all';
     let allRows = [];
     let searchQuery = '';
@@ -840,7 +847,23 @@
       }
     }
 
+    function applyRoleRestrictions() {
+      const godTab = document.querySelector('button[data-view="god"]');
+      if (godTab) {
+        if (adminRole === 'secadmin') {
+          godTab.classList.add('hidden');
+          const activeTab = document.querySelector('.tab.active');
+          if (activeTab && activeTab.dataset.view === 'god') {
+            const feedbackTab = document.querySelector('button[data-view="feedback"]');
+            if (feedbackTab) feedbackTab.click();
+          }
+        } else {
+          godTab.classList.remove('hidden');
+        }
+      }
+    }
     function unlock() {
+      applyRoleRestrictions();
       gate.classList.add('hidden');
       panel.classList.remove('hidden');
       loadArtistNames();
@@ -848,28 +871,42 @@
     }
     function lock(msg) {
       passcode = '';
+      adminRole = '';
       sessionStorage.removeItem('admin_pass');
+      sessionStorage.removeItem('admin_role');
       panel.classList.add('hidden');
       gate.classList.remove('hidden');
       gateErr.textContent = msg || '';
+      if (gateUser) gateUser.value = '';
       gatePass.value = '';
       gatePass.focus();
     }
 
     gateForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      passcode = gatePass.value.trim();
-      if (!passcode) return;
+      const u = gateUser.value.trim();
+      const p = gatePass.value.trim();
+      if (!p) return;
+      if (u === 'secadmin') {
+        passcode = u + ':' + p;
+      } else if (u && u !== 'admin') {
+        passcode = u + ':' + p;
+      } else {
+        passcode = p;
+      }
       gateBtn.disabled = true;
       gateErr.textContent = '';
       try {
         const res = await api('/api/feedback');
-        if (res.status === 403) { gateErr.textContent = 'Wrong passcode.'; return; }
+        if (res.status === 403) { gateErr.textContent = 'Wrong credentials.'; return; }
         if (!res.ok) { gateErr.textContent = 'Error, try again.'; return; }
+        adminRole = res.headers.get('X-Admin-Role') || 'admin';
         sessionStorage.setItem('admin_pass', passcode);
+        sessionStorage.setItem('admin_role', adminRole);
         allRows = await res.json();
         gate.classList.add('hidden');
         panel.classList.remove('hidden');
+        applyRoleRestrictions();
         loadArtistNames();
         render();
       } catch {
@@ -1004,7 +1041,10 @@
         if (!res.ok) throw new Error();
         const rows = await res.json();
         if (!rows.length) { songResultsEl.innerHTML = '<div class="empty">No matches.</div>'; return; }
-        songResultsEl.innerHTML = rows.map(s => `
+        songResultsEl.innerHTML = rows.map(s => {
+          const isJt = s.primary_artist === 'spotify:artist:31TPClRtHm23RisEBtV3X7';
+          const dis = (isJt && adminRole === 'secadmin') ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : '';
+          return `
           <div class="artist-row">
             <div class="ar-main">
               <div class="ar-name">${esc(s.title)} ${s.hidden ? '<span class="ar-tag locked">hidden</span>' : ''}</div>
@@ -1012,12 +1052,13 @@
             </div>
             <div class="ar-actions">
               <button class="act" data-snapshots="${esc(s.id)}" data-title="${esc(s.title)}">📈 Snapshots</button>
-              <button class="act" data-bucket="${esc(s.id)}" data-pa="${esc((s.primary_artist || '').replace('spotify:artist:', ''))}" title="Move this song to another tracked artist's dashboard bucket">↔ Bucket</button>
+              <button class="act" ${dis} data-bucket="${esc(s.id)}" data-pa="${esc((s.primary_artist || '').replace('spotify:artist:', ''))}" title="Move this song to another tracked artist's dashboard bucket">↔ Bucket</button>
               ${s.hidden
-                ? `<button class="act ok" data-unhide="${esc(s.id)}">Un-hide</button>`
-                : `<button class="act del" data-hide="${esc(s.id)}">Hide</button>`}
+                ? `<button class="act ok" ${dis} data-unhide="${esc(s.id)}">Un-hide</button>`
+                : `<button class="act del" ${dis} data-hide="${esc(s.id)}">Hide</button>`}
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
       } catch { songResultsEl.innerHTML = '<div class="empty">Search failed.</div>'; }
     }
 
@@ -1029,14 +1070,18 @@
         if (!res.ok) throw new Error();
         const rows = await res.json();
         if (!rows.length) { hiddenListEl.innerHTML = '<div class="empty">No hidden songs.</div>'; return; }
-        hiddenListEl.innerHTML = rows.map(s => `
+        hiddenListEl.innerHTML = rows.map(s => {
+          const isJt = s.primary_artist === 'spotify:artist:31TPClRtHm23RisEBtV3X7';
+          const dis = (isJt && adminRole === 'secadmin') ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : '';
+          return `
           <div class="artist-row">
             <div class="ar-main">
               <div class="ar-name">${esc(s.title || '(unknown track)')}</div>
               <div class="ar-id">${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.song_id)}${s.reason ? ' · ' + esc(s.reason) : ''}</div>
             </div>
-            <div class="ar-actions"><button class="act ok" data-unhide="${esc(s.song_id)}">Un-hide</button></div>
-          </div>`).join('');
+            <div class="ar-actions"><button class="act ok" ${dis} data-unhide="${esc(s.song_id)}">Un-hide</button></div>
+          </div>`;
+        }).join('');
       } catch { hiddenListEl.innerHTML = '<div class="empty">Could not load (migration 014 applied?).</div>'; }
     }
 
@@ -1057,6 +1102,7 @@
         const cur = bucketBtn.dataset.pa;
         const opts = Object.entries(ARTIST_NAMES)
           .sort((a, b) => a[1].localeCompare(b[1]))
+          .filter(([id]) => !(adminRole === 'secadmin' && id === '31TPClRtHm23RisEBtV3X7'))
           .map(([id, name]) => `<option value="${esc(id)}" ${id === cur ? 'selected' : ''}>${esc(name)}</option>`)
           .join('');
         actions.innerHTML = `
@@ -1067,6 +1113,10 @@
       }
       if (bucketSave) {
         const sel = bucketSave.closest('.ar-actions').querySelector('[data-bucket-select]');
+        if (adminRole === 'secadmin' && sel.value === '31TPClRtHm23RisEBtV3X7') {
+          alert('secadmin is not allowed to edit Justin Timberlake.');
+          return;
+        }
         bucketSave.disabled = true;
         const res = await api('/api/admin/songs/' + bucketSave.dataset.bucketSave, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -1139,7 +1189,7 @@
             <td style="text-align:right">${Number(r.stream_count).toLocaleString()}</td>
             <td style="text-align:right" class="${bad ? 'snap-bad-delta' : ''}">${deltaTxt}${bad ? ' ⚠' : ''}</td>
             ${multiSong ? `<td class="snap-sid">${esc(r.song_id)}</td>` : ''}
-            <td style="text-align:right;padding-right:12px"><button class="act del" data-del-snap="${esc(r.id)}">Delete</button></td>
+            <td style="text-align:right;padding-right:12px"><button class="act del" ${adminRole === 'secadmin' ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''} data-del-snap="${esc(r.id)}">Delete</button></td>
           </tr>`;
         }).join('');
         el.innerHTML = `
@@ -1165,6 +1215,8 @@
 
     // Render a single duplicate group card (gi = its index in dupGroups).
     function renderDupGroup(g, gi) {
+      const isJt = g.songs[0] && g.songs[0].primary_artist === 'spotify:artist:31TPClRtHm23RisEBtV3X7';
+      const dis = (isJt && adminRole === 'secadmin') ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : '';
       // Default canonical: an already-canonical, non-featured copy if present.
       let def = g.songs.findIndex(s => !s.merged && !s.is_featured);
       if (def < 0) def = g.songs.findIndex(s => !s.merged);
@@ -1183,7 +1235,7 @@
           ${rows}
           <div class="dup-post">After merge → kept as <b>${fmtStreams(g.streams)} streams</b> on the selected copy. All ${g.songs.length} copies share this exact count, so the artist total stays the same.</div>
           <div class="dup-actions">
-            <button class="act ok" data-merge-group="${gi}">Merge others into selected</button>
+            <button class="act ok" ${dis} data-merge-group="${gi}">Merge others into selected</button>
           </div>
         </div>`;
     }
@@ -1276,7 +1328,10 @@
           const splits = list.length - merges;
           const meta = [merges ? `${merges} merge${merges === 1 ? '' : 's'}` : '',
                         splits ? `${splits} split${splits === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
-          const body = list.map(r => `
+          const body = list.map(r => {
+            const isJt = r.alias_artist === 'spotify:artist:31TPClRtHm23RisEBtV3X7' || r.canonical_artist === 'spotify:artist:31TPClRtHm23RisEBtV3X7';
+            const dis = (isJt && adminRole === 'secadmin') ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : '';
+            return `
             <div class="artist-row">
               <div class="ar-main">
                 <div class="ar-name">${esc(r.alias_title || '(unknown)')} ${r.canonical_id
@@ -1284,8 +1339,9 @@
                   : '<span class="ar-tag locked">keep separate</span>'}</div>
                 <div class="ar-id">${esc(r.alias_id)}${r.canonical_id ? ' → ' + esc(r.canonical_id) : ''}${r.reason ? ' · ' + esc(r.reason) : ''}</div>
               </div>
-              <div class="ar-actions"><button class="act del" data-remove-rule="${esc(r.alias_id)}">Remove</button></div>
-            </div>`).join('');
+              <div class="ar-actions"><button class="act del" ${dis} data-remove-rule="${esc(r.alias_id)}">Remove</button></div>
+            </div>`;
+          }).join('');
           return `
             <div class="dup-artist open" data-artist="${esc(name)}">
               <div class="dup-artist-head" data-toggle>
@@ -1588,20 +1644,22 @@
         if (a.locked) tags.push('<span class="ar-tag locked" title="Hidden on the public site behind the access passcode. Edit → uncheck Locked to unlock.">🔒 locked</span>');
         if (!a.active) tags.push('<span class="ar-tag">inactive</span>');
         const img = a.image_url || `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'/>`;
-        return `<div class="artist-row ${a.active ? '' : 'inactive'}">
-          <span class="ar-order">${a.sort_order}</span>
-          <img src="${esc(img)}" alt="" loading="lazy">
-          <div class="ar-main">
-            <div class="ar-name">${a.accent ? `<span class="ar-swatch" style="background:${esc(a.accent)}"></span>` : ''}${esc(a.name)} ${tags.join(' ')}</div>
-            <div class="ar-id">${esc(a.artist_id)}</div>
-          </div>
-          <div class="ar-actions">
-            <button class="act ok" data-scrape="${esc(a.artist_id)}">Sync</button>
-            <button class="act" data-edit="${esc(a.artist_id)}">Edit</button>
-            <button class="act" data-toggle="${esc(a.artist_id)}">${a.active ? 'Hide' : 'Show'}</button>
-            <button class="act del" data-del="${esc(a.artist_id)}">Delete</button>
-          </div>
-        </div>`;
+          const isJt = a.artist_id === '31TPClRtHm23RisEBtV3X7';
+          const dis = (isJt && adminRole === 'secadmin') ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : '';
+          return `<div class="artist-row ${a.active ? '' : 'inactive'}">
+            <span class="ar-order">${a.sort_order}</span>
+            <img src="${esc(img)}" alt="" loading="lazy">
+            <div class="ar-main">
+              <div class="ar-name">${a.accent ? `<span class="ar-swatch" style="background:${esc(a.accent)}"></span>` : ''}${esc(a.name)} ${tags.join(' ')}</div>
+              <div class="ar-id">${esc(a.artist_id)}</div>
+            </div>
+            <div class="ar-actions">
+              <button class="act ok" ${dis} data-scrape="${esc(a.artist_id)}">Sync</button>
+              <button class="act" ${dis} data-edit="${esc(a.artist_id)}">Edit</button>
+              <button class="act" ${dis} data-toggle="${esc(a.artist_id)}">${a.active ? 'Hide' : 'Show'}</button>
+              <button class="act del" ${dis} data-del="${esc(a.artist_id)}">Delete</button>
+            </div>
+          </div>`;
       }).join('');
     }
 
@@ -1669,6 +1727,12 @@
       };
       if (!/^[A-Za-z0-9]{22}$/.test(body.artist_id)) { af.err.textContent = 'Invalid Spotify artist id (22 chars).'; return; }
       if (!body.name) { af.err.textContent = 'Name is required.'; return; }
+      if (adminRole === 'secadmin') {
+        if (body.artist_id === '31TPClRtHm23RisEBtV3X7' || body.name.toLowerCase().includes('justin timberlake')) {
+          af.err.textContent = 'secadmin is not allowed to edit Justin Timberlake.';
+          return;
+        }
+      }
       try {
         const res = await api('/api/admin/artists', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -1682,6 +1746,11 @@
 
     artistsListEl.addEventListener('click', async (e) => {
       const b = e.target.closest('button'); if (!b) return;
+      const targetId = b.dataset.scrape || b.dataset.edit || b.dataset.toggle || b.dataset.del;
+      if (targetId === '31TPClRtHm23RisEBtV3X7' && adminRole === 'secadmin') {
+        alert('secadmin is not allowed to edit Justin Timberlake.');
+        return;
+      }
       if (b.dataset.scrape) { await triggerScrape(b.dataset.scrape, b); return; }
       if (b.dataset.edit) { showForm(artists.find(a => a.artist_id === b.dataset.edit)); return; }
       if (b.dataset.toggle) {

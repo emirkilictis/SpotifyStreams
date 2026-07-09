@@ -136,6 +136,76 @@ async function runTests() {
     assert.strictEqual(data.success, true, "Response payload should have success = true");
   });
 
+  // 12. secadmin login/auth
+  await test("Auth as secadmin should return 200 and set X-Admin-Role header", async () => {
+    const res = await fetch(`${BASE_URL}/api/feedback`, {
+      headers: { 'X-Admin-Passcode': 'secadmin:pineapple' }
+    });
+    assert.strictEqual(res.status, 200, "Should allow secadmin authentication");
+    assert.strictEqual(res.headers.get('X-Admin-Role'), 'secadmin', "Should return X-Admin-Role: secadmin header");
+  });
+
+  // 13. secadmin God-mode blocked
+  await test("secadmin should be blocked from God-mode overview", async () => {
+    const res = await fetch(`${BASE_URL}/api/admin/overview`, {
+      headers: { 'X-Admin-Passcode': 'secadmin:pineapple' }
+    });
+    assert.strictEqual(res.status, 403, "Should return 403 Forbidden for overview");
+  });
+
+  // 14. secadmin JT edit blocked
+  await test("secadmin should be blocked from editing Justin Timberlake roster row", async () => {
+    const res = await fetch(`${BASE_URL}/api/admin/artists`, {
+      method: 'POST',
+      headers: { 
+        'X-Admin-Passcode': 'secadmin:pineapple',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '31TPClRtHm23RisEBtV3X7', name: 'Justin Timberlake Modified' })
+    });
+    assert.strictEqual(res.status, 403, "Should return 403 Forbidden for editing JT");
+  });
+
+  // 15. secadmin JT delete blocked
+  await test("secadmin should be blocked from deleting Justin Timberlake", async () => {
+    const res = await fetch(`${BASE_URL}/api/admin/artists/31TPClRtHm23RisEBtV3X7`, {
+      method: 'DELETE',
+      headers: { 'X-Admin-Passcode': 'secadmin:pineapple' }
+    });
+    assert.strictEqual(res.status, 403, "Should return 403 Forbidden for deleting JT");
+  });
+
+  // 16. secadmin JT song actions blocked
+  await test("secadmin should be blocked from modifying JT songs", async () => {
+    // First, fetch a JT song ID dynamically
+    const songsRes = await fetch(`${BASE_URL}/api/songs?artist=31TPClRtHm23RisEBtV3X7`);
+    const songs = await songsRes.json();
+    if (songs && songs.length > 0) {
+      const songId = songs[0].id;
+      // Try to move JT song to another artist bucket (e.g. JC Chasez '3p3U04w2DaiBzuYMZnYr00')
+      const res = await fetch(`${BASE_URL}/api/admin/songs/${songId}`, {
+        method: 'PATCH',
+        headers: { 
+          'X-Admin-Passcode': 'secadmin:pineapple',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ primary_artist: '3p3U04w2DaiBzuYMZnYr00' })
+      });
+      assert.strictEqual(res.status, 403, "Should return 403 Forbidden for moving JT song");
+
+      // Try to hide JT song
+      const hideRes = await fetch(`${BASE_URL}/api/admin/hidden-songs`, {
+        method: 'POST',
+        headers: { 
+          'X-Admin-Passcode': 'secadmin:pineapple',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ song_id: songId, reason: 'test hide' })
+      });
+      assert.strictEqual(hideRes.status, 403, "Should return 403 Forbidden for hiding JT song");
+    }
+  });
+
   console.log(`\n=== TEST RUN SUMMARY: ${passed} PASSED, ${failed} FAILED ===`);
   if (failed > 0) {
     process.exit(1);
