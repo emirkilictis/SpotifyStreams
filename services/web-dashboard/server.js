@@ -1793,7 +1793,7 @@ const GH_DISPATCH_TOKEN =
 
 // Admin: trigger a scrape by dispatching the GitHub Actions workflow
 // (optionally scoped to a single artist).
-app.post('/api/admin/scrape', requireAdmin, requireSuperAdmin, async (req, res) => {
+app.post('/api/admin/scrape', requireAdmin, async (req, res) => {
   const { artist_id } = req.body || {};
 
   let artists = '';
@@ -1801,6 +1801,9 @@ app.post('/api/admin/scrape', requireAdmin, requireSuperAdmin, async (req, res) 
     const cleanId = String(artist_id).replace('spotify:artist:', '').trim();
     if (!/^[A-Za-z0-9]{22}$/.test(cleanId)) {
       return res.status(400).json({ error: 'Invalid artist ID.' });
+    }
+    if (req.adminRole === 'secadmin' && cleanId === '31TPClRtHm23RisEBtV3X7') {
+      return res.status(403).json({ error: 'secadmin is not allowed to trigger scrapes for Justin Timberlake.' });
     }
     artists = cleanId;
   }

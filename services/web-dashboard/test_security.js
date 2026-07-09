@@ -206,6 +206,29 @@ async function runTests() {
     }
   });
 
+  // 17. secadmin scraper trigger
+  await test("secadmin should be blocked from scraping JT but allowed for others", async () => {
+    const jtRes = await fetch(`${BASE_URL}/api/admin/scrape`, {
+      method: 'POST',
+      headers: { 
+        'X-Admin-Passcode': 'secadmin:pineapple',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '31TPClRtHm23RisEBtV3X7' })
+    });
+    assert.strictEqual(jtRes.status, 403, "Should block secadmin from scraping JT specifically");
+
+    const lisaRes = await fetch(`${BASE_URL}/api/admin/scrape`, {
+      method: 'POST',
+      headers: { 
+        'X-Admin-Passcode': 'secadmin:pineapple',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '5L1lO4eRHmJ7a0Q6csE5cT' })
+    });
+    assert.ok([200, 409, 503].includes(lisaRes.status), `Should not be forbidden for LISA, got ${lisaRes.status}`);
+  });
+
   console.log(`\n=== TEST RUN SUMMARY: ${passed} PASSED, ${failed} FAILED ===`);
   if (failed > 0) {
     process.exit(1);
