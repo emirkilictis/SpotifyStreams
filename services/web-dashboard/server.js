@@ -241,6 +241,38 @@ let activeArtistsCache = ARTIST_ROSTER_FALLBACK;
 // otherwise hiding/removing an artist dumps their whole catalogue into JT.
 let allArtistsCache = ARTIST_ROSTER_FALLBACK;
 
+let extraArtistSongsCache = {};
+async function refreshExtraArtistSongsCache() {
+  try {
+    const res = await dbQuery("SELECT artist_id, song_id FROM extra_artist_songs");
+    const temp = {};
+    for (const row of res.rows) {
+      if (!temp[row.artist_id]) temp[row.artist_id] = [];
+      temp[row.artist_id].push(row.song_id);
+    }
+    extraArtistSongsCache = temp;
+  } catch (err) {
+    console.error('Failed to load extra_artist_songs from DB, using fallback:', err.message);
+    extraArtistSongsCache = {
+      '4UIOuc84ExWojcUzFGtb8W': FELIX_EXTRA_TRACK_IDS,
+      '1odvXbzhdzNajv6un9x5Mc': IN_EXTRA_TRACK_IDS,
+      '3XSid6KaiKoMAVZs2ug3yw': CHANGBIN_EXTRA_TRACK_IDS,
+      '5jRUIqBSxmsBPNiEwKUjgZ': BANGCHAN_EXTRA_TRACK_IDS,
+      '46YvTuKiPBUu5KP9818J2F': HAN_EXTRA_TRACK_IDS,
+      '04jivE3Ek7Xu8WSGVmEqUn': LEEKNOW_EXTRA_TRACK_IDS,
+      '0ymFDpsRImjK673AGgFBcg': HYUNJIN_EXTRA_TRACK_IDS,
+      '2nTtulf6WM0raQcIbzYJuf': SEUNGMIN_EXTRA_TRACK_IDS,
+      '4kYSro6naA4h99UJvo89HB': CARDI_EXTRA_TRACK_IDS
+    };
+  }
+}
+
+function getExtraTrackIdsSql(artistId) {
+  const ids = extraArtistSongsCache[artistId] || [];
+  if (ids.length === 0) return "'dummy_nonexistent_id'";
+  return ids.map(id => `'${id}'`).join(', ');
+}
+
 // The per-artist "which songs belong to this artist's dashboard bucket" filter,
 // parameterised by table aliases so it can be reused in subqueries. $1 is the
 // artist URI. MUST stay in sync with the inline copies in /api/songs & /api/stats.
@@ -254,29 +286,21 @@ function artistBucketMatchSQL(s, a) {
 
   // Per-artist viewing clauses only apply to currently-active artists.
   const nonJtArtists = activeArtistsCache.filter(item => item.artist_id !== '31TPClRtHm23RisEBtV3X7');
-  const specialIds = [
-    '1HY2Jd0NmPuamShAr6KMms', '66CXWjxzNUsdJxJ2JdwvnR', '4UIOuc84ExWojcUzFGtb8W', '4kYSro6naA4h99UJvo89HB', '1odvXbzhdzNajv6un9x5Mc',
-    '3XSid6KaiKoMAVZs2ug3yw', '5jRUIqBSxmsBPNiEwKUjgZ', '46YvTuKiPBUu5KP9818J2F', '04jivE3Ek7Xu8WSGVmEqUn', '0ymFDpsRImjK673AGgFBcg', '2nTtulf6WM0raQcIbzYJuf',
-  ];
   const normalClauses = nonJtArtists
-    .filter(item => !specialIds.includes(item.artist_id))
-    .map(item => `OR ($1 = 'spotify:artist:${item.artist_id}' AND ${s}.primary_artist = 'spotify:artist:${item.artist_id}')`)
+    .map(item => {
+      if (item.artist_id === '1HY2Jd0NmPuamShAr6KMms') {
+        return `OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))`;
+      }
+      if (item.artist_id === '66CXWjxzNUsdJxJ2JdwvnR') {
+        return `OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))`;
+      }
+      return `OR ($1 = 'spotify:artist:${item.artist_id}' AND (${s}.primary_artist = 'spotify:artist:${item.artist_id}' OR ${s}.id IN (${getExtraTrackIdsSql(item.artist_id)})))`;
+    })
     .join('\n    ');
 
   return `(
     ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7'${jtExclusions ? ' AND (' + jtExclusions + ')' : ''})
     ${normalClauses}
-    OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' AND (${s}.primary_artist = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W' OR ${s}.id IN (${FELIX_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:4kYSro6naA4h99UJvo89HB' AND (${s}.primary_artist = 'spotify:artist:4kYSro6naA4h99UJvo89HB' OR ${s}.id IN (${CARDI_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:1odvXbzhdzNajv6un9x5Mc' AND (${s}.primary_artist = 'spotify:artist:1odvXbzhdzNajv6un9x5Mc' OR ${s}.id IN (${IN_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:3XSid6KaiKoMAVZs2ug3yw' AND (${s}.primary_artist = 'spotify:artist:3XSid6KaiKoMAVZs2ug3yw' OR ${s}.id IN (${CHANGBIN_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:5jRUIqBSxmsBPNiEwKUjgZ' AND (${s}.primary_artist = 'spotify:artist:5jRUIqBSxmsBPNiEwKUjgZ' OR ${s}.id IN (${BANGCHAN_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:46YvTuKiPBUu5KP9818J2F' AND (${s}.primary_artist = 'spotify:artist:46YvTuKiPBUu5KP9818J2F' OR ${s}.id IN (${HAN_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:04jivE3Ek7Xu8WSGVmEqUn' AND (${s}.primary_artist = 'spotify:artist:04jivE3Ek7Xu8WSGVmEqUn' OR ${s}.id IN (${LEEKNOW_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:0ymFDpsRImjK673AGgFBcg' AND (${s}.primary_artist = 'spotify:artist:0ymFDpsRImjK673AGgFBcg' OR ${s}.id IN (${HYUNJIN_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:2nTtulf6WM0raQcIbzYJuf' AND (${s}.primary_artist = 'spotify:artist:2nTtulf6WM0raQcIbzYJuf' OR ${s}.id IN (${SEUNGMIN_EXTRA_TRACK_IDS_SQL})))
-    OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))
-    OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))
   )`;
 }
 
@@ -1664,7 +1688,7 @@ app.post('/api/admin/artists/:id/purge', requireAdmin, requireSuperAdmin, async 
     await client.query(`DELETE FROM tracked_artists WHERE artist_id = $1`, [id]);
 
     await client.query('COMMIT');
-    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache()]);
+    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache()]);
     console.log(`[purge] ${uri}: ${songRes.rowCount} songs, ${albumsDeleted} albums removed.`);
     res.json({ success: true, songs_deleted: songRes.rowCount, albums_deleted: albumsDeleted });
   } catch (err) {
@@ -2537,7 +2561,7 @@ app.post('/api/admin/snapshots/move-day', requireAdmin, requireSuperAdmin, async
 // redeploy (e.g. after fixing rows straight in Neon).
 app.post('/api/admin/refresh-caches', requireAdmin, requireSuperAdmin, async (req, res) => {
   try {
-    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache()]);
+    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache()]);
     res.json({ success: true, artists: allArtistsCache.length, hidden_songs: hiddenSongsCache.length });
   } catch (err) {
     console.error('Admin refresh-caches error:', err);
@@ -2639,6 +2663,81 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/admin.html'));
 });
 
+// Admin: get all extra artist song links
+app.get('/api/admin/extra-artist-songs', requireAdmin, async (req, res) => {
+  try {
+    const r = await dbQuery("SELECT artist_id, song_id FROM extra_artist_songs");
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Fetch extra-artist-songs error:', err);
+    res.status(500).json({ error: 'Failed to load extra artist song links.' });
+  }
+});
+
+// Admin: add an extra artist song link
+app.post('/api/admin/extra-artist-songs', requireAdmin, async (req, res) => {
+  const { artist_id, song_id } = req.body || {};
+  const cleanSongId = String(song_id || '').replace('spotify:track:', '').trim();
+  const cleanArtistId = String(artist_id || '').replace('spotify:artist:', '').trim();
+  
+  if (!/^[A-Za-z0-9]{22}$/.test(cleanSongId)) return res.status(400).json({ error: 'Invalid song ID.' });
+  if (!/^[A-Za-z0-9]{22}$/.test(cleanArtistId)) return res.status(400).json({ error: 'Invalid artist ID.' });
+  
+  if (req.adminRole === 'secadmin') {
+    if (cleanArtistId === '31TPClRtHm23RisEBtV3X7') {
+      return res.status(403).json({ error: 'secadmin is not allowed to link songs to Justin Timberlake.' });
+    }
+    const isJt = await isJtSong(cleanSongId);
+    if (isJt) {
+      return res.status(403).json({ error: 'secadmin is not allowed to link Justin Timberlake songs.' });
+    }
+  }
+  
+  try {
+    await dbQuery(
+      "INSERT INTO extra_artist_songs (artist_id, song_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      [cleanArtistId, cleanSongId]
+    );
+    await refreshExtraArtistSongsCache();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Add extra-artist-song error:', err);
+    res.status(500).json({ error: 'Failed to link song.' });
+  }
+});
+
+// Admin: remove an extra artist song link
+app.delete('/api/admin/extra-artist-songs', requireAdmin, async (req, res) => {
+  const { artist_id, song_id } = req.body || {};
+  const cleanSongId = String(song_id || '').replace('spotify:track:', '').trim();
+  const cleanArtistId = String(artist_id || '').replace('spotify:artist:', '').trim();
+  
+  if (!/^[A-Za-z0-9]{22}$/.test(cleanSongId)) return res.status(400).json({ error: 'Invalid song ID.' });
+  if (!/^[A-Za-z0-9]{22}$/.test(cleanArtistId)) return res.status(400).json({ error: 'Invalid artist ID.' });
+  
+  if (req.adminRole === 'secadmin') {
+    if (cleanArtistId === '31TPClRtHm23RisEBtV3X7') {
+      return res.status(403).json({ error: 'secadmin is not allowed to modify Justin Timberlake links.' });
+    }
+    const isJt = await isJtSong(cleanSongId);
+    if (isJt) {
+      return res.status(403).json({ error: 'secadmin is not allowed to modify Justin Timberlake links.' });
+    }
+  }
+  
+  try {
+    await dbQuery(
+      "DELETE FROM extra_artist_songs WHERE artist_id = $1 AND song_id = $2",
+      [cleanArtistId, cleanSongId]
+    );
+    await refreshExtraArtistSongsCache();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete extra-artist-song error:', err);
+    res.status(500).json({ error: 'Failed to unlink song.' });
+  }
+});
+
 // Protected Static Files
 app.use(requireAuth, express.static(path.join(__dirname, 'public')));
 
@@ -2649,5 +2748,5 @@ app.get('*', requireAuth, (req, res) => {
 
 app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
-  await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache()]);
+  await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache()]);
 });

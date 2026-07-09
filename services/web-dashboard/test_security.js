@@ -229,6 +229,99 @@ async function runTests() {
     assert.ok([200, 409, 503].includes(lisaRes.status), `Should not be forbidden for LISA, got ${lisaRes.status}`);
   });
 
+  // 18. main admin can edit JT
+  await test("main admin should NOT be blocked from editing Justin Timberlake roster row", async () => {
+    const res = await fetch(`${BASE_URL}/api/admin/artists`, {
+      method: 'POST',
+      headers: { 
+        'X-Admin-Passcode': 'pairofwings',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ 
+        artist_id: '31TPClRtHm23RisEBtV3X7', 
+        name: 'Justin Timberlake',
+        image_url: '/images/jt.jpg',
+        accent: '#1ed760',
+        sort_order: 1,
+        album_only: false,
+        locked: false,
+        active: true
+      })
+    });
+    assert.strictEqual(res.status, 200, `Main admin should edit JT successfully, got ${res.status}`);
+  });
+
+  // 19. main admin can scrape JT
+  await test("main admin should NOT be blocked from scraping Justin Timberlake", async () => {
+    const res = await fetch(`${BASE_URL}/api/admin/scrape`, {
+      method: 'POST',
+      headers: { 
+        'X-Admin-Passcode': 'pairofwings',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '31TPClRtHm23RisEBtV3X7' })
+    });
+    assert.ok([200, 409, 503].includes(res.status), `Should not be forbidden for main admin, got ${res.status}`);
+  });
+
+  // 20. extra artist songs endpoints role checks
+  await test("extra-artist-songs management should respect admin role restrictions", async () => {
+    // Try to link a song to JT as secadmin (should be blocked)
+    const res1 = await fetch(`${BASE_URL}/api/admin/extra-artist-songs`, {
+      method: 'POST',
+      headers: { 
+        'X-Admin-Passcode': 'secadmin:pineapple',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '31TPClRtHm23RisEBtV3X7', song_id: '1Iu7bqGwYVB6OGq4uLt2ak' })
+    });
+    assert.strictEqual(res1.status, 403, "secadmin should not be allowed to link to JT");
+
+    // Try to link a song to another artist as secadmin (should succeed)
+    const res2 = await fetch(`${BASE_URL}/api/admin/extra-artist-songs`, {
+      method: 'POST',
+      headers: { 
+        'X-Admin-Passcode': 'secadmin:pineapple',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '4UIOuc84ExWojcUzFGtb8W', song_id: '3VMeAc0SlgLaS9RzA8TSxH' })
+    });
+    assert.strictEqual(res2.status, 200, "secadmin should link to Felix successfully");
+
+    // Try to link a song to JT as main admin (should succeed)
+    const res3 = await fetch(`${BASE_URL}/api/admin/extra-artist-songs`, {
+      method: 'POST',
+      headers: { 
+        'X-Admin-Passcode': 'pairofwings',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '31TPClRtHm23RisEBtV3X7', song_id: '1Iu7bqGwYVB6OGq4uLt2ak' })
+    });
+    assert.strictEqual(res3.status, 200, "main admin should link to JT successfully");
+
+    // Try to unlink from JT as secadmin (should be blocked)
+    const res4 = await fetch(`${BASE_URL}/api/admin/extra-artist-songs`, {
+      method: 'DELETE',
+      headers: { 
+        'X-Admin-Passcode': 'secadmin:pineapple',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '31TPClRtHm23RisEBtV3X7', song_id: '1Iu7bqGwYVB6OGq4uLt2ak' })
+    });
+    assert.strictEqual(res4.status, 403, "secadmin should not be allowed to unlink from JT");
+
+    // Try to unlink from JT as main admin (should succeed)
+    const res5 = await fetch(`${BASE_URL}/api/admin/extra-artist-songs`, {
+      method: 'DELETE',
+      headers: { 
+        'X-Admin-Passcode': 'pairofwings',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ artist_id: '31TPClRtHm23RisEBtV3X7', song_id: '1Iu7bqGwYVB6OGq4uLt2ak' })
+    });
+    assert.strictEqual(res5.status, 200, "main admin should unlink from JT successfully");
+  });
+
   console.log(`\n=== TEST RUN SUMMARY: ${passed} PASSED, ${failed} FAILED ===`);
   if (failed > 0) {
     process.exit(1);

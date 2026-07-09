@@ -720,8 +720,20 @@
     let adminRole = sessionStorage.getItem('admin_role') || '';
     let currentFilter = 'all';
     let allRows = [];
+    let extraArtistSongs = [];
     let searchQuery = '';
     let sortDesc = true; // newest first
+
+    async function loadExtraArtistSongs() {
+      try {
+        const res = await api('/api/admin/extra-artist-songs');
+        if (res.ok) {
+          extraArtistSongs = await res.json();
+        }
+      } catch (err) {
+        console.error('Failed to load extra artist song links:', err);
+      }
+    }
 
     const esc = (s) => String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -868,6 +880,7 @@
       panel.classList.remove('hidden');
       loadArtistNames();
       load();
+      loadExtraArtistSongs();
     }
     function lock(msg) {
       passcode = '';
@@ -1016,7 +1029,7 @@
       if (v === 'artists' && !artistsLoaded) loadArtists();
       if (v === 'status') loadScraperStatus();
       if (v === 'health') loadHealth();
-      if (v === 'songs') { loadHiddenSongs(); loadManualMerges(); }
+      if (v === 'songs') { loadHiddenSongs(); loadManualMerges(); loadExtraArtistSongs(); }
       if (v === 'god') loadGod();
     }));
 
@@ -1053,6 +1066,7 @@
             <div class="ar-actions">
               <button class="act" data-snapshots="${esc(s.id)}" data-title="${esc(s.title)}">📈 Snapshots</button>
               <button class="act" ${dis} data-bucket="${esc(s.id)}" data-pa="${esc((s.primary_artist || '').replace('spotify:artist:', ''))}" title="Move this song to another tracked artist's dashboard bucket">↔ Bucket</button>
+              <button class="act" ${dis} data-extra="${esc(s.id)}" data-pa="${esc((s.primary_artist || '').replace('spotify:artist:', ''))}" title="Manage additional tracked artists for this song">🔗 Extra</button>
               ${s.hidden
                 ? `<button class="act ok" ${dis} data-unhide="${esc(s.id)}">Un-hide</button>`
                 : `<button class="act del" ${dis} data-hide="${esc(s.id)}">Hide</button>`}
@@ -1095,6 +1109,127 @@
       const bucketBtn = e.target.closest('button[data-bucket]');
       const bucketSave = e.target.closest('button[data-bucket-save]');
       const bucketCancel = e.target.closest('button[data-bucket-cancel]');
+      const extraBtn = e.target.closest('button[data-extra]');
+      const extraSave = e.target.closest('button[data-extra-save]');
+      const extraDone = e.target.closest('button[data-extra-done]');
+      const unlinkBtn = e.target.closest('button[data-unlink-artist]');
+
+      if (extraBtn) {
+        const actions = extraBtn.closest('.ar-actions');
+        const songId = extraBtn.dataset.extra;
+        const pa = extraBtn.dataset.pa;
+        const currentLinks = extraArtistSongs.filter(link => link.song_id === songId).map(link => link.artist_id);
+        const linkedListHtml = currentLinks.map(artId => {
+          const name = ARTIST_NAMES[artId] || artId;
+          return `<span class="ar-tag" style="background:rgba(255,255,255,0.08);padding:4px 8px;margin-right:4px;border-radius:4px;display:inline-flex;align-items:center;gap:6px;">
+            ${esc(name)}
+            <button class="act del" style="padding:2px 6px;font-size:10px;" data-unlink-artist="${esc(artId)}" data-unlink-song="${esc(songId)}">✕</button>
+          </span>`;
+        }).join('');
+
+        const opts = Object.entries(ARTIST_NAMES)
+          .sort((a, b) => a[1].localeCompare(b[1]))
+          .filter(([id]) => id !== pa && !currentLinks.includes(id))
+          .filter(([id]) => !(adminRole === 'secadmin' && id === '31TPClRtHm23RisEBtV3X7'))
+          .map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`)
+          .join('');
+
+        actions.innerHTML = `
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+            <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;">${linkedListHtml || '<span style="opacity:0.5;font-size:11px;">No extra artists linked</span>'}</div>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <select class="search" style="padding:6px 8px;min-width:140px;" data-extra-select>${opts}</select>
+              <button class="act ok" data-extra-save="${esc(songId)}" data-pa="${esc(pa)}">Link</button>
+              <button class="act" data-extra-done="${esc(songId)}" data-pa="${esc(pa)}">Done</button>
+            </div>
+          </div>`;
+        return;
+      }
+
+      if (extraSave) {
+        const songId = extraSave.dataset.extraSave;
+        const pa = extraSave.dataset.pa;
+        const sel = extraSave.closest('.ar-actions').querySelector('[data-extra-select]');
+        const artistId = sel.value;
+        if (!artistId) return;
+
+        if (adminRole === 'secadmin' && (artistId === '31TPClRtHm23RisEBtV3X7' || pa === '31TPClRtHm23RisEBtV3X7')) {
+          alert('secadmin is not allowed to modify Justin Timberlake links.');
+          return;
+        }
+
+        extraSave.disabled = true;
+        try {
+          const res = await api('/api/admin/extra-artist-songs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ song_id: songId, artist_id: artistId })
+          });
+          if (res.ok) {
+            await loadExtraArtistSongs();
+            const btn = document.createElement('button');
+            btn.dataset.extra = songId;
+            btn.dataset.pa = pa;
+            const actionsArea = extraSave.closest('.ar-actions');
+            actionsArea.innerHTML = '';
+            actionsArea.appendChild(btn);
+            btn.click();
+          } else {
+            const d = await res.json().catch(() => ({}));
+            alert(d.error || 'Failed to link artist.');
+            extraSave.disabled = false;
+          }
+        } catch {
+          alert('Connection error.');
+          extraSave.disabled = false;
+        }
+        return;
+      }
+
+      if (unlinkBtn) {
+        const artistId = unlinkBtn.dataset.unlinkArtist;
+        const songId = unlinkBtn.dataset.unlinkSong;
+        const actionsArea = unlinkBtn.closest('.ar-actions');
+        const saveBtn = actionsArea.querySelector('[data-extra-save]');
+        const pa = saveBtn ? saveBtn.dataset.pa : '';
+
+        if (adminRole === 'secadmin' && (artistId === '31TPClRtHm23RisEBtV3X7' || pa === '31TPClRtHm23RisEBtV3X7')) {
+          alert('secadmin is not allowed to modify Justin Timberlake links.');
+          return;
+        }
+
+        unlinkBtn.disabled = true;
+        try {
+          const res = await api('/api/admin/extra-artist-songs', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ song_id: songId, artist_id: artistId })
+          });
+          if (res.ok) {
+            await loadExtraArtistSongs();
+            const btn = document.createElement('button');
+            btn.dataset.extra = songId;
+            btn.dataset.pa = pa;
+            actionsArea.innerHTML = '';
+            actionsArea.appendChild(btn);
+            btn.click();
+          } else {
+            const d = await res.json().catch(() => ({}));
+            alert(d.error || 'Failed to unlink artist.');
+            unlinkBtn.disabled = false;
+          }
+        } catch {
+          alert('Connection error.');
+          unlinkBtn.disabled = false;
+        }
+        return;
+      }
+
+      if (extraDone) {
+        if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
+        return;
+      }
+
       // Move a song to another tracked artist's bucket: the row's actions turn
       // into a select of tracked artists + Save/Cancel.
       if (bucketBtn) {
