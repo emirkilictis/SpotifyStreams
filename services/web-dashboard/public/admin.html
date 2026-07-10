@@ -1060,13 +1060,17 @@
           return `
           <div class="artist-row">
             <div class="ar-main">
-              <div class="ar-name">${esc(s.title)} ${s.hidden ? '<span class="ar-tag locked">hidden</span>' : ''}</div>
+              <div class="ar-name">${esc(s.title)} ${s.hidden ? '<span class="ar-tag locked">hidden</span>' : ''}${s.pinned_album ? '<span class="ar-tag">📀 pinned</span>' : ''}${s.album_hidden ? '<span class="ar-tag">alb-hidden</span>' : ''}</div>
               <div class="ar-id">${artistName(s.primary_artist) ? esc(artistName(s.primary_artist)) + ' · ' : ''}${esc(s.album || '')} · ${s.streams ? (Number(s.streams)/1e6).toFixed(1)+'M' : '—'} · ${esc(s.id)}</div>
             </div>
             <div class="ar-actions">
               <button class="act" data-snapshots="${esc(s.id)}" data-title="${esc(s.title)}">📈 Snapshots</button>
               <button class="act" ${dis} data-bucket="${esc(s.id)}" data-pa="${esc((s.primary_artist || '').replace('spotify:artist:', ''))}" title="Move this song to another tracked artist's dashboard bucket">↔ Bucket</button>
               <button class="act" ${dis} data-extra="${esc(s.id)}" data-pa="${esc((s.primary_artist || '').replace('spotify:artist:', ''))}" title="Manage additional tracked artists for this song">🔗 Extra</button>
+              <button class="act" ${dis} data-pin="${esc(s.id)}" data-album="${esc(s.pinned_album || '')}" title="Show this song under a chosen album's tracklist (display only)">📀 ${s.pinned_album ? 'Re-pin' : 'Pin'}</button>
+              ${s.album_hidden
+                ? `<button class="act ok" ${dis} data-albshow="${esc(s.id)}" title="Un-hide from album tracklists">Alb-show</button>`
+                : `<button class="act del" ${dis} data-albhide="${esc(s.id)}" title="Hide from album tracklists only (stays in artist total)">Alb-hide</button>`}
               ${s.hidden
                 ? `<button class="act ok" ${dis} data-unhide="${esc(s.id)}">Un-hide</button>`
                 : `<button class="act del" ${dis} data-hide="${esc(s.id)}">Hide</button>`}
@@ -1104,6 +1108,9 @@
     document.getElementById('songs-view').addEventListener('click', async (e) => {
       const hideBtn = e.target.closest('button[data-hide]');
       const unhideBtn = e.target.closest('button[data-unhide]');
+      const pinBtn = e.target.closest('button[data-pin]');
+      const albHideBtn = e.target.closest('button[data-albhide]');
+      const albShowBtn = e.target.closest('button[data-albshow]');
       const snapBtn = e.target.closest('button[data-snapshots]');
       const delSnap = e.target.closest('button[data-del-snap]');
       const bucketBtn = e.target.closest('button[data-bucket]');
@@ -1283,6 +1290,47 @@
         const d = await res.json().catch(() => ({}));
         if (!res.ok) { alert(d.error || 'Delete failed.'); delSnap.disabled = false; return; }
         await loadSnapshots(snapInspectId, snapInspectTitle);
+        return;
+      }
+      if (pinBtn) {
+        const songId = pinBtn.dataset.pin;
+        const current = pinBtn.dataset.album || '';
+        const ans = prompt(
+          'Show this song under which album?\nPaste a 22-char Spotify album id.\nLeave EMPTY to remove the pin.',
+          current
+        );
+        if (ans === null) return; // cancelled
+        const albumId = ans.replace('spotify:album:', '').trim();
+        pinBtn.disabled = true;
+        if (!albumId) {
+          const res = await api('/api/admin/album-track-pins/' + songId, { method: 'DELETE' });
+          if (!res.ok) alert(((await res.json().catch(() => ({}))).error) || 'Failed to unpin.');
+        } else if (!/^[A-Za-z0-9]{22}$/.test(albumId)) {
+          alert('Invalid album id (must be 22 chars).');
+          pinBtn.disabled = false; return;
+        } else {
+          const res = await api('/api/admin/album-track-pins', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ song_id: songId, album_id: albumId }),
+          });
+          if (!res.ok) alert(((await res.json().catch(() => ({}))).error) || 'Failed to pin.');
+        }
+        if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
+        return;
+      } else if (albHideBtn) {
+        albHideBtn.disabled = true;
+        const res = await api('/api/admin/album-hidden-tracks', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song_id: albHideBtn.dataset.albhide }),
+        });
+        if (!res.ok) alert(((await res.json().catch(() => ({}))).error) || 'Failed to hide from album.');
+        if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
+        return;
+      } else if (albShowBtn) {
+        albShowBtn.disabled = true;
+        const res = await api('/api/admin/album-hidden-tracks/' + albShowBtn.dataset.albshow, { method: 'DELETE' });
+        if (!res.ok) alert(((await res.json().catch(() => ({}))).error) || 'Failed to un-hide.');
+        if (songSearchEl.value.trim().length >= 2) await searchSongs(songSearchEl.value.trim());
         return;
       }
       if (hideBtn) {

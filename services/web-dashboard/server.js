@@ -273,6 +273,64 @@ function getExtraTrackIdsSql(artistId) {
   return ids.map(id => `'${id}'`).join(', ');
 }
 
+// ---- Admin-editable album tracklist overrides (display-only, migration 019) ---
+// album_track_pins: pin a song into an album's DISPLAY tracklist (e.g. a remix
+// single into its parent album). album_hidden_tracks: hide a song from album
+// tracklists/totals ONLY (stays in the flat list + artist total). Neither
+// changes canonical_id or any total — same safety as the hardcoded FSLS/TT20/ATD
+// remaps. Cached like extraArtistSongsCache; refreshed on write + via /refresh-caches.
+const SPOTIFY_ID_RE = /^[A-Za-z0-9]{22}$/;
+let albumTrackPinsCache = [];        // [{ song_id, album_id }]
+let albumHiddenTracksCache = [];     // [song_id, ...]
+
+async function refreshAlbumTrackPinsCache() {
+  try {
+    const r = await dbQuery('SELECT song_id, album_id FROM album_track_pins');
+    // Keep only well-formed ids — these interpolate into SQL fragments.
+    albumTrackPinsCache = r.rows.filter(
+      x => SPOTIFY_ID_RE.test(x.song_id) && SPOTIFY_ID_RE.test(x.album_id)
+    );
+  } catch (err) {
+    console.error('Failed to load album_track_pins, using empty:', err.message);
+    albumTrackPinsCache = [];
+  }
+}
+async function refreshAlbumHiddenTracksCache() {
+  try {
+    const r = await dbQuery('SELECT song_id FROM album_hidden_tracks');
+    albumHiddenTracksCache = r.rows.map(x => x.song_id).filter(id => SPOTIFY_ID_RE.test(id));
+  } catch (err) {
+    console.error('Failed to load album_hidden_tracks, using empty:', err.message);
+    albumHiddenTracksCache = [];
+  }
+}
+
+// CASE fragment that remaps a pinned song's album to its pinned display album.
+// Prepended to the album-id CASEs so a pin overrides the scraped album membership
+// (used by the album LIST card totals + milestones). Empty string when no pins.
+function pinnedAlbumCaseSql() {
+  return albumTrackPinsCache
+    .map(p => `WHEN s.id = '${p.song_id}' THEN '${p.album_id}'`)
+    .join('\n            ');
+}
+
+// Membership fragment for the album-detail tracklist & history: matches a row
+// when the song is pinned to the album currently being viewed ($1). Always a
+// valid boolean; a dummy row keeps it false when there are no pins.
+function pinnedMembershipSql() {
+  const rows = albumTrackPinsCache.length
+    ? albumTrackPinsCache.map(p => `('${p.song_id}', '${p.album_id}')`).join(', ')
+    : `('__none__', '__none__')`;
+  return `(s.id, $1) IN (VALUES ${rows})`;
+}
+
+// The full album-tracklist hide list: hardcoded seeds + DB cache. Never empty
+// (HIDDEN_ALBUM_TRACK_IDS always has entries), so it drops into `NOT IN (...)`.
+function albumHiddenTrackIdsSql() {
+  const ids = [...new Set([...HIDDEN_ALBUM_TRACK_IDS, ...albumHiddenTracksCache])];
+  return ids.map(id => `'${id}'`).join(', ');
+}
+
 // The per-artist "which songs belong to this artist's dashboard bucket" filter,
 // parameterised by table aliases so it can be reused in subqueries. $1 is the
 // artist URI. MUST stay in sync with the inline copies in /api/songs & /api/stats.
@@ -844,6 +902,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
       album_songs_mapped AS (
         SELECT DISTINCT ON (
           CASE
+            ${pinnedAlbumCaseSql()}
             WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
             WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
@@ -853,6 +912,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           COALESCE(s.canonical_id, s.id)
         )
         CASE
+          ${pinnedAlbumCaseSql()}
           WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
           WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
@@ -863,7 +923,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
         FROM songs s
         JOIN albums a ON s.album_id = a.id
         WHERE ${artistAlbumMatchSQL('s')}
-        AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
+        AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
       ),
       album_display_titles AS (
         SELECT DISTINCT ON (
@@ -971,6 +1031,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
       WITH album_canonical_songs AS (
         SELECT DISTINCT ON (
           CASE
+            ${pinnedAlbumCaseSql()}
             WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
             WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
@@ -980,6 +1041,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           COALESCE(s.canonical_id, s.id)
         )
         CASE
+          ${pinnedAlbumCaseSql()}
           WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
           WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
@@ -1010,7 +1072,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           GROUP BY canonical_id
         ) avg7 ON COALESCE(s.canonical_id, s.id) = avg7.canonical_id
         WHERE ${artistAlbumMatchSQL('s')}
-        AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
+        AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
         AND ${FSLS_REMIX_EXCLUSION_SQL}
       ),
       unique_albums AS (
@@ -1236,9 +1298,11 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
             AND $1 <> '${ATD_ULTIMATE_ID}'
             AND s.album_id = $1
           )
+          -- Admin-pinned tracks (migration 019): show under the album they're pinned to.
+          OR ${pinnedMembershipSql()}
         )
         -- Hidden alternate versions (display only — songs stay in the catalog / DB)
-        AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
+        AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
         -- Drop third-party DJ remixes/mixes/dubs/instrumentals & unofficial
         -- "Radio Edit"s pulled into the FSLS family by the discography scrape.
         AND ${FSLS_REMIX_EXCLUSION_SQL}
@@ -1346,8 +1410,10 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
               AND $1 <> '${ATD_ULTIMATE_ID}'
               AND s.album_id = $1
             )
+            -- Admin-pinned tracks (migration 019): count under their pinned album.
+            OR ${pinnedMembershipSql()}
           )
-          AND COALESCE(s.canonical_id, s.id) NOT IN (${HIDDEN_ALBUM_TRACK_IDS_SQL})
+          AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
           AND ${FSLS_REMIX_EXCLUSION_SQL}
       )
       SELECT
@@ -1725,7 +1791,7 @@ app.post('/api/admin/artists/:id/purge', requireAdmin, requireSuperAdmin, async 
     await client.query(`DELETE FROM tracked_artists WHERE artist_id = $1`, [id]);
 
     await client.query('COMMIT');
-    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache()]);
+    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache()]);
     console.log(`[purge] ${uri}: ${songRes.rowCount} songs, ${albumsDeleted} albums removed.`);
     res.json({ success: true, songs_deleted: songRes.rowCount, albums_deleted: albumsDeleted });
   } catch (err) {
@@ -2051,9 +2117,16 @@ app.get('/api/admin/song-search', requireAdmin, async (req, res) => {
        ORDER BY streams DESC NULLS LAST LIMIT 40`,
       [`%${q}%`]
     );
-    // Mark hidden from the cache (no hard dependency on the hidden_songs table).
+    // Mark hidden / album-hidden / pinned from the caches (no hard table dep).
     const hidden = new Set(hiddenSongsCache);
-    res.json(r.rows.map(row => ({ ...row, hidden: hidden.has(row.id) })));
+    const albumHidden = new Set(albumHiddenTracksCache);
+    const pinnedBy = new Map(albumTrackPinsCache.map(p => [p.song_id, p.album_id]));
+    res.json(r.rows.map(row => ({
+      ...row,
+      hidden: hidden.has(row.id),
+      album_hidden: albumHidden.has(row.id),
+      pinned_album: pinnedBy.get(row.id) || null,
+    })));
   } catch (err) {
     console.error('Admin song-search error:', err);
     res.status(500).json({ error: 'Search failed.' });
@@ -2598,7 +2671,7 @@ app.post('/api/admin/snapshots/move-day', requireAdmin, requireSuperAdmin, async
 // redeploy (e.g. after fixing rows straight in Neon).
 app.post('/api/admin/refresh-caches', requireAdmin, requireSuperAdmin, async (req, res) => {
   try {
-    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache()]);
+    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache()]);
     res.json({ success: true, artists: allArtistsCache.length, hidden_songs: hiddenSongsCache.length });
   } catch (err) {
     console.error('Admin refresh-caches error:', err);
@@ -2775,6 +2848,115 @@ app.delete('/api/admin/extra-artist-songs', requireAdmin, async (req, res) => {
   }
 });
 
+// ---- Admin: album tracklist overrides (migration 019, display-only) ----------
+// Pins: show a song under a chosen album's tracklist. Album-hides: drop a song
+// from album tracklists/totals while keeping it in the artist's overall total.
+// Both are display-only (no canonical/total change). secadmin can't touch JT.
+
+app.get('/api/admin/album-track-pins', requireAdmin, async (req, res) => {
+  try {
+    const r = await dbQuery(
+      `SELECT p.song_id, p.album_id, p.note, s.title AS song_title, a.title AS album_title
+         FROM album_track_pins p
+         LEFT JOIN songs s ON s.id = p.song_id
+         LEFT JOIN albums a ON a.id = p.album_id
+         ORDER BY p.created_at DESC`);
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Fetch album-track-pins error:', err);
+    res.status(500).json({ error: 'Failed to load album pins.' });
+  }
+});
+
+app.post('/api/admin/album-track-pins', requireAdmin, async (req, res) => {
+  const songId = String(req.body?.song_id || '').replace('spotify:track:', '').trim();
+  const albumId = String(req.body?.album_id || '').replace('spotify:album:', '').trim();
+  const note = String(req.body?.note || '').trim().slice(0, 200) || null;
+  if (!/^[A-Za-z0-9]{22}$/.test(songId)) return res.status(400).json({ error: 'Invalid song ID.' });
+  if (!/^[A-Za-z0-9]{22}$/.test(albumId)) return res.status(400).json({ error: 'Invalid album ID.' });
+  if (req.adminRole === 'secadmin' && await isJtSong(songId)) {
+    return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+  }
+  try {
+    const alb = await dbQuery('SELECT 1 FROM albums WHERE id = $1', [albumId]);
+    if (alb.rowCount === 0) return res.status(400).json({ error: 'No such album id in the catalog.' });
+    await dbQuery(
+      `INSERT INTO album_track_pins (song_id, album_id, note) VALUES ($1, $2, $3)
+       ON CONFLICT (song_id) DO UPDATE SET album_id = $2, note = $3`,
+      [songId, albumId, note]);
+    await refreshAlbumTrackPinsCache();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Add album-track-pin error:', err);
+    res.status(500).json({ error: 'Failed to pin track.' });
+  }
+});
+
+app.delete('/api/admin/album-track-pins/:songId', requireAdmin, async (req, res) => {
+  const songId = String(req.params.songId).replace('spotify:track:', '').trim();
+  if (!/^[A-Za-z0-9]{22}$/.test(songId)) return res.status(400).json({ error: 'Invalid song ID.' });
+  if (req.adminRole === 'secadmin' && await isJtSong(songId)) {
+    return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+  }
+  try {
+    await dbQuery('DELETE FROM album_track_pins WHERE song_id = $1', [songId]);
+    await refreshAlbumTrackPinsCache();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete album-track-pin error:', err);
+    res.status(500).json({ error: 'Failed to unpin track.' });
+  }
+});
+
+app.get('/api/admin/album-hidden-tracks', requireAdmin, async (req, res) => {
+  try {
+    const r = await dbQuery(
+      `SELECT h.song_id, h.note, s.title AS song_title
+         FROM album_hidden_tracks h LEFT JOIN songs s ON s.id = h.song_id
+         ORDER BY h.created_at DESC`);
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Fetch album-hidden-tracks error:', err);
+    res.status(500).json({ error: 'Failed to load album-hidden tracks.' });
+  }
+});
+
+app.post('/api/admin/album-hidden-tracks', requireAdmin, async (req, res) => {
+  const songId = String(req.body?.song_id || '').replace('spotify:track:', '').trim();
+  const note = String(req.body?.note || '').trim().slice(0, 200) || null;
+  if (!/^[A-Za-z0-9]{22}$/.test(songId)) return res.status(400).json({ error: 'Invalid song ID.' });
+  if (req.adminRole === 'secadmin' && await isJtSong(songId)) {
+    return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+  }
+  try {
+    await dbQuery(
+      `INSERT INTO album_hidden_tracks (song_id, note) VALUES ($1, $2)
+       ON CONFLICT (song_id) DO UPDATE SET note = $2`,
+      [songId, note]);
+    await refreshAlbumHiddenTracksCache();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Add album-hidden-track error:', err);
+    res.status(500).json({ error: 'Failed to hide track from album.' });
+  }
+});
+
+app.delete('/api/admin/album-hidden-tracks/:songId', requireAdmin, async (req, res) => {
+  const songId = String(req.params.songId).replace('spotify:track:', '').trim();
+  if (!/^[A-Za-z0-9]{22}$/.test(songId)) return res.status(400).json({ error: 'Invalid song ID.' });
+  if (req.adminRole === 'secadmin' && await isJtSong(songId)) {
+    return res.status(403).json({ error: 'secadmin is not allowed to edit Justin Timberlake.' });
+  }
+  try {
+    await dbQuery('DELETE FROM album_hidden_tracks WHERE song_id = $1', [songId]);
+    await refreshAlbumHiddenTracksCache();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete album-hidden-track error:', err);
+    res.status(500).json({ error: 'Failed to unhide track.' });
+  }
+});
+
 // Protected Static Files
 app.use(requireAuth, express.static(path.join(__dirname, 'public')));
 
@@ -2785,5 +2967,5 @@ app.get('*', requireAuth, (req, res) => {
 
 app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
-  await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache()]);
+  await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache()]);
 });
