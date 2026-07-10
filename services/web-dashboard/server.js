@@ -338,6 +338,21 @@ const TT20_ALBUM_IDS = [
 ];
 const TT20_ALBUM_IDS_SQL = TT20_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
+// Cardi B's two standalone "ErrTime" remix singles are each their own 1-track
+// "album". Pin them into AM I THE DRAMA? (Ultimate Edition) so they surface on
+// that tracklist as distinct rows carrying the remixes' REAL streams — they are
+// canonical heads (Latto 14.75M, Jeezy 1.18M), so this changes NO totals, only
+// which album they display under. The Ultimate Edition's own remix copies are
+// playcount-linked to the ORIGINAL ErrTime (byte-identical count) so they
+// collapse into it under DISTINCT-ON and never show as remixes; these standalone
+// heads are the only copies carrying the remixes' independent counts. Same
+// pattern as the TT20/FSLS single-into-album pins above. Display-only.
+const ATD_ULTIMATE_ID = '0qJL6xmheW2HD1H0SWCxRh';
+const ATD_ULTIMATE_TITLE = 'AM I THE DRAMA? (Ultimate Edition)';
+const ATD_ULTIMATE_COVER = 'https://i.scdn.co/image/ab67616d00001e02967b09b0309b97afc0b6ee1d';
+const ATD_REMIX_SINGLE_IDS = ['2i2SkQ9IRn6q9E8RjhpOH3', '58YOjlNjfpWLFmHglWof4g'];
+const ATD_REMIX_SINGLE_IDS_SQL = ATD_REMIX_SINGLE_IDS.map(id => `'${id}'`).join(', ');
+
 // Alternate versions hidden from album tracklists AND album totals
 // (the songs stay in the catalog / overall artist totals).
 const HIDDEN_ALBUM_TRACK_IDS = [
@@ -541,9 +556,11 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         CASE 
           WHEN s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
           WHEN s.album_id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
-          ELSE s.album_id 
+          WHEN s.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
+          ELSE s.album_id
         END AS album_id,
-        CASE 
+        CASE
+          WHEN s.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_TITLE}'
           WHEN s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'FutureSex/LoveSounds (Deluxe Edition)'
           WHEN s.album_id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN 'eternal sunshine (Deluxe Edition)'
           ELSE a.title 
@@ -555,12 +572,14 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
           WHEN s.album_id = '2uMTmPEFafKfKeobvdx5EE' THEN '2014-08-25'::date
           WHEN s.album_id = '0JPItniR1C7tjd4ac2R1Vk' THEN '2016-05-20'::date
           WHEN s.album_id = '2VSBGJ8bUuNgmOYXHIQagM' THEN '2013-09-03'::date
-          ELSE a.release_date 
+          WHEN s.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN NULL::date
+          ELSE a.release_date
         END AS release_date,
         CASE 
           WHEN s.album_id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473'
           WHEN s.album_id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN 'https://i.scdn.co/image/ab67616d0000b2738b58d20f1b77295730db15b4'
-          ELSE a.image_url 
+          WHEN s.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_COVER}'
+          ELSE a.image_url
         END AS album_cover_url,
         dsc.recorded_date,
         COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
@@ -828,6 +847,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
             WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
             WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
+            WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
             ELSE s.album_id
           END,
           COALESCE(s.canonical_id, s.id)
@@ -836,6 +856,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
           WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
+          WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
           ELSE s.album_id
         END AS album_id,
         COALESCE(s.canonical_id, s.id) AS canonical_song_id
@@ -953,6 +974,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
             WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
             WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
+            WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
             ELSE s.album_id
           END,
           COALESCE(s.canonical_id, s.id)
@@ -961,6 +983,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
           WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
+          WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
           ELSE s.album_id
         END AS album_id,
         COALESCE(s.canonical_id, s.id) AS canonical_song_id,
@@ -1201,9 +1224,16 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
             AND s.album_id IN (${TT20_ALBUM_IDS_SQL})
           )
           OR (
+            -- AM I THE DRAMA? (Ultimate Edition): also pull the two standalone
+            -- ErrTime remix singles so they show as distinct remix rows here.
+            $1 = '${ATD_ULTIMATE_ID}'
+            AND s.album_id IN ('${ATD_ULTIMATE_ID}', ${ATD_REMIX_SINGLE_IDS_SQL})
+          )
+          OR (
             $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
             AND $1 <> '5EYKrEDnKhhcNxGedaRQeK'
             AND $1 <> '0O82niJ0NpcptYRxogeEZu'
+            AND $1 <> '${ATD_ULTIMATE_ID}'
             AND s.album_id = $1
           )
         )
@@ -1304,9 +1334,16 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
               AND s.album_id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp')
             )
             OR (
+              -- AM I THE DRAMA? (Ultimate Edition): fold in the two standalone
+              -- ErrTime remix singles so the album chart matches the tracklist.
+              $1 = '${ATD_ULTIMATE_ID}'
+              AND s.album_id IN ('${ATD_ULTIMATE_ID}', ${ATD_REMIX_SINGLE_IDS_SQL})
+            )
+            OR (
               $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
               AND $1 <> '0O82niJ0NpcptYRxogeEZu'
               AND $1 <> '5EYKrEDnKhhcNxGedaRQeK'
+              AND $1 <> '${ATD_ULTIMATE_ID}'
               AND s.album_id = $1
             )
           )
