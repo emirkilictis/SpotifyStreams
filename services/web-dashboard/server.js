@@ -204,12 +204,16 @@ const HYUNJIN_EXTRA_TRACK_IDS_SQL = HYUNJIN_EXTRA_TRACK_IDS.map(id => `'${id}'`)
 // Seungmin is credited (sub-unit / featured) on these Stray Kids tracks whose
 // primary_artist is someone else — same pin-in idea as FELIX_EXTRA_TRACK_IDS.
 const SEUNGMIN_EXTRA_TRACK_IDS = [
-  '4FopzmRUfn8Ob8xlYVZqe8', // Close to You (SEUNGMIN of Stray Kids) — primary_artist is Stray Kids
   // My Universe removed — a fan reported it's not actually credited to Seungmin
   // on Spotify (only to Stray Kids as the group), matching an identical report
   // from I.N's page (see IN_EXTRA_TRACK_IDS above).
-  '16Xt6aWyMW5Ugb3nfsInJ3', // Phobia (alias copy) — primary_artist is Stray Kids
-  '1KC5Y3kIiHvEDdinY0OcRL', // Phobia (canonical head) — primary_artist is Stray Kids
+  // "Close to You" (4Fopzm) and GO LIVE's group "Phobia" (16Xt6a alias + 1KC5Y3 head)
+  // removed on fan report: Seungmin already has his OWN OST releases of both
+  // (primary_artist=Seungmin: Phobia on "I'm the Queen in This Life" OST, Close to
+  // You on "Love in Contract" OST), so pinning the SKZ copies showed each twice.
+  // GO LIVE "Phobia" is a full-group track (not an individually-credited sub-unit),
+  // so it doesn't belong on his soloist page at all. Also removed from the
+  // extra_artist_songs DB table (the live source; this list is only the fallback).
   '56uBQujWiOiFMFg1R3TZUJ', // Piece of a Puzzle (Changbin, Seungmin) — primary_artist is Stray Kids
   '5kFGqKqHzVVMMI7V7uoID1', // Stars and Raindrops (Seungmin) — primary_artist is Stray Kids
   '0bxB5Jie9fGKTIibfYVfei', // Up All Night (Bang Chan, Changbin, Felix, Seungmin) — primary_artist is Stray Kids
