@@ -26,7 +26,7 @@ function getPool() {
 // Swift/Christina Aguilera/cupcakke tracks) for 10+ days on 2026-07-08. Beyond this
 // many days of gap, snap straight to today instead of creeping — one coarse-gain day
 // is far safer than a permanently poisoned running max.
-const CATCHUP_CAP_DAYS = 2;
+const CATCHUP_CAP_DAYS = 1;
 
 function addDays(dateStr, n) {
   const d = new Date(`${dateStr}T00:00:00Z`);
