@@ -309,6 +309,104 @@ async function refreshAlbumHiddenTracksCache() {
   }
 }
 
+// ---- Link-preview (Open Graph) per-artist stats cache -----------------------
+// The `/` route builds the OG/Twitter card tags on every pageload (bots + users
+// hit it). We can't run a heavy per-artist stats query inline, so a background
+// job precomputes each active artist's total + 7-day-average daily gain (the
+// same numbers the dashboard headline shows) into this Map. The OG handler reads
+// it instantly; a cache miss just falls back to plain text.
+let ogStatsCache = new Map(); // artist_id -> { total: bigint-string, daily: bigint-string }
+
+// Compact stream formatter for preview text: 18.2B, 7.4M, 950K.
+function fmtStreamsShort(n) {
+  const v = Number(n) || 0;
+  if (v >= 1e9) return (v / 1e9).toFixed(v >= 1e10 ? 1 : 2).replace(/\.?0+$/, '') + 'B';
+  if (v >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1e3) return Math.round(v / 1e3) + 'K';
+  return String(v);
+}
+
+async function refreshOgStatsCache() {
+  try {
+    const roster = activeArtistsCache;
+    const next = new Map();
+    await Promise.all(roster.map(async (a) => {
+      try {
+        const uri = `spotify:artist:${a.artist_id}`;
+        const r = await dbQuery(
+          `SELECT COALESCE(SUM(dsc.cumulative), 0)::bigint AS total,
+                  (
+                    SELECT COALESCE(ROUND(AVG(pd.day_gain)), 0)::bigint
+                    FROM (
+                      SELECT d2.recorded_date, SUM(d2.daily_gain) AS day_gain
+                      FROM daily_streams_canonical d2
+                      JOIN songs s2 ON s2.id = d2.canonical_id
+                      JOIN albums a2 ON s2.album_id = a2.id
+                      WHERE s2.canonical_id IS NULL AND ${artistBucketMatchSQL('s2', 'a2')}
+                        AND s2.id NOT IN (${hiddenTrackIdsSql()})
+                      GROUP BY d2.recorded_date
+                      ORDER BY d2.recorded_date DESC
+                      LIMIT 7
+                    ) pd
+                  ) AS daily
+           FROM (
+             SELECT DISTINCT ON (canonical_id) canonical_id, cumulative
+             FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC
+           ) dsc
+           JOIN songs s ON s.id = dsc.canonical_id
+           JOIN albums alb ON s.album_id = alb.id
+           WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'alb')}
+             AND s.id NOT IN (${hiddenTrackIdsSql()})`,
+          [uri]
+        );
+        next.set(a.artist_id, { total: r.rows[0].total, daily: r.rows[0].daily });
+      } catch (_) { /* skip this artist; keep whatever was cached */ }
+    }));
+    if (next.size) ogStatsCache = next;
+  } catch (err) {
+    console.warn('[og] stats cache refresh failed:', err.code || err.message);
+  }
+}
+
+// ---- Song-level anomaly detector (health) -----------------------------------
+// The recurring "artist X's dailies broke again" bug: the artist total keeps
+// updating (some tracks move) while specific songs sit frozen for many days —
+// invisible to the artist-level frozen flag. This finds canonical heads that
+// USED to gain but have shown a flat daily_gain across their last N snapshots
+// (so it's a genuine stall, not a naturally-dead B-side).
+const FROZEN_RECENT_N = 6;        // last N snapshots must all be flat
+const FROZEN_MIN_STREAMS = 3000000; // ignore tiny/dead tracks
+async function scanFrozenSongs() {
+  const r = await dbQuery(
+    `WITH recent AS (
+       SELECT canonical_id, recorded_date, daily_gain, cumulative,
+              ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
+       FROM daily_streams_canonical
+     ),
+     agg AS (
+       SELECT canonical_id,
+         MAX(cumulative) FILTER (WHERE rn = 1) AS cumulative,
+         to_char(MAX(recorded_date) FILTER (WHERE rn = 1), 'YYYY-MM-DD') AS last_date,
+         COUNT(*) FILTER (WHERE rn <= ${FROZEN_RECENT_N} AND COALESCE(daily_gain, 0) = 0) AS zero_recent,
+         COUNT(*) FILTER (WHERE rn BETWEEN ${FROZEN_RECENT_N + 1} AND 20 AND daily_gain > 0) AS moved_before
+       FROM recent
+       WHERE rn <= 20
+       GROUP BY canonical_id
+     )
+     SELECT s.id, s.title, s.primary_artist, agg.cumulative, agg.last_date, agg.zero_recent
+     FROM agg
+     JOIN songs s ON s.id = agg.canonical_id
+     WHERE s.canonical_id IS NULL
+       AND agg.zero_recent >= ${FROZEN_RECENT_N}
+       AND agg.moved_before > 0
+       AND agg.cumulative >= ${FROZEN_MIN_STREAMS}
+       AND s.id NOT IN (${hiddenTrackIdsSql()})
+     ORDER BY agg.cumulative DESC
+     LIMIT 80`
+  );
+  return r.rows;
+}
+
 // CASE fragment that remaps a pinned song's album to its pinned display album.
 // Prepended to the album-id CASEs so a pin overrides the scraped album membership
 // (used by the album LIST card totals + milestones). Empty string when no pins.
@@ -1522,6 +1620,27 @@ const isJtSong = async (songId) => {
   return r.rowCount > 0 && r.rows[0].primary_artist === 'spotify:artist:31TPClRtHm23RisEBtV3X7';
 };
 
+// Extract distinct Spotify track/artist IDs mentioned in a feedback message.
+// Matches open.spotify.com/{track,artist}/<id> links (tagged with their kind)
+// and bare 22-char base62 tokens (kind unknown). Capped so a spammy message
+// can't produce an unbounded action list.
+function extractSpotifyIds(message) {
+  const text = String(message || '');
+  const out = [];
+  const seen = new Set();
+  const push = (kind, id) => {
+    if (!SPOTIFY_ID_RE.test(id) || seen.has(id)) return;
+    seen.add(id);
+    out.push({ kind, id });
+  };
+  let m;
+  const linkRe = /open\.spotify\.com\/(track|artist)\/([A-Za-z0-9]{22})/g;
+  while ((m = linkRe.exec(text)) && out.length < 12) push(m[1], m[2]);
+  const bareRe = /(?:^|[^A-Za-z0-9])([A-Za-z0-9]{22})(?![A-Za-z0-9])/g;
+  while ((m = bareRe.exec(text)) && out.length < 12) push('id', m[1]);
+  return out;
+}
+
 app.get('/api/feedback', requireAdmin, async (req, res) => {
   res.setHeader('X-Admin-Role', req.adminRole);
   try {
@@ -1538,7 +1657,11 @@ app.get('/api/feedback', requireAdmin, async (req, res) => {
        ORDER BY created_at DESC LIMIT 500`,
       params
     );
-    res.json(result.rows);
+    // Pull any Spotify track/artist IDs out of the message (bare 22-char tokens
+    // or open.spotify.com links) so the admin panel can turn each report into a
+    // one-click jump to that exact song/artist instead of hand-deciphering it.
+    const rows = result.rows.map(r => ({ ...r, spotify_ids: extractSpotifyIds(r.message) }));
+    res.json(rows);
   } catch (err) {
     console.error('Feedback list error:', err);
     res.status(500).json({ error: 'Failed to load feedback.' });
@@ -1889,6 +2012,24 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
       console.warn('[health] dup scan failed:', e.code || e.message);
     }
 
+    // Song-level frozen detection (the "artist looks fine but individual tracks
+    // are stuck" class of bug). Attach the artist name from the roster cache.
+    let frozenSongs = [];
+    try {
+      const nameByUri = new Map(roster.map(a => [`spotify:artist:${a.artist_id}`, a.name]));
+      frozenSongs = (await scanFrozenSongs()).map(s => ({
+        id: s.id,
+        title: s.title,
+        artist_id: (s.primary_artist || '').replace('spotify:artist:', ''),
+        artist_name: nameByUri.get(s.primary_artist) || null,
+        cumulative: s.cumulative,
+        last_date: s.last_date,
+        zero_recent: s.zero_recent,
+      }));
+    } catch (e) {
+      console.warn('[health] frozen-song scan failed:', e.code || e.message);
+    }
+
     const daysSinceUpdate = globalMax
       ? Math.round((Date.now() - new Date(globalMax + 'T00:00:00Z')) / 86400000) : null;
     const summary = {
@@ -1902,10 +2043,11 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
       no_song_artists: perArtist.filter(a => a.flags.includes('no-songs')).length,
       orphan_groups: orphans.length,
       duplicate_groups: dupGroups,
+      frozen_songs: frozenSongs.length,
       stale: daysSinceUpdate != null && daysSinceUpdate >= 2,
     };
 
-    res.json({ global_last_update: globalMax, summary, artists: perArtist, orphans });
+    res.json({ global_last_update: globalMax, summary, artists: perArtist, orphans, frozen_songs: frozenSongs });
   } catch (err) {
     console.error('Admin health error:', err);
     res.status(500).json({ error: 'Failed to load health.' });
@@ -2113,13 +2255,18 @@ app.get('/api/admin/song-search', requireAdmin, async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.json([]);
+    // A bare 22-char token is a Spotify ID — match it exactly (and resolve the
+    // canonical head if the id is a merged alias) so a pasted/linked track from a
+    // feedback report jumps straight to its editable row. Otherwise title search.
+    const isId = SPOTIFY_ID_RE.test(q);
     const r = await dbQuery(
       `SELECT s.id, s.title, s.primary_artist, a.title AS album,
               (SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id) AS streams
        FROM songs s LEFT JOIN albums a ON a.id = s.album_id
-       WHERE s.canonical_id IS NULL AND s.title ILIKE $1
+       WHERE s.canonical_id IS NULL
+         AND (${isId ? 's.id = $1 OR s.id = (SELECT COALESCE(canonical_id, id) FROM songs WHERE id = $1)' : 's.title ILIKE $2'})
        ORDER BY streams DESC NULLS LAST LIMIT 40`,
-      [`%${q}%`]
+      isId ? [q] : [null, `%${q}%`]
     );
     // Mark hidden / album-hidden / pinned from the caches (no hard table dep).
     const hidden = new Set(hiddenSongsCache);
@@ -2734,10 +2881,18 @@ app.get(['/', '/index.html'], requireAuth, (req, res) => {
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const aId = String(req.query.artist || '').replace('spotify:artist:', '');
   const og = activeArtistsCache.find(item => item.artist_id === aId);
-  const title = og ? `${og.name} — Spotify Streams` : 'Spotify Streams — Fan Dashboard';
-  const desc = og
+  // Live totals (precomputed in ogStatsCache) make the shared link say something
+  // concrete — "18.2B streams · +7.4M/day" — instead of a generic blurb. Falls
+  // back to plain text on a cache miss so a link never breaks.
+  const ogStats = og ? ogStatsCache.get(aId) : null;
+  let title = og ? `${og.name} — Spotify Streams` : 'Spotify Streams — Fan Dashboard';
+  let desc = og
     ? `${og.name}'s live Spotify stream counts, daily gains, and milestones — updated daily.`
     : 'Live Spotify stream counts, daily gains, and milestones for your favorite artists — updated daily.';
+  if (og && ogStats) {
+    title = `${og.name} — ${fmtStreamsShort(ogStats.total)} Spotify Streams`;
+    desc = `${fmtStreamsShort(ogStats.total)} total streams · +${fmtStreamsShort(ogStats.daily)}/day. ${og.name}'s live counts, daily gains & milestones — updated daily.`;
+  }
   // Default (no ?artist=) → neutral branded 1200×630 banner, NOT a single artist
   // photo. Per-artist links still use that artist's image. og-default.png is a
   // proper landscape card so summary_large_image doesn't crop a portrait.
@@ -2972,4 +3127,7 @@ app.get('*', requireAuth, (req, res) => {
 app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
   await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache()]);
+  // OG preview stats depend on the roster cache above being populated first.
+  refreshOgStatsCache();
+  setInterval(refreshOgStatsCache, 30 * 60 * 1000).unref();
 });

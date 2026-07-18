@@ -100,6 +100,15 @@
     }
     .item-contact b { color: var(--text); font-weight: 600; }
     .item-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .item-smart { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .fb-smart {
+      display: inline-flex; align-items: center; gap: 4px;
+      font: inherit; font-size: 0.8rem; font-weight: 600;
+      padding: 5px 11px; border-radius: 999px; cursor: pointer;
+      color: var(--green); text-decoration: none;
+      background: rgba(29,185,84,0.10); border: 1px solid rgba(29,185,84,0.35);
+    }
+    .fb-smart:hover { background: rgba(29,185,84,0.20); }
     .act {
       background: var(--card-2); border: 1px solid var(--border); color: var(--muted);
       border-radius: 8px; padding: 6px 12px; font-size: 0.78rem; cursor: pointer;
@@ -594,6 +603,7 @@
       </div>
       <div id="health-summary"></div>
       <div id="health-orphans"></div>
+      <div id="health-frozen"></div>
       <div id="health-merge"></div>
       <div id="health-list"></div>
     </div>
@@ -817,6 +827,17 @@
         if (r.status !== 'spam') acts.push(`<button class="act danger" data-id="${r.id}" data-set="spam">Spam</button>`);
         if (r.status !== 'new')  acts.push(`<button class="act" data-id="${r.id}" data-set="new">↺ New</button>`);
         acts.push(`<button class="act del" data-id="${r.id}" data-del="1">Delete</button>`);
+        // Smart actions: turn a report into one click. Dashboard link opens the
+        // fan view the reporter saw; each Spotify ID found in the message becomes
+        // a jump straight to that track/artist's editable row in the Songs tab.
+        const smart = [];
+        if (r.artist_id) {
+          smart.push(`<a class="fb-smart" href="/?artist=${encodeURIComponent(r.artist_id)}" target="_blank" rel="noopener" title="Open the fan dashboard for this artist">🎧 ${esc(artist || 'Dashboard')}</a>`);
+        }
+        (r.spotify_ids || []).forEach(x => {
+          const label = x.kind === 'artist' ? 'artist' : 'track';
+          smart.push(`<button class="fb-smart" data-fb-jump="${esc(x.id)}" title="Open ${esc(x.id)} in the Songs tab">🔎 ${label} ${esc(x.id.slice(0, 6))}…</button>`);
+        });
         return `<div class="item ${r.status === 'spam' ? 'is-spam' : ''}">
           <div class="item-head">
             <span class="badge ${r.status}">${r.status}</span>
@@ -825,6 +846,7 @@
           </div>
           <div class="item-msg">${highlight(esc(r.message))}</div>
           ${contact}
+          ${smart.length ? `<div class="item-smart">${smart.join('')}</div>` : ''}
           <div class="item-actions">${acts.join('')}</div>
         </div>`;
       }).join('');
@@ -937,6 +959,8 @@
       render();
     });
     listEl.addEventListener('click', (e) => {
+      const jump = e.target.closest('button[data-fb-jump]');
+      if (jump) { jumpToSong(jump.dataset.fbJump); return; }
       const b = e.target.closest('.act');
       if (!b) return;
       if (b.dataset.del) deleteItem(b.dataset.id);
@@ -1078,6 +1102,19 @@
           </div>`;
         }).join('');
       } catch { songResultsEl.innerHTML = '<div class="empty">Search failed.</div>'; }
+    }
+
+    // Jump to the Songs tab and run a search for a specific query (a track ID or
+    // title). Used by the Health "frozen songs" list and by feedback actions, so
+    // a report or a flag turns into a one-click open of the exact editable row.
+    function jumpToSong(query) {
+      const tab = document.querySelector('button[data-view="songs"]');
+      if (tab) tab.click();
+      if (songSearchEl) {
+        songSearchEl.value = query;
+        searchSongs(query);
+        songSearchEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
     }
 
     async function loadHiddenSongs() {
@@ -1707,6 +1744,7 @@
         if (s.frozen_artists) alerts.push(`${s.frozen_artists} frozen artist(s)`);
         if (s.orphan_groups) alerts.push(`${s.orphan_groups} orphan leak(s)`);
         if (s.duplicate_groups) alerts.push(`${s.duplicate_groups} unmerged dup(s)`);
+        if (s.frozen_songs) alerts.push(`${s.frozen_songs} frozen song(s)`);
         const ok = alerts.length === 0;
         const dot = s.scraper_status === 'error' ? 'error'
           : (s.scraper_status === 'scraping' || s.scraper_status === 'deduping') ? 'active' : 'idle';
@@ -1726,6 +1764,7 @@
             <span class="hchip ${s.no_song_artists ? 'bad' : ''}">${s.no_song_artists} no-songs</span>
             <span class="hchip ${s.orphan_groups ? 'bad' : ''}">${s.orphan_groups} orphans</span>
             <span class="hchip ${s.duplicate_groups ? 'bad' : ''}">${s.duplicate_groups} dups</span>
+            <span class="hchip ${s.frozen_songs ? 'bad' : ''}">${s.frozen_songs || 0} frozen songs</span>
           </div>
           ${alerts.length ? `<div class="hsum-alerts">${alerts.map(a => `<span class="halert">${esc(a)}</span>`).join('')}</div>` : ''}
         </div>`;
@@ -1745,6 +1784,23 @@
         </div>`;
       } else {
         orphEl.innerHTML = '';
+      }
+
+      // Frozen songs: individual tracks stuck at 0 daily for their last several
+      // snapshots (that previously moved) — the "artist looks fine but a song
+      // broke" bug. Each row jumps straight to that track in the Songs tab.
+      const frozenEl = document.getElementById('health-frozen');
+      if (d.frozen_songs && d.frozen_songs.length) {
+        frozenEl.innerHTML = `<div class="orphan-card">
+          <h3>❄ ${d.frozen_songs.length} frozen song(s) — flat daily for ${'≥6'} snapshots</h3>
+          <p>These tracks used to gain streams but have shown 0 daily across their last several snapshots. Usually a stale/partial scrape for that track. Open it to inspect snapshots.</p>
+          ${d.frozen_songs.map(f => `<div class="orphan-item">
+            <div class="oi-main"><b>${esc(f.title || '(unknown)')}</b> <span class="oi-id">${esc(f.id)}</span><br>${esc(f.artist_name || f.artist_id || '')} · ${fmtB(f.cumulative)} · last ${esc(f.last_date || '—')} · ${f.zero_recent} flat</div>
+            <button class="act" data-song-jump="${esc(f.id)}" data-title="${esc(f.title || '')}">🔎 Open in Songs</button>
+          </div>`).join('')}
+        </div>`;
+      } else {
+        frozenEl.innerHTML = '';
       }
 
       // Per-artist health rows — float the ones that need attention to the top:
@@ -1785,6 +1841,12 @@
         else { alert(j.error || 'Could not start dedup.'); }
       } catch { alert('Connection error.'); }
       finally { setTimeout(() => { btn.disabled = false; btn.textContent = '⚒ Re-run dedup'; }, 3000); }
+    });
+
+    // Frozen song → jump to its editable row in the Songs tab.
+    document.getElementById('health-frozen').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-song-jump]'); if (!b) return;
+      jumpToSong(b.dataset.songJump);
     });
 
     // Orphan → add as inactive (stops the JT leak; keeps data).
