@@ -550,12 +550,12 @@ function renderSongs() {
     const isFeatured = song.is_featured;
     const isSolo = song.is_solo;
     const dailyGain = Number(song.daily_gain);
-    
-    let gainHtml = '<span class="gain-cell gain-neutral">-</span>';
+
+    let gainHtml = '<span class="gain-pill flat">–</span>';
     if (dailyGain > 0) {
-      gainHtml = `<span class="gain-cell gain-positive">+${formatNumber(dailyGain)}</span>`;
+      gainHtml = `<span class="gain-pill up"><span class="arrow">▲</span>${formatNumber(dailyGain)}</span>`;
     } else if (dailyGain < 0) {
-      gainHtml = `<span class="gain-cell" style="color: var(--accent-red);">${formatNumber(dailyGain)}</span>`;
+      gainHtml = `<span class="gain-pill down"><span class="arrow">▼</span>${formatNumber(Math.abs(dailyGain))}</span>`;
     }
 
     // Raw last-day change. The daily_gain above comes from the running-max view
@@ -685,7 +685,6 @@ function renderAlbums() {
     // Quotes are %-encoded so the data URI survives both the src attribute and
     // the single-quoted JS string inside onerror (raw ' broke the fallback).
     const fallbackSvg = `data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%2756%27 height=%2756%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%231db954%27 stroke-width=%271.5%27 style=%27background:%23181818%27><circle cx=%2712%27 cy=%2712%27 r=%2710%27/><circle cx=%2712%27 cy=%2712%27 r=%273%27/><path d=%27M12 9v6%27/></svg>`;
-    const gainClass = dailyGain > 0 ? 'gain-positive' : (dailyGain < 0 ? 'gain-negative' : 'gain-neutral');
     const clickHandler = `openAlbumById('${album.album_id}', '${escJs(album.album_title)}', '${dateFormatted}', '${escJs(coverUrl)}')`;
 
     return `
@@ -704,7 +703,7 @@ function renderAlbums() {
           </div>
           <div class="album-row-stat">
             <span class="label">Daily</span>
-            <span class="value ${gainClass}">${dailyGain > 0 ? '+' : ''}${formatNumber(dailyGain)}</span>
+            <span class="gain-pill ${dailyGain > 0 ? 'up' : dailyGain < 0 ? 'down' : 'flat'}">${dailyGain !== 0 ? `<span class="arrow">${dailyGain > 0 ? '▲' : '▼'}</span>${formatNumber(Math.abs(dailyGain))}` : '–'}</span>
           </div>
         </div>
       </div>
