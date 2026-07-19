@@ -386,10 +386,52 @@ async function fetchData() {
     
     renderSongs();
     renderMilestones();
+    fetchTrending(artist, headers);
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
     tbody.innerHTML = `<tr><td colspan="5" class="table-empty" style="color: var(--accent-red);">Failed to load dashboard data!</td></tr>`;
   }
+}
+
+// Trending Now — songs surging above their own baseline (see /api/trending).
+// Fire-and-forget after the main load; hides its section when nothing qualifies.
+async function fetchTrending(artist, headers) {
+  const section = document.getElementById('trending-section');
+  const strip = document.getElementById('trending-strip');
+  if (!section || !strip) return;
+  section.classList.add('hidden'); // clear any previous artist's strip while loading
+  try {
+    const res = await fetch(`/api/trending?artist=${artist}`, { headers });
+    if (artist !== currentArtist) return; // switched away while loading
+    if (!res.ok) return;
+    const rows = await res.json();
+    renderTrending(Array.isArray(rows) ? rows : []);
+  } catch (_) { /* trending is non-critical — leave the section hidden */ }
+}
+
+function renderTrending(rows) {
+  const section = document.getElementById('trending-section');
+  const strip = document.getElementById('trending-strip');
+  if (!section || !strip) return;
+  if (!rows.length) { section.classList.add('hidden'); strip.innerHTML = ''; return; }
+  const fallbackSvg = `data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%2748%27 height=%2748%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%231db954%27 stroke-width=%271.5%27 style=%27background:%23181818%27><circle cx=%2712%27 cy=%2712%27 r=%2710%27/><circle cx=%2712%27 cy=%2712%27 r=%273%27/><path d=%27M12 9v6%27/></svg>`;
+  strip.innerHTML = rows.map(t => {
+    const cover = escHtml(t.album_cover_url || '') || fallbackSvg;
+    const lift = Number(t.lift_pct) || 0;
+    const recent = Number(t.recent_avg) || 0;
+    return `
+      <button class="trending-card" onclick="openSongById('${t.id}')" title="${escHtml(t.title)} — normally +${formatNumber(Number(t.base_avg) || 0)}/day">
+        <div class="trending-cover">
+          <img src="${cover}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${fallbackSvg}'">
+          <span class="trending-badge">▲ ${lift}%</span>
+        </div>
+        <div class="trending-meta">
+          <span class="trending-song">${escHtml(t.title)}</span>
+          <span class="trending-gain">+${formatNumber(recent)}<span class="trending-per">/day</span></span>
+        </div>
+      </button>`;
+  }).join('');
+  section.classList.remove('hidden');
 }
 
 // Fetch Albums

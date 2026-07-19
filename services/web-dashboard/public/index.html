@@ -264,6 +264,16 @@
       </div>
     </section>
 
+    <!-- Trending Now: songs surging above their own baseline. Hidden until the
+         /api/trending fetch finds any; populated by renderTrending(). -->
+    <section id="trending-section" class="trending-section glass hidden">
+      <div class="trending-header">
+        <h2 class="trending-title">🔥 Trending Now</h2>
+        <span class="trending-sub">Songs gaining more than usual</span>
+      </div>
+      <div id="trending-strip" class="trending-strip"></div>
+    </section>
+
     <!-- View Switcher -->
     <section class="view-toggle-bar glass">
       <button class="view-toggle-btn active" data-view="songs">Songs List</button>

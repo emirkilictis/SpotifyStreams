@@ -798,6 +798,74 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
   }
 });
 
+// Trending: songs whose RECENT daily gain has jumped meaningfully above their
+// OWN normal. We compare a 7-day recent window against the preceding 21-day
+// baseline (both averaged from the calendar-normalised daily_gain, so irregular
+// snapshot cadence is handled by date windows, not row counts). A song trends
+// when recent >= baseline * TREND_LIFT AND it clears absolute floors — the floors
+// stop a near-dead track (tiny→tiny) from reading as a giant % spike, and stop
+// weekly-cadence wobble on small songs from flooding the list.
+// All three are env-tunable on Render (no code change) so the section's
+// sensitivity can be dialled live: lower TREND_LIFT for a busier strip.
+const TREND_LIFT = Number(process.env.TREND_LIFT || 1.3);            // recent must be >= 30% over the song's own 3-week baseline
+const TREND_MIN_BASE = Number(process.env.TREND_MIN_BASE || 25000);      // baseline must be a real >=25k/day song (kills tiny→tiny % spikes)
+const TREND_MIN_RECENT = Number(process.env.TREND_MIN_RECENT || 50000);    // recent must be a real >=50k/day surge
+app.get('/api/trending', requireAuth, validateArtistAccess, async (req, res) => {
+  const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
+  const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
+  try {
+    const query = `
+      WITH anchor AS (SELECT MAX(recorded_date) AS d FROM daily_streams_canonical),
+      win AS (
+        SELECT
+          dsc.canonical_id,
+          AVG(dsc.daily_gain) FILTER (
+            WHERE dsc.recorded_date > (SELECT d FROM anchor) - INTERVAL '4 days') AS recent_avg,
+          COUNT(*) FILTER (
+            WHERE dsc.recorded_date > (SELECT d FROM anchor) - INTERVAL '4 days') AS recent_n,
+          AVG(dsc.daily_gain) FILTER (
+            WHERE dsc.recorded_date <= (SELECT d FROM anchor) - INTERVAL '4 days'
+              AND dsc.recorded_date >  (SELECT d FROM anchor) - INTERVAL '25 days') AS base_avg,
+          COUNT(*) FILTER (
+            WHERE dsc.recorded_date <= (SELECT d FROM anchor) - INTERVAL '4 days'
+              AND dsc.recorded_date >  (SELECT d FROM anchor) - INTERVAL '25 days') AS base_n,
+          MAX(dsc.cumulative) AS cumulative
+        FROM daily_streams_canonical dsc
+        WHERE dsc.recorded_date > (SELECT d FROM anchor) - INTERVAL '25 days'
+        GROUP BY dsc.canonical_id
+      )
+      SELECT
+        s.id,
+        s.title,
+        s.is_featured,
+        a.title AS album_title,
+        a.image_url AS album_cover_url,
+        win.cumulative::bigint AS cumulative,
+        ROUND(win.recent_avg)::bigint AS recent_avg,
+        ROUND(win.base_avg)::bigint AS base_avg,
+        ROUND((win.recent_avg / win.base_avg - 1) * 100)::int AS lift_pct
+      FROM win
+      JOIN songs s ON s.id = win.canonical_id
+      LEFT JOIN albums a ON s.album_id = a.id
+      WHERE s.canonical_id IS NULL
+        AND ${artistBucketMatchSQL('s', 'a')}
+        AND s.id NOT IN (${hiddenTrackIdsSql()})
+        AND win.recent_n >= 2
+        AND win.base_n >= 3
+        AND win.base_avg >= ${TREND_MIN_BASE}
+        AND win.recent_avg >= ${TREND_MIN_RECENT}
+        AND win.recent_avg >= win.base_avg * ${TREND_LIFT}
+      ORDER BY (win.recent_avg / win.base_avg) DESC
+      LIMIT 12;
+    `;
+    const result = await dbQuery(query, [artistUri]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Fetch trending error:', err);
+    res.status(500).json({ error: 'Failed to load trending songs.' });
+  }
+});
+
 app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
