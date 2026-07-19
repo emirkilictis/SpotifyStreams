@@ -3162,9 +3162,21 @@ function deriveThemeFromAccent(hex) {
   const toHex = n => n.toString(16).padStart(2, '0');
   // Background tint: dark version of accent for the hero gradient. Bumped
   // 0.18 -> 0.24 — the cover-extracted save-card background read a shade too dark.
-  const tr = Math.min(255, Math.round(r * 0.24));
-  const tg = Math.min(255, Math.round(g * 0.24));
-  const tb = Math.min(255, Math.round(b * 0.24));
+  let tr = Math.min(255, Math.round(r * 0.24));
+  let tg = Math.min(255, Math.round(g * 0.24));
+  let tb = Math.min(255, Math.round(b * 0.24));
+  // Perceptual floor: a flat 0.24 scale leaves BLUE tints far darker to the eye
+  // than warm ones (blue's luma weight is 0.07 vs 0.72 for green), so blue-cover
+  // cards (Justified, 20/20) read murky while warm covers (FS/LS) glow. Lift only
+  // tints below the target luma — warm covers already clear it and stay untouched.
+  const TINT_TARGET_LUMA = 40;
+  const luma = 0.2126 * tr + 0.7152 * tg + 0.0722 * tb;
+  if (luma > 0 && luma < TINT_TARGET_LUMA) {
+    const s = TINT_TARGET_LUMA / luma;
+    tr = Math.min(255, Math.round(tr * s));
+    tg = Math.min(255, Math.round(tg * s));
+    tb = Math.min(255, Math.round(tb * s));
+  }
   return {
     accent:      hex,
     accentHover: `#${toHex(dr)}${toHex(dg)}${toHex(db)}`,
