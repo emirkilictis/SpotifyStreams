@@ -875,27 +875,6 @@ tbody tr.featured-row:hover {
   color: var(--text-muted);
 }
 
-/* ---- Gain pills (shared by the songs table & album rows) -------------------
-   Display-only polish: a rounded ▲/▼ pill for daily gains, plus tabular-nums to
-   keep the big numbers column-aligned. */
-.gain-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-family: 'Outfit', sans-serif;
-  font-weight: 600;
-  font-size: 0.82rem;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.gain-pill.up   { color: var(--gain-green); background: rgba(30, 215, 96, 0.10); border: 1px solid rgba(30, 215, 96, 0.22); }
-.gain-pill.down { color: #ff6b6b;           background: rgba(239, 68, 68, 0.10); border: 1px solid rgba(239, 68, 68, 0.22); }
-.gain-pill.flat { color: var(--text-muted); background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06); }
-.gain-pill .arrow { font-size: 0.62rem; opacity: 0.9; }
-
 /* Column-align the big numbers in the songs table + carry a hover accent bar. */
 .streams-count { font-variant-numeric: tabular-nums; }
 #songs-table tbody tr:hover td { background: rgba(30, 215, 96, 0.045); }
@@ -1633,9 +1612,6 @@ tbody tr.featured-row:hover {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-
-/* Keep the daily pill from stretching the stat column; align it to the right. */
-.album-row-stat .gain-pill { align-self: flex-end; }
 
 /* Prevent background scroll while any modal is open. */
 body.modal-open {
