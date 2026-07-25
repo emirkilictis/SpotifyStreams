@@ -445,7 +445,9 @@
               <tr>
                 <th>#</th>
                 <th>Title</th>
-                <th>Duration</th>
+                <!-- .col-duration is stripped out of the Save Card capture (see
+                     downloadModalAsImage's onclone) — it stays in the live modal. -->
+                <th class="col-duration">Duration</th>
                 <th>Total Streams</th>
                 <th>Daily Streams</th>
                 <th>Trend</th>

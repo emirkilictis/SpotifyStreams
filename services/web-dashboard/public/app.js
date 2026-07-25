@@ -1001,7 +1001,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
           <tr>
             <td><strong>${idx + 1}</strong></td>
             <td><span class="song-title song-link" onclick="openSongById('${s.id}')">${s.title}</span></td>
-            <td>${formatDuration(s.duration_ms)}</td>
+            <td class="col-duration">${formatDuration(s.duration_ms)}</td>
             <td><span class="streams-count">${formatNumber(s.cumulative)}</span></td>
             <td>${gainHtml}</td>
             <td>${trendHtml}</td>
@@ -1333,6 +1333,11 @@ async function downloadModalAsImage() {
             clonedCard.style.setProperty('background', '#070b11', 'important');
           }
         }
+
+        // Drop the Duration column from the shared image — track lengths are
+        // noise on a stream-count card and just steal width from the numbers
+        // people actually share. It stays in the live modal.
+        clonedDoc.querySelectorAll('.modal-table .col-duration').forEach(cell => cell.remove());
 
         // Force desktop-level sizes inside the cloned modal header for capture
         const clonedCover = clonedDoc.getElementById('modal-album-cover');
