@@ -807,7 +807,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
 // weekly-cadence wobble on small songs from flooding the list.
 // All three are env-tunable on Render (no code change) so the section's
 // sensitivity can be dialled live: lower TREND_LIFT for a busier strip.
-const TREND_LIFT = Number(process.env.TREND_LIFT || 1.3);            // recent must be >= 30% over the song's own 3-week baseline
+const TREND_LIFT = Number(process.env.TREND_LIFT || 1.2);            // recent must be >= 20% over the song's own 3-week baseline
 const TREND_MIN_BASE = Number(process.env.TREND_MIN_BASE || 25000);      // baseline must be a real >=25k/day song (kills tiny→tiny % spikes)
 const TREND_MIN_RECENT = Number(process.env.TREND_MIN_RECENT || 50000);    // recent must be a real >=50k/day surge
 app.get('/api/trending', requireAuth, validateArtistAccess, async (req, res) => {
