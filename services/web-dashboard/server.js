@@ -805,9 +805,18 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
 // when recent >= baseline * TREND_LIFT AND it clears absolute floors — the floors
 // stop a near-dead track (tiny→tiny) from reading as a giant % spike, and stop
 // weekly-cadence wobble on small songs from flooding the list.
+//
+// The lift is measured RELATIVE TO THE ARTIST'S OWN CATALOGUE-WIDE lift in the
+// same window. When a whole catalogue rises ~10% (playlist push, a comeback,
+// seasonal bump) every song clears a fixed +20% bar on noise alone and the strip
+// fills with passengers, burying the one song that actually broke out. Dividing
+// by the artist's overall lift keeps only songs outrunning their own artist.
+// A FALLING catalogue is clamped to 1.0 — a decline must never LOWER the bar,
+// or "least-declining song" would read as trending.
+//
 // All three are env-tunable on Render (no code change) so the section's
 // sensitivity can be dialled live: lower TREND_LIFT for a busier strip.
-const TREND_LIFT = Number(process.env.TREND_LIFT || 1.2);            // recent must be >= 20% over the song's own 3-week baseline
+const TREND_LIFT = Number(process.env.TREND_LIFT || 1.2);            // recent must be >= 20% over the song's own baseline, on top of the artist's own lift
 const TREND_MIN_BASE = Number(process.env.TREND_MIN_BASE || 25000);      // baseline must be a real >=25k/day song (kills tiny→tiny % spikes)
 const TREND_MIN_RECENT = Number(process.env.TREND_MIN_RECENT || 50000);    // recent must be a real >=50k/day surge
 app.get('/api/trending', requireAuth, validateArtistAccess, async (req, res) => {
@@ -833,29 +842,49 @@ app.get('/api/trending', requireAuth, validateArtistAccess, async (req, res) => 
         FROM daily_streams_canonical dsc
         WHERE dsc.recorded_date > (SELECT d FROM anchor) - INTERVAL '25 days'
         GROUP BY dsc.canonical_id
+      ),
+      -- Everything in this artist's bucket that has enough history to compare.
+      scoped AS (
+        SELECT
+          s.id, s.title, s.is_featured,
+          a.title AS album_title,
+          a.image_url AS album_cover_url,
+          win.cumulative, win.recent_avg, win.base_avg
+        FROM win
+        JOIN songs s ON s.id = win.canonical_id
+        LEFT JOIN albums a ON s.album_id = a.id
+        WHERE s.canonical_id IS NULL
+          AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})
+          AND win.recent_n >= 2
+          AND win.base_n >= 3
+          AND win.base_avg > 0
+      ),
+      -- How much the WHOLE catalogue moved over the same two windows. Stream-
+      -- weighted (SUM/SUM, not AVG of ratios) so the artist's real listening
+      -- shift drives it instead of long-tail percentage noise.
+      artist_lift AS (
+        SELECT GREATEST(COALESCE(SUM(recent_avg) / NULLIF(SUM(base_avg), 0), 1), 1) AS mult
+        FROM scoped
       )
       SELECT
-        s.id,
-        s.title,
-        s.is_featured,
-        a.title AS album_title,
-        a.image_url AS album_cover_url,
-        win.cumulative::bigint AS cumulative,
-        ROUND(win.recent_avg)::bigint AS recent_avg,
-        ROUND(win.base_avg)::bigint AS base_avg,
-        ROUND((win.recent_avg / win.base_avg - 1) * 100)::int AS lift_pct
-      FROM win
-      JOIN songs s ON s.id = win.canonical_id
-      LEFT JOIN albums a ON s.album_id = a.id
-      WHERE s.canonical_id IS NULL
-        AND ${artistBucketMatchSQL('s', 'a')}
-        AND s.id NOT IN (${hiddenTrackIdsSql()})
-        AND win.recent_n >= 2
-        AND win.base_n >= 3
-        AND win.base_avg >= ${TREND_MIN_BASE}
-        AND win.recent_avg >= ${TREND_MIN_RECENT}
-        AND win.recent_avg >= win.base_avg * ${TREND_LIFT}
-      ORDER BY (win.recent_avg / win.base_avg) DESC
+        scoped.id,
+        scoped.title,
+        scoped.is_featured,
+        scoped.album_title,
+        scoped.album_cover_url,
+        scoped.cumulative::bigint AS cumulative,
+        ROUND(scoped.recent_avg)::bigint AS recent_avg,
+        ROUND(scoped.base_avg)::bigint AS base_avg,
+        -- lift_pct stays the song's RAW gain over its own baseline (what the
+        -- card shows); artist_lift_pct is the catalogue move it had to beat.
+        ROUND((scoped.recent_avg / scoped.base_avg - 1) * 100)::int AS lift_pct,
+        ROUND((artist_lift.mult - 1) * 100)::int AS artist_lift_pct
+      FROM scoped CROSS JOIN artist_lift
+      WHERE scoped.base_avg >= ${TREND_MIN_BASE}
+        AND scoped.recent_avg >= ${TREND_MIN_RECENT}
+        AND scoped.recent_avg >= scoped.base_avg * artist_lift.mult * ${TREND_LIFT}
+      ORDER BY (scoped.recent_avg / scoped.base_avg) DESC
       LIMIT 12;
     `;
     const result = await dbQuery(query, [artistUri]);
