@@ -1745,6 +1745,7 @@
         if (s.orphan_groups) alerts.push(`${s.orphan_groups} orphan leak(s)`);
         if (s.duplicate_groups) alerts.push(`${s.duplicate_groups} unmerged dup(s)`);
         if (s.frozen_songs) alerts.push(`${s.frozen_songs} frozen song(s)`);
+        if (s.kworb_gap_artists) alerts.push(`${s.kworb_gap_artists} artist(s) below kworb`);
         const ok = alerts.length === 0;
         const dot = s.scraper_status === 'error' ? 'error'
           : (s.scraper_status === 'scraping' || s.scraper_status === 'deduping') ? 'active' : 'idle';
@@ -1765,6 +1766,7 @@
             <span class="hchip ${s.orphan_groups ? 'bad' : ''}">${s.orphan_groups} orphans</span>
             <span class="hchip ${s.duplicate_groups ? 'bad' : ''}">${s.duplicate_groups} dups</span>
             <span class="hchip ${s.frozen_songs ? 'bad' : ''}">${s.frozen_songs || 0} frozen songs</span>
+            <span class="hchip ${s.kworb_gap_artists ? 'bad' : ''}">${s.kworb_gap_artists || 0} below kworb</span>
           </div>
           ${alerts.length ? `<div class="hsum-alerts">${alerts.map(a => `<span class="halert">${esc(a)}</span>`).join('')}</div>` : ''}
         </div>`;
@@ -1816,9 +1818,24 @@
       listEl.innerHTML = ranked.map(a => {
         const flags = (a.flags || []).map(f => `<span class="hr-flag">${f}</span>`).join(' ');
         const staleClass = a.flags && a.flags.includes('frozen') ? 'flagged' : '';
+        // kworb line: the reconciler's last verdict for this artist. A positive
+        // gap is what we're short by; "+" means we're ahead (longer tail / fresher
+        // snapshot), which is normal and not a problem.
+        const k = a.kworb;
+        let kLine = '';
+        if (k && !k.error) {
+          const gap = Number(k.gap) || 0;
+          const ahead = gap < 0;
+          // fmtM is the signed daily-delta formatter — using it here would print
+          // "−+873,567". fmtCount is the sign-less compact one.
+          kLine = ` · kworb ${fmtB(k.kworb_total)} (${ahead ? '+' : '−'}${fmtCount(Math.abs(gap))}${k.gap_pct ? ` · ${Math.abs(k.gap_pct)}%` : ''})`
+                + (k.unresolved_count ? ` · ${k.unresolved_count} manual` : '');
+        } else if (k && k.error) {
+          kLine = ' · kworb check failed';
+        }
         return `<div class="health-row ${a.active ? '' : 'inactive'} ${staleClass}">
           <div class="hr-name">${esc(a.name)} ${flags}
-            <span class="hr-sub">${a.active ? 'last ' + (a.last_update || '—') + (a.days_stale ? ` · ${a.days_stale}d ago` : '') : 'inactive'}</span>
+            <span class="hr-sub">${a.active ? 'last ' + (a.last_update || '—') + (a.days_stale ? ` · ${a.days_stale}d ago` : '') : 'inactive'}${esc(kLine)}</span>
           </div>
           <div class="hr-metric"><span class="v">${fmtB(a.total)}</span><span class="l">streams</span></div>
           <div class="hr-metric opt"><span class="v">${a.songs}</span><span class="l">songs</span></div>

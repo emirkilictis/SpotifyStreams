@@ -248,7 +248,16 @@ let allArtistsCache = ARTIST_ROSTER_FALLBACK;
 let extraArtistSongsCache = {};
 async function refreshExtraArtistSongsCache() {
   try {
-    const res = await dbQuery("SELECT artist_id, song_id FROM extra_artist_songs");
+    // Resolve each pin to its CANONICAL HEAD. Pins are stored as whatever track
+    // id was pinned, but every bucket query filters `canonical_id IS NULL`, so a
+    // pin that dedup later turned into an alias would silently stop counting —
+    // the song just quietly vanishes from that artist's page. COALESCE keeps
+    // head pins byte-identical to before and repairs alias ones on the fly.
+    const res = await dbQuery(
+      `SELECT e.artist_id, COALESCE(s.canonical_id, e.song_id) AS song_id
+         FROM extra_artist_songs e
+         LEFT JOIN songs s ON s.id = e.song_id`
+    );
     const temp = {};
     for (const row of res.rows) {
       if (!temp[row.artist_id]) temp[row.artist_id] = [];
@@ -2036,6 +2045,24 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
     const globalMax = globalMaxRes.rows[0]?.d || null;
 
     const roster = allArtistsCache;
+
+    // Last kworb reconciliation per artist (written by reconcile-kworb.js). This
+    // is what turns "why is this new artist below kworb?" from a thing you notice
+    // by eye, days later, into a flag on the Health tab.
+    const kworbByArtist = new Map();
+    try {
+      const kr = await dbQuery(
+        `SELECT artist_id, checked_at, kworb_total, our_total, gap,
+                COALESCE(repaired_streams, 0) AS repaired_streams,
+                linked_count, pinned_count,
+                COALESCE(jsonb_array_length(unresolved), 0) AS unresolved_count, error
+         FROM kworb_audit`
+      );
+      for (const row of kr.rows) kworbByArtist.set(row.artist_id, row);
+    } catch (e) {
+      console.warn('[health] kworb_audit unavailable:', e.code || e.message);
+    }
+
     const perArtist = await Promise.all(roster.map(async (a) => {
       const uri = `spotify:artist:${a.artist_id}`;
       const r = await dbQuery(
@@ -2056,10 +2083,37 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
         ? Math.round((new Date(globalMax) - new Date(row.last_update)) / 86400000) : null;
       if (a.active && daysStale != null && daysStale >= 2) flags.push('frozen');
       if (a.active && Number(row.songs) === 0) flags.push('no-songs');
+
+      // kworb shortfall. Only a MATERIAL one is worth a flag: a residual under
+      // ~0.5% is the normal cost of edition tracks kworb folds into parents and
+      // of snapshot timing, not a missing catalogue. A NEGATIVE gap (we're above
+      // kworb) is fine — we hold a longer tail and a fresher snapshot.
+      const k = kworbByArtist.get(a.artist_id) || null;
+      let kworb = null;
+      if (k) {
+        const kTotal = Number(k.kworb_total) || 0;
+        // A pass measures the gap BEFORE repairing it, so flag on what's left
+        // after the repairs it just made — otherwise an artist we fully fixed
+        // keeps showing their old shortfall until the next check a day later.
+        const residual = (Number(k.gap) || 0) - (Number(k.repaired_streams) || 0);
+        const residualPct = kTotal > 0 ? (residual / kTotal) * 100 : 0;
+        kworb = {
+          checked_at: k.checked_at, kworb_total: k.kworb_total, our_total: k.our_total,
+          gap: residual, measured_gap: k.gap, repaired_streams: k.repaired_streams,
+          gap_pct: Math.round(residualPct * 100) / 100,
+          linked_count: k.linked_count, pinned_count: k.pinned_count,
+          unresolved_count: k.unresolved_count, error: k.error,
+        };
+        if (a.active && residual > 10e6 && residualPct >= 0.5) flags.push('kworb-gap');
+      }
+      // A never-checked artist deliberately gets NO flag: reconcile-kworb.js does
+      // never-checked ones first, so it clears within a day — flagging the whole
+      // roster on day one would just drown the rows that really need attention.
+
       return {
         artist_id: a.artist_id, name: a.name, active: a.active,
         total: row.total, songs: row.songs, daily: row.daily,
-        last_update: row.last_update, days_stale: daysStale, flags,
+        last_update: row.last_update, days_stale: daysStale, flags, kworb,
       };
     }));
 
@@ -2141,6 +2195,7 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
       orphan_groups: orphans.length,
       duplicate_groups: dupGroups,
       frozen_songs: frozenSongs.length,
+      kworb_gap_artists: perArtist.filter(a => a.flags.includes('kworb-gap')).length,
       stale: daysSinceUpdate != null && daysSinceUpdate >= 2,
     };
 
@@ -3223,7 +3278,17 @@ app.get('*', requireAuth, (req, res) => {
 
 app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
-  await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache()]);
+  const refreshRosterCaches = () => Promise.all([
+    refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(),
+    refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(),
+  ]);
+  await refreshRosterCaches();
+  // These caches used to refresh ONLY at boot and on writes made through the
+  // admin API. reconcile-kworb.js runs in GitHub Actions and writes
+  // extra_artist_songs straight to the DB, so without a periodic reload an
+  // auto-linked collab would stay invisible here until the next deploy — the
+  // repair would look like it silently did nothing. The queries are tiny.
+  setInterval(() => { refreshRosterCaches().catch(() => {}); }, 10 * 60 * 1000).unref();
   // OG preview stats depend on the roster cache above being populated first.
   refreshOgStatsCache();
   setInterval(refreshOgStatsCache, 30 * 60 * 1000).unref();

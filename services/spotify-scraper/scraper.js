@@ -536,6 +536,39 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
   }
 
 
+  // DB-driven album pins (migration 020) — the generic, self-service version of
+  // every hardcoded `extraAlbums` block above. reconcile-kworb.js writes here
+  // whenever it finds a kworb track we never scraped because its LEAD artist
+  // isn't tracked (so it never shows up in this artist's appears-on). Adding a
+  // gap-closing album no longer needs a code edit or a deploy: the row lands in
+  // extra_scrape_albums and the next run of this artist picks it up. As with the
+  // hardcoded pins, processAlbum's track-level filter keeps only this artist's
+  // tracks off a foreign album.
+  try {
+    const pinnedRes = await client.query(
+      `SELECT album_id AS id, title, release_date, is_featured
+         FROM extra_scrape_albums WHERE artist_id = $1`,
+      [artistId]
+    );
+    let added = 0;
+    for (const pin of pinnedRes.rows) {
+      if (albumMap.has(pin.id)) continue;
+      const album = {
+        id: pin.id,
+        title: pin.title || pin.id,
+        release_date: pin.release_date,
+        is_featured: pin.is_featured ?? true,
+      };
+      await upsertAlbum(client, album);
+      albumMap.set(album.id, album);
+      added++;
+    }
+    if (added) console.log(`[scraper] ${artistId}: +${added} pinned album(s) from extra_scrape_albums.`);
+  } catch (err) {
+    // A missing table (migration not applied yet) must not break the scrape.
+    console.warn(`[scraper] extra_scrape_albums lookup skipped: ${err.message}`);
+  }
+
   let albumsToScrape = Array.from(albumMap.values());
 
   // Album-only artists track ONLY their own discography — drop every featured/

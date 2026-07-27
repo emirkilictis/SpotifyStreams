@@ -62,6 +62,34 @@ jobs:
           echo "Running: node scraper.js $ARGS (force=$FORCE_SCRAPE)"
           node scraper.js $ARGS
 
+      # Self-healing kworb reconciliation. A newly added artist virtually always
+      # sits below their kworb page — a co-tracked collab lands in the OTHER
+      # artist's bucket, and a guest feature whose lead we don't track never
+      # shows up in appears-on so it is never scraped at all. Both used to need a
+      # manual audit + a code edit; this step now finds and repairs them from
+      # data (kworb is only a discovery hint — every number still comes from
+      # Spotify, and nothing is pinned unless Spotify credits the artist).
+      #
+      # It self-paces: never-checked artists first (i.e. the one you just added),
+      # then a ~20h per-artist cooldown, a few artists per run, and its own time
+      # budget — so the hourly trigger amortises the whole roster over a day
+      # without ever threatening the scrape job's timeout. Non-fatal by design:
+      # a kworb outage must never fail the run that already captured the data.
+      - name: Reconcile against kworb
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 10
+        working-directory: services/spotify-scraper
+        env:
+          SP_DC:        ${{ secrets.SP_DC }}
+          SP_KEY:       ${{ secrets.SP_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SCRAPE_ARTISTS: ${{ inputs.artists }}
+        run: |
+          ARGS=""
+          if [ -n "$SCRAPE_ARTISTS" ]; then ARGS="--artists=$SCRAPE_ARTISTS --force"; fi
+          node reconcile-kworb.js $ARGS
+
       - name: Notify on failure
         if: failure()
         run: |
