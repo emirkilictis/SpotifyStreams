@@ -2029,13 +2029,15 @@ body.modal-open {
   }
   #songs-table th:nth-child(1),
   #songs-table td:nth-child(1) { width: 26px; }
+  /* Tight but sufficient for "2,088,519,692" / "+583,265" at this font size —
+     every pixel saved here goes to the title, which was clipping at ~112px. */
   #songs-table th:nth-child(4),
-  #songs-table td:nth-child(4) { width: 104px; }
+  #songs-table td:nth-child(4) { width: 92px; }
   #songs-table th:nth-child(5),
-  #songs-table td:nth-child(5) { width: 78px; }
+  #songs-table td:nth-child(5) { width: 68px; }
   #songs-table td,
   #songs-table th {
-    padding: 5px 6px;
+    padding: 5px 4px;
   }
   /* Title on one line (ellipsis-clipped, not wrapped to 2-3 lines — the main
      height cost) with the badge stacked tight underneath; gives the title the
@@ -3145,6 +3147,20 @@ body.modal-open {
   .album-row {
     padding: 9px 11px;
     gap: 11px;
+    /* Two un-shrinkable stat blocks used to eat the row, squeezing the title
+       down to ~80px ("FutureSex/LoveSounds…" rendered as "F…"). Let them wrap
+       onto a second line so the title gets everything beside the cover. */
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .album-row-info {
+    flex: 1 1 0;
+  }
+
+  .album-row-stats {
+    flex: 1 1 100%;
+    justify-content: flex-end;
   }
 
   .album-row-cover {
@@ -3372,7 +3388,9 @@ select.tc-input { cursor: pointer; }
   top: calc(100% + 6px);
   left: 0;
   right: 0;
-  z-index: 30;
+  /* Above the feedback FAB (900) — the dropdown opens right where the FAB sits
+     on a phone, and it was clipping the stream count on the matched rows. */
+  z-index: 950;
   max-height: 300px;
   overflow-y: auto;
   background: #14161c;
@@ -3780,8 +3798,18 @@ select.tc-input { cursor: pointer; }
   cursor: pointer;
   z-index: 900;
   box-shadow: 0 8px 24px rgba(30, 215, 96, 0.4), 0 2px 8px rgba(0, 0, 0, 0.4);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  transition: transform 0.22s ease, box-shadow 0.18s ease, background 0.18s ease,
+              opacity 0.22s ease;
 }
+/* Hidden while the reader scrolls down through a list — a fixed button in the
+   bottom-right otherwise sits permanently on top of the DAILY column. Scrolling
+   up, or returning to the top, brings it straight back. */
+.feedback-fab.fab-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(90px) scale(0.9);
+}
+
 .feedback-fab:hover {
   transform: translateY(-3px) scale(1.05);
   background: var(--accent-green-hover);

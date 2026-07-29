@@ -2181,8 +2181,11 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
       console.warn('[health] frozen-song scan failed:', e.code || e.message);
     }
 
+    // Whole calendar days elapsed, not the rounded fractional distance: with
+    // Math.round a snapshot from yesterday reads "2 days" from midday onwards,
+    // which makes a healthy scraper look a day behind.
     const daysSinceUpdate = globalMax
-      ? Math.round((Date.now() - new Date(globalMax + 'T00:00:00Z')) / 86400000) : null;
+      ? Math.floor((Date.now() - new Date(globalMax + 'T00:00:00Z')) / 86400000) : null;
     const summary = {
       global_last_update: globalMax,
       days_since_update: daysSinceUpdate,

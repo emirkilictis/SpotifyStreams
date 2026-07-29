@@ -1000,7 +1000,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
         return `
           <tr>
             <td><strong>${idx + 1}</strong></td>
-            <td><span class="song-title song-link" onclick="openSongById('${s.id}')">${s.title}</span></td>
+            <td><span class="song-title song-link" onclick="openSongById('${s.id}')">${escHtml(s.title)}</span></td>
             <td class="col-duration">${formatDuration(s.duration_ms)}</td>
             <td><span class="streams-count">${formatNumber(s.cumulative)}</span></td>
             <td>${gainHtml}</td>
@@ -3179,6 +3179,9 @@ function renderPickerRoster() {
         card.dataset.artist = a.artist_id;
         card.dataset.realName = a.name;
         card.dataset.name = locked ? 'Locked Artist' : a.name;
+        // Without this the card is an unlabelled <button> — screen readers and
+        // keyboard users get "button" and nothing else.
+        card.setAttribute('aria-label', locked ? 'Locked artist' : a.name);
 
         if (locked) {
           card.innerHTML = `
@@ -3198,11 +3201,11 @@ function renderPickerRoster() {
         } else {
           card.innerHTML = `
             <div class="picker-card-img-wrap">
-              <img src="${a.image_url || '/images/default.jpg'}" alt="${a.name}" class="picker-card-img" loading="eager">
+              <img src="${escHtml(a.image_url || '/images/default.jpg')}" alt="${escHtml(a.name)}" class="picker-card-img" loading="eager">
               <div class="picker-card-overlay"></div>
             </div>
             <div class="picker-card-info">
-              <h3>${a.name}</h3>
+              <h3>${escHtml(a.name)}</h3>
             </div>
           `;
         }
@@ -3470,6 +3473,31 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   fab.addEventListener('click', open);
   closeBtn.addEventListener('click', close);
+
+  // On phones the button is pinned over the right-hand DAILY column, so it
+  // permanently covers one row's number. Hide it while the reader is scrolling
+  // DOWN a list and bring it back the moment they scroll up or reach the top —
+  // the desktop layout has room to spare, so leave it alone there.
+  const smallScreen = window.matchMedia('(max-width: 768px)');
+  let lastScrollY = window.scrollY;
+  let scrollTicking = false;
+  const syncFabVisibility = () => {
+    scrollTicking = false;
+    if (!smallScreen.matches) { fab.classList.remove('fab-hidden'); return; }
+    const y = window.scrollY;
+    const delta = y - lastScrollY;
+    // Ignore sub-pixel jitter and rubber-band overscroll at the very top.
+    if (Math.abs(delta) < 6) return;
+    lastScrollY = y;
+    fab.classList.toggle('fab-hidden', delta > 0 && y > 120);
+  };
+  window.addEventListener('scroll', () => {
+    if (scrollTicking) return;
+    scrollTicking = true;
+    requestAnimationFrame(syncFabVisibility);
+  }, { passive: true });
+  // A modal opening/closing changes the scroll context — never leave it stranded.
+  smallScreen.addEventListener('change', () => fab.classList.remove('fab-hidden'));
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
