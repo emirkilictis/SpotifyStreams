@@ -1639,8 +1639,8 @@ function cleanTrackTitle(title) {
 function cleanAlbumTitle(title) {
   if (!title) return '';
   let clean = title
-    .replace(/\s*\((?:Deluxe Edition|Deluxe|Expanded Edition|Expanded|Special Edition|Special)\)/gi, '')
-    .replace(/\s*-\s*(?:Deluxe Edition|Deluxe|Expanded Edition|Expanded|Special Edition|Special)/gi, '');
+    .replace(/\s*\((?:Deluxe|Expanded|Special)(?:\s+(?:Edition|Version))?\)/gi, '')
+    .replace(/\s*-\s*(?:Deluxe|Expanded|Special)(?:\s+(?:Edition|Version))?\b/gi, '');
   return clean.trim();
 }
 
@@ -1894,6 +1894,17 @@ const LISA_CARD_ROWS = [
   { key: 'born-again-v',     label: 'Born Again(versions)',    group: 'other' },
 ];
 
+// Titles as they read on a card: cleanTrackTitle drops the credits, this also
+// drops soundtrack tags — CAN'T STOP THE FEELING! carries a 38-character
+// "(from DreamWorks Animation's ...)" tail that ellipsises into noise.
+function statsCardLabel(title) {
+  return cleanTrackTitle(title)
+    .replace(/\s*[\(\[]\s*from\s[^)\]]*[\)\]]/gi, '')
+    .replace(/\s*-\s*from\s+["\u201c].*$/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 // Order matters: every variant test has to come before its parent title.
 function lisaCardKey(title) {
   const t = String(title || '').toLowerCase();
@@ -1923,8 +1934,11 @@ function lisaCardKey(title) {
   return null;
 }
 
-// Space-separated thousands, matching the layout this card reproduces.
-const lcNum = (n) => Number(n || 0).toLocaleString('en-US').replace(/,/g, ' ');
+// Space-separated thousands, matching the layout these cards reproduce — with a
+// NO-BREAK space (U+00A0). The thin space it used before is breakable, so a
+// long total wrapped and left a lone digit on the next line; U+202F fixes the
+// break but Outfit has no glyph for it and the groups collapse together.
+const lcNum = (n) => Number(n || 0).toLocaleString('en-US').replace(/,/g, ' ');
 
 function lcDelta(change, prev) {
   if (!prev) return { txt: '—', pct: '—', cls: 'lc-flat' };
@@ -1991,7 +2005,7 @@ function renderJtCard() {
   // --- Top tracks by total streams ---
   const tracks = [...allSongs]
     .map((sg) => ({
-      label: cleanTrackTitle(sg.title) || sg.title,
+      label: statsCardLabel(sg.title) || sg.title,
       cum: Number(sg.cumulative || 0),
       daily: Number(sg.daily_gain || 0),
       prev: Number(sg.prev_daily_gain || 0),
@@ -2087,7 +2101,7 @@ function renderLisaCard() {
     if (!key) {
       // Never silently drop a track — an unmapped one gets its own row so the
       // OVERALL line still equals her real total.
-      extras.push({ label: cleanTrackTitle(song.title), cum, daily, prev, group: 'other' });
+      extras.push({ label: statsCardLabel(song.title), cum, daily, prev, group: 'other' });
       continue;
     }
     const b = buckets.get(key) || { cum: 0, daily: 0, prev: 0 };

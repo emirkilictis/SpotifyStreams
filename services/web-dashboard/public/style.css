@@ -4845,7 +4845,8 @@ select.tc-input { cursor: pointer; }
   margin-bottom: 9px;
 }
 .lc-date { font-size: 1rem; font-weight: 600; margin-bottom: 12px; }
-.lc-era { font-size: 1rem; font-weight: 600; line-height: 1.6; }
+/* nowrap as a second guard: the totals here must never break mid-number. */
+.lc-era { font-size: 1rem; font-weight: 600; line-height: 1.6; white-space: nowrap; }
 .theme-jt .lc-era { color: #c9f7dc; }
 
 .lc-table {
@@ -4884,9 +4885,13 @@ select.tc-input { cursor: pointer; }
 }
 
 .lc-table col.lc-c-song { width: 34%; }
-/* His track titles are long ("CAN'T STOP THE FEELING! (from …)"), so give the
-   title column the room and take it back off the two narrow delta columns. */
+/* His titles are the longest on any card, so give that column the room and take
+   it back off the two narrow delta columns. Left-aligned too: a centred title
+   that ellipsises reads as damage, a left-aligned one reads as a list. */
 .theme-jt .lc-table col.lc-c-song { width: 42%; }
+.theme-jt .lc-table tbody td.lc-song { text-align: left; padding-left: 12px; }
+.theme-jt .lc-table tbody tr.lc-group td.lc-song { text-align: center; padding-left: 8px; }
+.theme-jt .lc-table tbody tr.lc-band td { text-align: center; }
 .theme-jt .lc-table col.lc-c-overall { width: 20%; }
 .theme-jt .lc-table col.lc-c-daily { width: 15%; }
 .theme-jt .lc-table col.lc-c-delta { width: 13%; }
