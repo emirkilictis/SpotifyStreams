@@ -388,8 +388,8 @@ async function fetchData() {
     renderMilestones();
     // If the X post generator is open it was built before these arrived.
     if (window._refreshTwitterPreview) window._refreshTwitterPreview();
-    // Same for the LISA card, which is a pure snapshot of allSongs.
-    if (lisaCardModal && !lisaCardModal.classList.contains('hidden')) renderLisaCard();
+    // Same for the stats card, which is a pure snapshot of the loaded data.
+    if (statsCardModal && !statsCardModal.classList.contains('hidden')) openStatsCard();
     fetchTrending(artist, headers);
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
@@ -1938,25 +1938,139 @@ function lcDelta(change, prev) {
   };
 }
 
-const lisaCardModal = document.getElementById('lisa-card-modal');
-const lisaCardEl = document.getElementById('lisa-card');
-const lisaCardBtn = document.getElementById('lisa-card-btn');
-const lisaCardCloseBtn = document.getElementById('lisa-card-close-btn');
-const lisaCardDownloadBtn = document.getElementById('lisa-card-download-btn');
+// ===== Justin Timberlake card: albums + top tracks =====
+// Same poster shape as LISA's, different cut of the data: every album he has,
+// then his 15 biggest tracks, then the catalogue total. Green-on-navy to match
+// his dashboard theme.
+const JT_ARTIST_ID = '31TPClRtHm23RisEBtV3X7';
+const JT_TOP_TRACKS = 15;
+// Built lazily: HERO_IMAGE_VERSION is a const declared further down, so reading
+// it at this point in the file hits the temporal dead zone and kills the whole
+// script before any of the element lookups below it run.
+const jtPhotoUrl = () => `/images/jt.jpg?v=${HERO_IMAGE_VERSION}`;
+
+function renderJtCard() {
+  if (!statsCardEl) return;
+  const songsReady = Array.isArray(allSongs) && allSongs.length > 0;
+  if (!songsReady) {
+    statsCardEl.innerHTML = '<div class="lc-note" style="text-align:center;padding:28px 0;">Still loading his catalogue…</div>';
+    return;
+  }
+
+  const esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const row = (label, r, cls) => {
+    const d = lcDelta(r.daily - r.prev, r.prev);
+    return `<tr${cls ? ` class="${cls}"` : ''}>
+      <td class="lc-song" title="${esc(label)}">${esc(label)}</td>
+      <td>${lcNum(r.cum)}</td>
+      <td>${lcNum(r.daily)}</td>
+      <td class="${d.cls}">${d.txt}</td>
+      <td class="${d.cls}">${d.pct}</td>
+    </tr>`;
+  };
+  const band = (label) => `<tr class="lc-group lc-band"><td class="lc-song" colspan="5">${esc(label)}</td></tr>`;
+
+  let recordedDate = null;
+  for (const song of allSongs) {
+    if (song.recorded_date && (!recordedDate || song.recorded_date > recordedDate)) recordedDate = song.recorded_date;
+  }
+
+  // --- Albums, biggest first ---
+  const albums = (Array.isArray(allAlbums) ? allAlbums : [])
+    .map((a) => ({
+      label: cleanAlbumTitle(a.album_title) || a.album_title,
+      cum: Number(a.total_streams || 0),
+      daily: Number(a.daily_gain || 0),
+      prev: Number(a.prev_daily_gain || 0),
+    }))
+    .filter((a) => a.cum > 0)
+    .sort((a, b) => b.cum - a.cum);
+
+  // --- Top tracks by total streams ---
+  const tracks = [...allSongs]
+    .map((sg) => ({
+      label: cleanTrackTitle(sg.title) || sg.title,
+      cum: Number(sg.cumulative || 0),
+      daily: Number(sg.daily_gain || 0),
+      prev: Number(sg.prev_daily_gain || 0),
+    }))
+    .sort((a, b) => b.cum - a.cum)
+    .slice(0, JT_TOP_TRACKS);
+
+  // --- Catalogue total: every tracked song, not the album sum. Albums overlap
+  // (deluxe editions, compilations), so adding them up would double-count. ---
+  const overall = allSongs.reduce((acc, sg) => {
+    acc.cum += Number(sg.cumulative || 0);
+    acc.daily += Number(sg.daily_gain || 0);
+    acc.prev += Number(sg.prev_daily_gain || 0);
+    return acc;
+  }, { cum: 0, daily: 0, prev: 0 });
+
+  let html = band(`ALBUMS (${albums.length})`);
+  for (const a of albums) html += row(a.label, a);
+  html += band(`TOP ${tracks.length} TRACKS`);
+  for (const t of tracks) html += row(t.label, t);
+  html += row('OVERALL', overall, 'lc-group');
+
+  const dateStr = recordedDate
+    ? parseLocalDate(recordedDate).toLocaleDateString('en-GB').replace(/\//g, '.')
+    : '';
+
+  statsCardEl.innerHTML = `
+    <div class="lc-head">
+      <img class="lc-photo" src="${jtPhotoUrl()}" crossorigin="anonymous" alt="">
+      <div class="lc-head-band">
+        <div class="lc-title">Justin Timberlake Streams On Spotify</div>
+        <div class="lc-date">${dateStr}</div>
+        <div class="lc-era">Total: ${lcNum(overall.cum)}</div>
+        <div class="lc-era">Daily: ${lcNum(overall.daily)}</div>
+        <div class="lc-era">Songs: ${lcNum(allSongs.length)} · Albums: ${lcNum(albums.length)}</div>
+      </div>
+    </div>
+    <table class="lc-table">
+      <colgroup>
+        <col class="lc-c-song"><col class="lc-c-overall"><col class="lc-c-daily">
+        <col class="lc-c-delta"><col class="lc-c-pct">
+      </colgroup>
+      <thead>
+        <tr><th>title</th><th>overall</th><th>Daily</th><th colspan="2">+/-</th></tr>
+      </thead>
+      <tbody>${html}</tbody>
+    </table>
+    <div class="lc-note">Album rows overlap (deluxe editions share tracks) — OVERALL is the catalogue total, not their sum.</div>
+  `;
+}
+
+const statsCardModal = document.getElementById('stats-card-modal');
+const statsCardEl = document.getElementById('stats-card');
+const statsCardBtn = document.getElementById('stats-card-btn');
+const statsCardCloseBtn = document.getElementById('stats-card-close-btn');
+const statsCardDownloadBtn = document.getElementById('stats-card-download-btn');
+
+// Artists that have a hand-built stats card. Each entry supplies the palette
+// class, the flat colour html2canvas paints behind the card, and the renderer.
+// Adding a third artist is one entry plus a render function.
+const STATS_CARD_RENDERERS = {
+  [LISA_ARTIST_ID]: { theme: 'theme-lisa', bg: '#f5d67a', render: renderLisaCard },
+  [JT_ARTIST_ID]:   { theme: 'theme-jt',   bg: '#080c14', render: renderJtCard },
+};
 
 // Called from applyArtistTheme, which every artist-switch path goes through
-// (deep link, picker card, header dropdown) — the button only exists for LISA.
-function syncLisaCardButton(artistId) {
-  if (!lisaCardBtn) return;
+// (deep link, picker card, header dropdown).
+function syncStatsCardButton(artistId) {
+  if (!statsCardBtn) return;
   const id = artistId === undefined ? currentArtist : artistId;
-  lisaCardBtn.classList.toggle('hidden', id !== LISA_ARTIST_ID);
-  if (id !== LISA_ARTIST_ID && lisaCardModal) lisaCardModal.classList.add('hidden');
+  const has = !!STATS_CARD_RENDERERS[id];
+  statsCardBtn.classList.toggle('hidden', !has);
+  if (!has && statsCardModal) statsCardModal.classList.add('hidden');
 }
 
 function renderLisaCard() {
-  if (!lisaCardEl) return;
+  if (!statsCardEl) return;
   if (!Array.isArray(allSongs) || allSongs.length === 0) {
-    lisaCardEl.innerHTML = '<div class="lc-note" style="text-align:center;padding:28px 0;">Still loading her tracks…</div>';
+    statsCardEl.innerHTML = '<div class="lc-note" style="text-align:center;padding:28px 0;">Still loading her tracks…</div>';
     return;
   }
 
@@ -2029,7 +2143,7 @@ function renderLisaCard() {
     ? parseLocalDate(recordedDate).toLocaleDateString('en-GB').replace(/\//g, '.')
     : '';
 
-  lisaCardEl.innerHTML = `
+  statsCardEl.innerHTML = `
     <div class="lc-head">
       <img class="lc-photo" src="${LISA_PHOTO}" crossorigin="anonymous" alt="">
       <div class="lc-head-band">
@@ -2053,51 +2167,62 @@ function renderLisaCard() {
   `;
 }
 
-// The card is a fixed 700px layout; on a phone we scale the whole thing rather
-// than reflow it (see the media query). Recomputed on open and on resize.
-function fitLisaCard() {
-  if (!lisaCardEl || !lisaCardModal || lisaCardModal.classList.contains('hidden')) return;
-  const shell = lisaCardEl.parentElement;
+// These are fixed-width poster layouts; on a narrow screen we scale the whole
+// thing rather than reflow it (see the media query). Recomputed on open/resize.
+function statsCardWidth() {
+  if (!statsCardEl) return 700;
+  const declared = parseFloat(getComputedStyle(statsCardEl).getPropertyValue('--sc-width'));
+  return Number.isFinite(declared) && declared > 0 ? declared : 700;
+}
+
+function fitStatsCard() {
+  if (!statsCardEl || !statsCardModal || statsCardModal.classList.contains('hidden')) return;
+  const shell = statsCardEl.parentElement;
   const avail = shell ? shell.clientWidth : 0;
-  if (avail && avail < 700) {
-    lisaCardEl.style.setProperty('--lc-zoom', String(Math.max(0.3, avail / 700)));
+  const natural = statsCardWidth();
+  if (avail && avail < natural) {
+    statsCardEl.style.setProperty('--lc-zoom', String(Math.max(0.25, avail / natural)));
   } else {
-    lisaCardEl.style.removeProperty('--lc-zoom');
+    statsCardEl.style.removeProperty('--lc-zoom');
   }
 }
 
-function openLisaCard() {
-  if (!lisaCardModal) return;
-  lisaCardModal.classList.remove('hidden');
-  renderLisaCard();
-  fitLisaCard();
+function openStatsCard() {
+  const conf = STATS_CARD_RENDERERS[currentArtist];
+  if (!statsCardModal || !conf) return;
+  // Palette is per artist; drop whatever the previous one left behind.
+  statsCardEl.className = 'stats-card ' + conf.theme;
+  statsCardModal.classList.remove('hidden');
+  conf.render();
+  fitStatsCard();
 }
 
-window.addEventListener('resize', fitLisaCard);
+window.addEventListener('resize', fitStatsCard);
 
-async function downloadLisaCard() {
-  if (!lisaCardEl) return;
+async function downloadStatsCard() {
+  if (!statsCardEl) return;
+  const conf = STATS_CARD_RENDERERS[currentArtist] || {};
+  const width = statsCardWidth();
   const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
-  const photo = lisaCardEl.querySelector('.lc-photo');
+  const photo = statsCardEl.querySelector('.lc-photo');
   if (photo && photo.src) {
     try { await photo.decode(); } catch (e) { photo.style.visibility = 'hidden'; }
     if (photo.style.visibility !== 'hidden' && !photo.naturalWidth) photo.style.visibility = 'hidden';
   }
   try {
-    const canvas = await html2canvas(lisaCardEl, {
-      backgroundColor: '#f5d67a',
+    const canvas = await html2canvas(statsCardEl, {
+      backgroundColor: conf.bg || '#080c14',
       scale: 2,
       useCORS: true,
       imageTimeout: 15000,
       logging: false,
-      width: 700,
-      windowWidth: 820,
+      width,
+      windowWidth: width + 120,
       onclone: (clonedDoc) => {
-        const card = clonedDoc.getElementById('lisa-card');
+        const card = clonedDoc.getElementById('stats-card');
         if (card) {
-          card.style.setProperty('width', '700px', 'important');
-          card.style.setProperty('max-width', '700px', 'important');
-          card.style.setProperty('padding', '22px', 'important');
+          card.style.setProperty('width', `${width}px`, 'important');
+          card.style.setProperty('max-width', `${width}px`, 'important');
           // Undo the phone preview's shrink — the PNG is always full size.
           card.style.setProperty('zoom', '1', 'important');
         }
@@ -2110,27 +2235,28 @@ async function downloadLisaCard() {
     }
     if (!url) url = canvas.toDataURL('image/png');
 
+    const fileBase = (currentArtistName || 'artist').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
     if (isMobile) {
-      showMobileImageOverlay(url, 'Lisa daily streams');
+      showMobileImageOverlay(url, `${currentArtistName || 'Artist'} daily streams`);
     } else {
       const link = document.createElement('a');
-      link.download = 'lisa_daily_streams.png';
+      link.download = `${fileBase}_daily_streams.png`;
       link.href = url;
       link.click();
       if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 10000);
     }
   } catch (e) {
-    console.error('Lisa card export failed:', e);
+    console.error('Stats card export failed:', e);
     alert('Could not generate the image. Please try again.');
   } finally {
     if (photo) photo.style.visibility = 'visible';
   }
 }
 
-if (lisaCardBtn) lisaCardBtn.addEventListener('click', openLisaCard);
-if (lisaCardCloseBtn) lisaCardCloseBtn.addEventListener('click', () => lisaCardModal.classList.add('hidden'));
-if (lisaCardDownloadBtn) lisaCardDownloadBtn.addEventListener('click', downloadLisaCard);
-if (lisaCardModal) lisaCardModal.addEventListener('click', (e) => { if (e.target === lisaCardModal) lisaCardModal.classList.add('hidden'); });
+if (statsCardBtn) statsCardBtn.addEventListener('click', openStatsCard);
+if (statsCardCloseBtn) statsCardCloseBtn.addEventListener('click', () => statsCardModal.classList.add('hidden'));
+if (statsCardDownloadBtn) statsCardDownloadBtn.addEventListener('click', downloadStatsCard);
+if (statsCardModal) statsCardModal.addEventListener('click', (e) => { if (e.target === statsCardModal) statsCardModal.classList.add('hidden'); });
 
 // ===== Song Share Card =====
 async function openSongCard() {
@@ -3213,7 +3339,7 @@ const LANDING_THEME = {
 
 function applyArtistTheme(artistId) {
   // Header extras that are artist-specific ride along with the theme switch.
-  syncLisaCardButton(artistId);
+  syncStatsCardButton(artistId);
   const theme = ARTIST_THEMES[artistId] || LANDING_THEME;
   document.documentElement.style.setProperty('--accent-green', theme.accent);
   document.documentElement.style.setProperty('--accent-green-rgb', hexToRgbTriplet(theme.accent));

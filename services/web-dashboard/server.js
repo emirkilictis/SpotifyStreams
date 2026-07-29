@@ -1270,6 +1270,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
         COALESCE(s.canonical_id, s.id) AS canonical_song_id,
         COALESCE(dsc.cumulative, 0) AS cumulative,
         COALESCE(dsc.daily_gain, 0) AS daily_gain,
+        COALESCE(prev.daily_gain, 0) AS prev_daily_gain,
         COALESCE(avg7.daily_avg_7d, 0) AS daily_avg_7d
         FROM songs s
         JOIN albums a ON s.album_id = a.id
@@ -1277,10 +1278,21 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           SELECT DISTINCT ON (canonical_id)
             canonical_id,
             cumulative,
-            daily_gain
+            daily_gain,
+            recorded_date
           FROM daily_streams_canonical
           ORDER BY canonical_id, recorded_date DESC
         ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
+        -- Day before the latest snapshot, summed per album below so a card can
+        -- show an album's day-over-day delta without extra round trips.
+        LEFT JOIN LATERAL (
+          SELECT daily_gain
+          FROM daily_streams_canonical pv
+          WHERE pv.canonical_id = COALESCE(s.canonical_id, s.id)
+            AND pv.recorded_date < dsc.recorded_date
+          ORDER BY pv.recorded_date DESC
+          LIMIT 1
+        ) prev ON true
         LEFT JOIN (
           SELECT canonical_id, ROUND(AVG(daily_gain))::bigint AS daily_avg_7d
           FROM (
@@ -1422,6 +1434,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
         COUNT(acs.canonical_song_id)::int AS track_count,
         COALESCE(SUM(acs.cumulative), 0)::bigint AS total_streams,
         COALESCE(SUM(acs.daily_gain), 0)::bigint AS daily_gain,
+        COALESCE(SUM(acs.prev_daily_gain), 0)::bigint AS prev_daily_gain,
         COALESCE(SUM(acs.daily_avg_7d), 0)::bigint AS daily_avg_7d
       FROM unique_albums ua
       JOIN album_canonical_songs acs ON ua.album_id = acs.album_id

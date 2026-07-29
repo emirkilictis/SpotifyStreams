@@ -4748,128 +4748,190 @@ select.tc-input { cursor: pointer; }
 
 
 /* ==========================================================================
-   LISA Daily Streams Card (era-grouped table, LISA only)
-   Deliberately NOT themed like the share cards: this one reproduces a specific
-   fan-post layout — goldenrod page, pale header band, blue rows, black totals.
+   Per-artist stats cards (LISA eras / JT albums + top tracks)
+   Deliberately NOT themed like the share cards: these reproduce the fan-post
+   layout — header band, tinted rows, solid subtotal bands. Palette per artist
+   via a .theme-* class; --sc-width is read back by app.js for the PNG export.
    ========================================================================== */
-.lisa-card-shell { max-width: 760px; }
+.stats-card-shell { max-width: 96vw; }
 
-.lisa-card {
-  width: 700px;
+.stats-card {
+  --sc-width: 900;
+  --sc-page: #f5d67a;
+  --sc-band: #fce8b2;
+  --sc-ink: #111;
+  --sc-row: #a9c5e4;
+  --sc-head-row: #e6eef7;
+  --sc-grid: #6d7f93;
+  --sc-frame: #000;
+  --sc-total-bg: #000;
+  --sc-total-ink: #fff;
+  --sc-pos: #147a14;
+  --sc-neg: #cc2020;
+  --sc-flat: #444;
+  --sc-total-pos: #4ade80;
+  --sc-total-neg: #f87171;
+  --sc-note: #6b5a20;
+
+  width: calc(var(--sc-width) * 1px);
   max-width: 92vw;
   box-sizing: border-box;
-  background: #f5d67a;
-  padding: 22px;
+  background: var(--sc-page);
+  padding: 20px;
   font-family: 'Outfit', Arial, Helvetica, sans-serif;
-  color: #111;
+  color: var(--sc-ink);
   border-radius: 6px;
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.55);
 }
 
+/* LISA's card is read as a single square-ish image. Width is tuned against the
+   EXPORTED png (html2canvas re-lays it out slightly taller than the on-screen
+   preview), which is the thing people actually post. */
+.stats-card.theme-lisa { --sc-width: 860; }
+
+/* Justin Timberlake — his dashboard's green-on-navy. */
+.stats-card.theme-jt {
+  --sc-page: radial-gradient(circle at 50% 0%, #13203a 0%, #080c14 100%);
+  --sc-band: rgba(30, 215, 96, 0.09);
+  --sc-ink: #e8eef7;
+  --sc-row: #101a2b;
+  --sc-head-row: #16233a;
+  --sc-grid: #24344f;
+  --sc-frame: #1ed760;
+  --sc-total-bg: #1ed760;
+  --sc-total-ink: #052a13;
+  --sc-pos: #4ade80;
+  --sc-neg: #f87171;
+  --sc-flat: #94a3b8;
+  --sc-total-pos: #063d1b;
+  --sc-total-neg: #7f1d1d;
+  --sc-note: #64748b;
+}
+
 .lc-head {
   display: flex;
-  gap: 18px;
+  gap: 16px;
   align-items: stretch;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 
 .lc-photo {
-  width: 128px;
-  height: 148px;
+  width: 118px;
+  height: 136px;
   flex: 0 0 auto;
   object-fit: cover;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid rgba(0, 0, 0, 0.25);
 }
+.theme-jt .lc-photo { border-color: rgba(30, 215, 96, 0.45); }
 
 .lc-head-band {
   flex: 1 1 auto;
   min-width: 0;
-  background: #fce8b2;
-  padding: 14px 18px;
+  background: var(--sc-band);
+  padding: 12px 16px;
   font-family: 'Times New Roman', Georgia, serif;
+}
+.theme-jt .lc-head-band {
+  border: 1px solid rgba(30, 215, 96, 0.3);
+  border-radius: 8px;
+  font-family: 'Outfit', Arial, Helvetica, sans-serif;
 }
 
 .lc-title {
-  font-size: 1.55rem;
+  font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.15;
-  margin-bottom: 12px;
+  margin-bottom: 9px;
 }
-.lc-date { font-size: 1.05rem; font-weight: 600; margin-bottom: 18px; }
-.lc-era { font-size: 1.05rem; font-weight: 600; line-height: 1.75; }
-.lc-era b { font-weight: 700; }
+.lc-date { font-size: 1rem; font-weight: 600; margin-bottom: 12px; }
+.lc-era { font-size: 1rem; font-weight: 600; line-height: 1.6; }
+.theme-jt .lc-era { color: #c9f7dc; }
 
 .lc-table {
   width: 100%;
   border-collapse: collapse;
-  border: 3px solid #000;
-  font-size: 0.86rem;
+  border: 3px solid var(--sc-frame);
+  /* Compact rows: this card is read as a whole image, so tight lines keep it
+     near square instead of a tall strip. */
+  font-size: 0.82rem;
+  line-height: 1.25;
   font-variant-numeric: tabular-nums;
   table-layout: fixed;
 }
 
 .lc-table th,
 .lc-table td {
-  border: 1px solid #6d7f93;
-  padding: 3px 8px;
+  border: 1px solid var(--sc-grid);
+  padding: 1px 8px;
   text-align: center;
-  color: #111;
-  background: #a9c5e4;
+  color: var(--sc-ink);
+  background: var(--sc-row);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .lc-table thead th {
-  background: #e6eef7;
+  background: var(--sc-head-row);
   font-weight: 500;
-  /* The global `th` rule uppercases; the layout this reproduces uses the
-     lowercase "song / overall / Daily" labels verbatim. */
+  /* The global `th` rule uppercases; these cards use their labels verbatim. */
   text-transform: none;
   letter-spacing: 0;
-  font-size: 0.86rem;
-  color: #111;
+  font-size: 0.82rem;
+  color: var(--sc-ink);
+  padding: 2px 8px;
 }
 
-.lc-table col.lc-c-song { width: 30%; }
-.lc-table col.lc-c-overall { width: 24%; }
-.lc-table col.lc-c-daily { width: 20%; }
+.lc-table col.lc-c-song { width: 34%; }
+/* His track titles are long ("CAN'T STOP THE FEELING! (from …)"), so give the
+   title column the room and take it back off the two narrow delta columns. */
+.theme-jt .lc-table col.lc-c-song { width: 42%; }
+.theme-jt .lc-table col.lc-c-overall { width: 20%; }
+.theme-jt .lc-table col.lc-c-daily { width: 15%; }
+.theme-jt .lc-table col.lc-c-delta { width: 13%; }
+.theme-jt .lc-table col.lc-c-pct { width: 10%; }
+.lc-table col.lc-c-overall { width: 22%; }
+.lc-table col.lc-c-daily { width: 18%; }
 .lc-table col.lc-c-delta { width: 15%; }
 .lc-table col.lc-c-pct { width: 11%; }
 
-/* Era subtotals and the grand total — solid black bands, like the original. */
+/* Subtotals, section headers and the grand total — solid bands. */
 .lc-table tr.lc-group td {
-  background: #000;
-  color: #fff;
+  background: var(--sc-total-bg);
+  color: var(--sc-total-ink);
   font-weight: 800;
-  border-color: #000;
+  border-color: var(--sc-total-bg);
+}
+.lc-table tr.lc-band td {
+  text-align: center;
+  letter-spacing: 1.5px;
+  font-size: 0.78rem;
 }
 
-.lc-pos { color: #147a14; }
-.lc-neg { color: #cc2020; }
-.lc-flat { color: #444; }
-.lc-table tr.lc-group .lc-pos { color: #4ade80; }
-.lc-table tr.lc-group .lc-neg { color: #f87171; }
-.lc-table tr.lc-group .lc-flat { color: #cbd5e1; }
+.lc-pos { color: var(--sc-pos); }
+.lc-neg { color: var(--sc-neg); }
+.lc-flat { color: var(--sc-flat); }
+.lc-table tr.lc-group .lc-pos { color: var(--sc-total-pos); }
+.lc-table tr.lc-group .lc-neg { color: var(--sc-total-neg); }
+.lc-table tr.lc-group .lc-flat { color: var(--sc-total-ink); }
 
 .lc-song { text-align: center; }
 .lc-note {
-  margin-top: 10px;
-  font-size: 0.68rem;
-  color: #6b5a20;
+  margin-top: 8px;
+  font-size: 0.66rem;
+  color: var(--sc-note);
   text-align: right;
 }
 
-/* Phones: do NOT reflow this card — five numeric columns in 340px turns every
-   value into an ellipsis. Keep the real 700px layout and shrink it to fit, so
-   the preview is a faithful miniature of the PNG. app.js sets --lc-zoom from
-   the actual container width; the export resets zoom to 1 in its onclone. */
-@media (max-width: 640px) {
-  .lisa-card {
-    width: 700px;
+/* Phones: do NOT reflow these cards — five numeric columns in 340px turns every
+   value into an ellipsis. Keep the real layout and shrink it to fit, so the
+   preview is a faithful miniature of the PNG. app.js sets --lc-zoom from the
+   actual container width; the export resets zoom to 1 in its onclone. */
+@media (max-width: 940px) {
+  .stats-card {
     max-width: none;
-    zoom: var(--lc-zoom, 0.46);
+    zoom: var(--lc-zoom, 0.4);
   }
-  .lisa-card-shell { align-items: center; }
+  .stats-card-shell { align-items: center; }
 }
