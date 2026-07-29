@@ -386,6 +386,10 @@ async function fetchData() {
     
     renderSongs();
     renderMilestones();
+    // If the X post generator is open it was built before these arrived.
+    if (window._refreshTwitterPreview) window._refreshTwitterPreview();
+    // Same for the LISA card, which is a pure snapshot of allSongs.
+    if (lisaCardModal && !lisaCardModal.classList.contains('hidden')) renderLisaCard();
     fetchTrending(artist, headers);
   } catch (err) {
     console.error('Error fetching dashboard data:', err);
@@ -1852,6 +1856,282 @@ if (dailyCardCloseBtn) dailyCardCloseBtn.addEventListener('click', () => dailyCa
 if (dailyCardDownloadBtn) dailyCardDownloadBtn.addEventListener('click', downloadDailyCard);
 if (dailyCardModal) dailyCardModal.addEventListener('click', (e) => { if (e.target === dailyCardModal) dailyCardModal.classList.add('hidden'); });
 
+// ===== LISA Daily Streams Card =====
+// A LISA-only recreation of the era-grouped daily table her fans post: one row
+// per "song" as that scene counts them (all Rockstar edits collapse into a
+// single "Rockstar(versions)" line), black subtotal bands per era, grand total
+// at the bottom. Every number still comes straight from our own snapshots.
+const LISA_ARTIST_ID = '5L1lO4eRHmJ7a0Q6csE5cT';
+const LISA_PHOTO = 'https://i.scdn.co/image/ab6761610000e5eb5cd3b3af8b72e32be78571ec';
+
+// Display order + grouping. `key` is what lisaCardKey() maps a track title to;
+// several tracks can share a key, in which case their numbers are summed.
+const LISA_CARD_ROWS = [
+  { key: 'born-again',       label: 'Born Again',              group: 'alterego' },
+  { key: 'rockstar',         label: 'Rockstar',                group: 'alterego' },
+  { key: 'elastigirl',       label: 'Elastigirl',              group: 'alterego' },
+  { key: 'thunder',          label: 'Thunder',                 group: 'alterego' },
+  { key: 'new-woman',        label: 'New Woman',               group: 'alterego' },
+  { key: 'futw-ft',          label: 'FUTW(ft.)',               group: 'alterego' },
+  { key: 'rapunzel-ft',      label: 'Rapunzel(ft.)',           group: 'alterego' },
+  { key: 'moonlit',          label: 'Moonlit Floor',           group: 'alterego' },
+  { key: 'when-im-with-you', label: 'When Im With You',        group: 'alterego' },
+  { key: 'badgrrrl',         label: 'Badgrrrl',                group: 'alterego' },
+  { key: 'lifestyle',        label: 'Lifestyle',               group: 'alterego' },
+  { key: 'chill',            label: 'Chill',                   group: 'alterego' },
+  { key: 'dream',            label: 'Dream',                   group: 'alterego' },
+  { key: 'futw-solo',        label: 'FUTW(Solo ver.)',         group: 'alterego' },
+  { key: 'rapunzel-solo',    label: 'Rapunzel(Solo ver.)',     group: 'alterego' },
+  { key: 'lalisa',           label: 'Lalisa',                  group: 'lalisa' },
+  { key: 'money',            label: 'Money',                   group: 'lalisa' },
+  { key: 'sg',               label: 'SG',                      group: 'other' },
+  { key: 'shoong',           label: 'Shoong!',                 group: 'other' },
+  { key: 'priceless',        label: 'priceless',               group: 'other' },
+  { key: 'bad-angel',        label: 'Bad Angel',               group: 'other' },
+  { key: 'goals',            label: 'Goals',                   group: 'other' },
+  { key: 'rockstar-v',       label: 'Rockstar(versions)',      group: 'other' },
+  { key: 'moonlit-v',        label: 'Moonlit Floor(versions)', group: 'other' },
+  { key: 'born-again-v',     label: 'Born Again(versions)',    group: 'other' },
+];
+
+// Order matters: every variant test has to come before its parent title.
+function lisaCardKey(title) {
+  const t = String(title || '').toLowerCase();
+  const isVariant = /remix|instrumental|sped\s*up|slowed|extended|radio\s*edit|live|acoustic|purple disco|santa/.test(t);
+
+  if (t.includes('born again')) return isVariant ? 'born-again-v' : 'born-again';
+  if (t.includes('rockstar')) return isVariant ? 'rockstar-v' : 'rockstar';
+  if (t.includes('moonlit floor')) return isVariant ? 'moonlit-v' : 'moonlit';
+  if (t.includes('elastigirl')) return 'elastigirl';
+  if (t.includes('thunder')) return 'thunder';
+  if (t.includes('new woman')) return 'new-woman';
+  // The featured cut credits Future; the other one is her solo re-record.
+  if (t.includes('fxck up the world')) return t.includes('future') ? 'futw-ft' : 'futw-solo';
+  if (t.includes('rapunzel')) return t.includes('megan') ? 'rapunzel-ft' : 'rapunzel-solo';
+  if (t.includes("when i'm with you") || t.includes('when im with you')) return 'when-im-with-you';
+  if (t.includes('badgrrrl')) return 'badgrrrl';
+  if (t.includes('lifestyle')) return 'lifestyle';
+  if (t.includes('chill')) return 'chill';
+  if (t.includes('dream')) return 'dream';
+  if (t.includes('lalisa')) return 'lalisa';
+  if (t.includes('money')) return 'money';
+  if (/\bsg\b/.test(t)) return 'sg';
+  if (t.includes('shoong')) return 'shoong';
+  if (t.includes('priceless')) return 'priceless';
+  if (t.includes('bad angel')) return 'bad-angel';
+  if (t.includes('goals')) return 'goals';
+  return null;
+}
+
+// Space-separated thousands, matching the layout this card reproduces.
+const lcNum = (n) => Number(n || 0).toLocaleString('en-US').replace(/,/g, ' ');
+
+function lcDelta(change, prev) {
+  if (!prev) return { txt: '—', pct: '—', cls: 'lc-flat' };
+  const pct = (change / Math.abs(prev)) * 100;
+  const cls = change > 0 ? 'lc-pos' : (change < 0 ? 'lc-neg' : 'lc-flat');
+  const sign = change > 0 ? '+' : (change < 0 ? '−' : '');
+  return {
+    txt: `${sign}${lcNum(Math.abs(change))}`,
+    pct: `${pct < 0 ? '−' : ''}${Math.abs(pct).toFixed(1).replace('.', ',')}%`,
+    cls,
+  };
+}
+
+const lisaCardModal = document.getElementById('lisa-card-modal');
+const lisaCardEl = document.getElementById('lisa-card');
+const lisaCardBtn = document.getElementById('lisa-card-btn');
+const lisaCardCloseBtn = document.getElementById('lisa-card-close-btn');
+const lisaCardDownloadBtn = document.getElementById('lisa-card-download-btn');
+
+// Called from applyArtistTheme, which every artist-switch path goes through
+// (deep link, picker card, header dropdown) — the button only exists for LISA.
+function syncLisaCardButton(artistId) {
+  if (!lisaCardBtn) return;
+  const id = artistId === undefined ? currentArtist : artistId;
+  lisaCardBtn.classList.toggle('hidden', id !== LISA_ARTIST_ID);
+  if (id !== LISA_ARTIST_ID && lisaCardModal) lisaCardModal.classList.add('hidden');
+}
+
+function renderLisaCard() {
+  if (!lisaCardEl) return;
+  if (!Array.isArray(allSongs) || allSongs.length === 0) {
+    lisaCardEl.innerHTML = '<div class="lc-note" style="text-align:center;padding:28px 0;">Still loading her tracks…</div>';
+    return;
+  }
+
+  // Fold every tracked song into its display row.
+  const buckets = new Map();
+  const extras = [];   // anything the mapping doesn't know about (a new release)
+  let recordedDate = null;
+  for (const song of allSongs) {
+    if (song.recorded_date && (!recordedDate || song.recorded_date > recordedDate)) recordedDate = song.recorded_date;
+    const key = lisaCardKey(song.title);
+    const cum = Number(song.cumulative || 0);
+    const daily = Number(song.daily_gain || 0);
+    const prev = Number(song.prev_daily_gain || 0);
+    if (!key) {
+      // Never silently drop a track — an unmapped one gets its own row so the
+      // OVERALL line still equals her real total.
+      extras.push({ label: cleanTrackTitle(song.title), cum, daily, prev, group: 'other' });
+      continue;
+    }
+    const b = buckets.get(key) || { cum: 0, daily: 0, prev: 0 };
+    b.cum += cum; b.daily += daily; b.prev += prev;
+    buckets.set(key, b);
+  }
+
+  const esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const dataRow = (label, r) => {
+    const d = lcDelta(r.daily - r.prev, r.prev);
+    return `<tr>
+      <td class="lc-song" title="${esc(label)}">${esc(label)}</td>
+      <td>${lcNum(r.cum)}</td>
+      <td>${lcNum(r.daily)}</td>
+      <td class="${d.cls}">${d.txt}</td>
+      <td class="${d.cls}">${d.pct}</td>
+    </tr>`;
+  };
+  const groupRow = (label, t) => {
+    const d = lcDelta(t.daily - t.prev, t.prev);
+    return `<tr class="lc-group">
+      <td class="lc-song">${esc(label)}</td>
+      <td>${lcNum(t.cum)}</td>
+      <td>${lcNum(t.daily)}</td>
+      <td class="${d.cls}">${d.txt}</td>
+      <td class="${d.cls}">${d.pct}</td>
+    </tr>`;
+  };
+
+  const totals = { alterego: { cum: 0, daily: 0, prev: 0 }, lalisa: { cum: 0, daily: 0, prev: 0 }, all: { cum: 0, daily: 0, prev: 0 } };
+  const add = (acc, r) => { acc.cum += r.cum; acc.daily += r.daily; acc.prev += r.prev; };
+
+  let html = '';
+  let prevGroup = null;
+  for (const def of LISA_CARD_ROWS) {
+    const r = buckets.get(def.key);
+    // Close the previous era with its black subtotal band before starting a new one.
+    if (prevGroup && def.group !== prevGroup && totals[prevGroup]) {
+      html += groupRow(prevGroup === 'alterego' ? 'ALTER EGO' : 'LALISA', totals[prevGroup]);
+    }
+    prevGroup = def.group;
+    if (!r) continue;   // track not in our data (yet) — skip the row entirely
+    html += dataRow(def.label, r);
+    add(totals.all, r);
+    if (totals[def.group]) add(totals[def.group], r);
+  }
+  for (const x of extras) { html += dataRow(x.label, x); add(totals.all, x); }
+  html += groupRow('OVERALL', totals.all);
+
+  const dateStr = recordedDate
+    ? parseLocalDate(recordedDate).toLocaleDateString('en-GB').replace(/\//g, '.')
+    : '';
+
+  lisaCardEl.innerHTML = `
+    <div class="lc-head">
+      <img class="lc-photo" src="${LISA_PHOTO}" crossorigin="anonymous" alt="">
+      <div class="lc-head-band">
+        <div class="lc-title">Lisa Daily Streams On Spotify</div>
+        <div class="lc-date">${dateStr}</div>
+        <div class="lc-era">Alter Ego: ${lcNum(totals.alterego.daily)}</div>
+        <div class="lc-era">Lalisa:&nbsp; ${lcNum(totals.lalisa.daily)}</div>
+        <div class="lc-era">Total: ${lcNum(totals.all.daily)}</div>
+      </div>
+    </div>
+    <table class="lc-table">
+      <colgroup>
+        <col class="lc-c-song"><col class="lc-c-overall"><col class="lc-c-daily">
+        <col class="lc-c-delta"><col class="lc-c-pct">
+      </colgroup>
+      <thead>
+        <tr><th>song</th><th>overall</th><th>Daily</th><th colspan="2">+/-</th></tr>
+      </thead>
+      <tbody>${html}</tbody>
+    </table>
+  `;
+}
+
+// The card is a fixed 700px layout; on a phone we scale the whole thing rather
+// than reflow it (see the media query). Recomputed on open and on resize.
+function fitLisaCard() {
+  if (!lisaCardEl || !lisaCardModal || lisaCardModal.classList.contains('hidden')) return;
+  const shell = lisaCardEl.parentElement;
+  const avail = shell ? shell.clientWidth : 0;
+  if (avail && avail < 700) {
+    lisaCardEl.style.setProperty('--lc-zoom', String(Math.max(0.3, avail / 700)));
+  } else {
+    lisaCardEl.style.removeProperty('--lc-zoom');
+  }
+}
+
+function openLisaCard() {
+  if (!lisaCardModal) return;
+  lisaCardModal.classList.remove('hidden');
+  renderLisaCard();
+  fitLisaCard();
+}
+
+window.addEventListener('resize', fitLisaCard);
+
+async function downloadLisaCard() {
+  if (!lisaCardEl) return;
+  const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
+  const photo = lisaCardEl.querySelector('.lc-photo');
+  if (photo && photo.src) {
+    try { await photo.decode(); } catch (e) { photo.style.visibility = 'hidden'; }
+    if (photo.style.visibility !== 'hidden' && !photo.naturalWidth) photo.style.visibility = 'hidden';
+  }
+  try {
+    const canvas = await html2canvas(lisaCardEl, {
+      backgroundColor: '#f5d67a',
+      scale: 2,
+      useCORS: true,
+      imageTimeout: 15000,
+      logging: false,
+      width: 700,
+      windowWidth: 820,
+      onclone: (clonedDoc) => {
+        const card = clonedDoc.getElementById('lisa-card');
+        if (card) {
+          card.style.setProperty('width', '700px', 'important');
+          card.style.setProperty('max-width', '700px', 'important');
+          card.style.setProperty('padding', '22px', 'important');
+          // Undo the phone preview's shrink — the PNG is always full size.
+          card.style.setProperty('zoom', '1', 'important');
+        }
+      },
+    });
+    let url = null;
+    if (canvas.toBlob) {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (blob) url = URL.createObjectURL(blob);
+    }
+    if (!url) url = canvas.toDataURL('image/png');
+
+    if (isMobile) {
+      showMobileImageOverlay(url, 'Lisa daily streams');
+    } else {
+      const link = document.createElement('a');
+      link.download = 'lisa_daily_streams.png';
+      link.href = url;
+      link.click();
+      if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+  } catch (e) {
+    console.error('Lisa card export failed:', e);
+    alert('Could not generate the image. Please try again.');
+  } finally {
+    if (photo) photo.style.visibility = 'visible';
+  }
+}
+
+if (lisaCardBtn) lisaCardBtn.addEventListener('click', openLisaCard);
+if (lisaCardCloseBtn) lisaCardCloseBtn.addEventListener('click', () => lisaCardModal.classList.add('hidden'));
+if (lisaCardDownloadBtn) lisaCardDownloadBtn.addEventListener('click', downloadLisaCard);
+if (lisaCardModal) lisaCardModal.addEventListener('click', (e) => { if (e.target === lisaCardModal) lisaCardModal.classList.add('hidden'); });
+
 // ===== Song Share Card =====
 async function openSongCard() {
   if (!currentSongMeta || !songCardEl) return;
@@ -2201,8 +2481,11 @@ function renderMilestones() {
         const dailyGain = effectiveDailyRate(song);
         const nextMilestone = getNextMilestone(cumulative);
         const percent = (cumulative / nextMilestone) * 100;
-        const dailyAvg = dailyGain > 0 ? dailyGain : 1;
-        const daysRemaining = Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyAvg));
+        // No placeholder rate: a stalled track divided by 1 stream/day produced
+        // "1447.0 years left", which reads like a real forecast. null = unknown.
+        const daysRemaining = dailyGain > 0
+          ? Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyGain))
+          : null;
         return {
           id: song.id,
           title: song.title,
@@ -2226,8 +2509,9 @@ function renderMilestones() {
         const dailyGain = effectiveDailyRate(album);
         const nextMilestone = getNextMilestone(cumulative);
         const percent = (cumulative / nextMilestone) * 100;
-        const dailyAvg = dailyGain > 0 ? dailyGain : 1;
-        const daysRemaining = Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyAvg));
+        const daysRemaining = dailyGain > 0
+          ? Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyGain))
+          : null;
         return {
           id: album.album_id,
           title: album.album_title,
@@ -2256,11 +2540,15 @@ function renderMilestones() {
   }
 
   milestonesGrid.innerHTML = topMilestones.map(item => {
-    let etaText = `${item.daysRemaining} days left`;
-    if (item.daysRemaining > 365) {
+    let etaText;
+    if (item.daysRemaining === null) {
+      etaText = 'no recent growth';
+    } else if (item.daysRemaining > 365) {
       etaText = `${(item.daysRemaining / 365).toFixed(1)} years left`;
     } else if (item.daysRemaining === 1) {
       etaText = `1 day left`;
+    } else {
+      etaText = `${item.daysRemaining} days left`;
     }
     
     const isAlbum = item.type === 'album';
@@ -2601,25 +2889,39 @@ window.openSongById = async function(songId) {
   // Milestone Progress
   const cumulative = Number(song.cumulative);
   const dailyGain = Number(song.daily_gain);
+  // Predict from the SAME smoothed rate the Milestones tab and the Target
+  // Calculator use. Predicting off a single day made this modal disagree with
+  // both of them for every song (Mirrors: 254 days here vs 240 days there), and
+  // the share card printed a "7D Avg Pace" next to a projection derived from a
+  // different number. dailyGain above stays raw — that's today's figure, shown
+  // as-is, not a forecast.
+  const predictRate = effectiveDailyRate(song);
   
   // Year-End Projection
-  const songProj = getYearEndProjection(cumulative, dailyGain);
+  const songProj = getYearEndProjection(cumulative, predictRate);
   const modalSongProjection = document.getElementById('modal-song-projection');
   if (modalSongProjection) {
     modalSongProjection.textContent = formatNumber(Math.round(songProj));
   }
   const nextMilestone = getNextMilestone(cumulative);
   const percent = (cumulative / nextMilestone) * 100;
-  const dailyAvg = dailyGain > 0 ? dailyGain : 1;
-  const daysRemaining = Math.max(1, Math.ceil((nextMilestone - cumulative) / dailyAvg));
+  const daysRemaining = predictRate > 0
+    ? Math.max(1, Math.ceil((nextMilestone - cumulative) / predictRate))
+    : null;
 
   songModalNextMilestone.textContent = formatMilestoneName(nextMilestone);
   
-  let etaText = `ETA: ${daysRemaining} days remaining`;
-  if (daysRemaining > 365) {
+  // A stalled song used to divide by a placeholder rate of 1 stream/day, which
+  // printed things like "ETA: 591.0 years remaining" as if it were a forecast.
+  let etaText;
+  if (daysRemaining === null) {
+    etaText = 'ETA: no recent growth';
+  } else if (daysRemaining > 365) {
     etaText = `ETA: ${(daysRemaining / 365).toFixed(1)} years remaining`;
   } else if (daysRemaining === 1) {
     etaText = `ETA: 1 day remaining`;
+  } else {
+    etaText = `ETA: ${daysRemaining} days remaining`;
   }
   songModalMilestoneEta.textContent = etaText;
   songModalMilestoneProgress.style.width = `${percent.toFixed(1)}%`;
@@ -2910,6 +3212,8 @@ const LANDING_THEME = {
 };
 
 function applyArtistTheme(artistId) {
+  // Header extras that are artist-specific ride along with the theme switch.
+  syncLisaCardButton(artistId);
   const theme = ARTIST_THEMES[artistId] || LANDING_THEME;
   document.documentElement.style.setProperty('--accent-green', theme.accent);
   document.documentElement.style.setProperty('--accent-green-rgb', hexToRgbTriplet(theme.accent));
@@ -3640,7 +3944,10 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   const twitterPostBtn = document.getElementById('twitter-post-btn');
   const twitterPostModal = document.getElementById('twitter-post-modal');
   const closeBtn = document.getElementById('twitter-post-close-btn');
-  const cancelBtn = document.getElementById('twitter-post-cancel-btn');
+  // The markup calls this one 'tp-cancel-btn'; the old lookup used a name that
+  // doesn't exist, so getElementById returned null and the `if (cancelBtn)`
+  // guard silently skipped the listener — the Close button did nothing.
+  const cancelBtn = document.getElementById('tp-cancel-btn');
   const copyBtn = document.getElementById('tp-copy-btn');
   const copyBtnText = document.getElementById('tp-copy-btn-text');
   const postBtn = document.getElementById('tp-post-btn');
@@ -3742,6 +4049,13 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     updateCharCounter(text.length);
   }
 
+  // The song list loads after the artist stats, so opening the modal early used
+  // to produce a post with the header and totals but NO songs — and nothing ever
+  // regenerated it. fetchData() calls this once the songs land.
+  window._refreshTwitterPreview = () => {
+    if (!twitterPostModal.classList.contains('hidden')) updatePreview();
+  };
+
   function updateCharCounter(len) {
     charCounter.textContent = `${len} / 280`;
     if (len > 280) {
@@ -3804,6 +4118,15 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   function handlePost() {
     const text = previewTextarea.value;
+    // The default (top 10 + all stats) runs well past 280 characters, and X
+    // silently refuses to pre-fill an over-length tweet — so say it here.
+    if (text.length > 280) {
+      const ok = confirm(
+        `This post is ${text.length} characters — X allows 280.\n\n` +
+        'Open it anyway? (Trim the text, or pick fewer songs, to stay under the limit.)'
+      );
+      if (!ok) return;
+    }
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   }

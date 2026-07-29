@@ -4746,3 +4746,130 @@ select.tc-input { cursor: pointer; }
   text-align: right;
 }
 
+
+/* ==========================================================================
+   LISA Daily Streams Card (era-grouped table, LISA only)
+   Deliberately NOT themed like the share cards: this one reproduces a specific
+   fan-post layout — goldenrod page, pale header band, blue rows, black totals.
+   ========================================================================== */
+.lisa-card-shell { max-width: 760px; }
+
+.lisa-card {
+  width: 700px;
+  max-width: 92vw;
+  box-sizing: border-box;
+  background: #f5d67a;
+  padding: 22px;
+  font-family: 'Outfit', Arial, Helvetica, sans-serif;
+  color: #111;
+  border-radius: 6px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.55);
+}
+
+.lc-head {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 20px;
+}
+
+.lc-photo {
+  width: 128px;
+  height: 148px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.lc-head-band {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #fce8b2;
+  padding: 14px 18px;
+  font-family: 'Times New Roman', Georgia, serif;
+}
+
+.lc-title {
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1.15;
+  margin-bottom: 12px;
+}
+.lc-date { font-size: 1.05rem; font-weight: 600; margin-bottom: 18px; }
+.lc-era { font-size: 1.05rem; font-weight: 600; line-height: 1.75; }
+.lc-era b { font-weight: 700; }
+
+.lc-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 3px solid #000;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  table-layout: fixed;
+}
+
+.lc-table th,
+.lc-table td {
+  border: 1px solid #6d7f93;
+  padding: 3px 8px;
+  text-align: center;
+  color: #111;
+  background: #a9c5e4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lc-table thead th {
+  background: #e6eef7;
+  font-weight: 500;
+  /* The global `th` rule uppercases; the layout this reproduces uses the
+     lowercase "song / overall / Daily" labels verbatim. */
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.86rem;
+  color: #111;
+}
+
+.lc-table col.lc-c-song { width: 30%; }
+.lc-table col.lc-c-overall { width: 24%; }
+.lc-table col.lc-c-daily { width: 20%; }
+.lc-table col.lc-c-delta { width: 15%; }
+.lc-table col.lc-c-pct { width: 11%; }
+
+/* Era subtotals and the grand total — solid black bands, like the original. */
+.lc-table tr.lc-group td {
+  background: #000;
+  color: #fff;
+  font-weight: 800;
+  border-color: #000;
+}
+
+.lc-pos { color: #147a14; }
+.lc-neg { color: #cc2020; }
+.lc-flat { color: #444; }
+.lc-table tr.lc-group .lc-pos { color: #4ade80; }
+.lc-table tr.lc-group .lc-neg { color: #f87171; }
+.lc-table tr.lc-group .lc-flat { color: #cbd5e1; }
+
+.lc-song { text-align: center; }
+.lc-note {
+  margin-top: 10px;
+  font-size: 0.68rem;
+  color: #6b5a20;
+  text-align: right;
+}
+
+/* Phones: do NOT reflow this card — five numeric columns in 340px turns every
+   value into an ellipsis. Keep the real 700px layout and shrink it to fit, so
+   the preview is a faithful miniature of the PNG. app.js sets --lc-zoom from
+   the actual container width; the export resets zoom to 1 in its onclone. */
+@media (max-width: 640px) {
+  .lisa-card {
+    width: 700px;
+    max-width: none;
+    zoom: var(--lc-zoom, 0.46);
+  }
+  .lisa-card-shell { align-items: center; }
+}

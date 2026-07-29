@@ -762,7 +762,10 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         -- raw canonical_streams so a genuine playcount DROP (deleted/pulled
         -- streams, bad snapshot) surfaces as a negative. Frontend only shows
         -- it when it's actually negative.
-        COALESCE(rawd.real_change, 0)::bigint AS real_daily_change
+        COALESCE(rawd.real_change, 0)::bigint AS real_daily_change,
+        -- The day before the latest snapshot, so a card can show a day-over-day
+        -- delta without refetching each song's history one request at a time.
+        COALESCE(prev.daily_gain, 0)::bigint AS prev_daily_gain
       FROM songs s
       LEFT JOIN albums a ON s.album_id = a.id
       LEFT JOIN (
@@ -774,6 +777,14 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         FROM daily_streams_canonical
         ORDER BY canonical_id, recorded_date DESC
       ) dsc ON s.id = dsc.canonical_id
+      LEFT JOIN LATERAL (
+        SELECT daily_gain
+        FROM daily_streams_canonical pv
+        WHERE pv.canonical_id = s.id
+          AND pv.recorded_date < dsc.recorded_date
+        ORDER BY pv.recorded_date DESC
+        LIMIT 1
+      ) prev ON true
       LEFT JOIN (
         SELECT canonical_id, ROUND(AVG(daily_gain))::bigint AS daily_avg_7d
         FROM (
