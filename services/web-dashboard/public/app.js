@@ -1487,6 +1487,88 @@ const openDailyCardBtn = document.getElementById('open-daily-card-btn');
 const dailyCardCloseBtn = document.getElementById('daily-card-close-btn');
 const dailyCardDownloadBtn = document.getElementById('daily-card-download-btn');
 
+// ===== Share-card colour themes =====
+// The card used to inherit whatever the artist theme was, which looks wrong for
+// a lot of artists (pale accents, muddy gradients). The user picks the look now;
+// "Artist" keeps the old behaviour and stays the default.
+// `page` is the flat colour html2canvas paints behind the card — it must match
+// the gradient's end colour or the rounded corners come out with a dark halo.
+const CARD_THEMES = [
+  { id: 'artist', name: 'Artist' },
+  { id: 'midnight', name: 'Midnight', accent: '#1ed760', bg: 'radial-gradient(circle at 50% 0%, #131d33 0%, #080c14 100%)', page: '#080c14', glow: 'rgba(30,215,96,0.35)' },
+  { id: 'noir', name: 'Noir', accent: '#f4f4f5', bg: 'linear-gradient(165deg, #1c1c1e 0%, #0a0a0b 100%)', page: '#0a0a0b', glow: 'rgba(255,255,255,0.18)' },
+  { id: 'ocean', name: 'Ocean', accent: '#38bdf8', bg: 'radial-gradient(circle at 50% 0%, #0d2438 0%, #060d16 100%)', page: '#060d16', glow: 'rgba(56,189,248,0.35)' },
+  { id: 'violet', name: 'Violet', accent: '#a78bfa', bg: 'radial-gradient(circle at 50% 0%, #1e1636 0%, #0a0713 100%)', page: '#0a0713', glow: 'rgba(167,139,250,0.35)' },
+  { id: 'rose', name: 'Rose', accent: '#fb7185', bg: 'radial-gradient(circle at 50% 0%, #2e1220 0%, #120810 100%)', page: '#120810', glow: 'rgba(251,113,133,0.35)' },
+  { id: 'sunset', name: 'Sunset', accent: '#fb923c', bg: 'linear-gradient(165deg, #341a12 0%, #140b09 100%)', page: '#140b09', glow: 'rgba(251,146,60,0.35)' },
+  { id: 'gold', name: 'Gold', accent: '#e5b567', bg: 'linear-gradient(165deg, #241d10 0%, #0d0a06 100%)', page: '#0d0a06', glow: 'rgba(229,181,103,0.32)' },
+  { id: 'paper', name: 'Paper', light: true, accent: '#1a8f4c', bg: 'linear-gradient(165deg, #ffffff 0%, #eef1f5 100%)', page: '#eef1f5', glow: 'rgba(0,0,0,0.12)' },
+  { id: 'cream', name: 'Cream', light: true, accent: '#b4622a', bg: 'linear-gradient(165deg, #fbf6ec 0%, #f0e6d6 100%)', page: '#f0e6d6', glow: 'rgba(180,98,42,0.18)' },
+];
+
+const CARD_THEME_KEY = 'dc_card_theme';
+let cardThemeId = 'artist';
+try { cardThemeId = localStorage.getItem(CARD_THEME_KEY) || 'artist'; } catch (e) { /* private mode */ }
+if (!CARD_THEMES.some((t) => t.id === cardThemeId)) cardThemeId = 'artist';
+
+function resolveCardTheme(id) {
+  if (id === 'artist' || !id) {
+    const a = ARTIST_THEMES[currentArtist] || LANDING_THEME;
+    return { id: 'artist', name: 'Artist', accent: a.accent, bg: a.bgGradient, page: '#080c14', glow: a.accentGlow };
+  }
+  return CARD_THEMES.find((t) => t.id === id) || resolveCardTheme('artist');
+}
+
+function applyCardTheme(el, theme) {
+  if (!el) return;
+  el.classList.toggle('dc-light', !!theme.light);
+  el.style.setProperty('--dc-accent', theme.accent);
+  el.style.setProperty('--dc-accent-rgb', hexToRgbTriplet(theme.accent));
+  el.style.background = theme.bg;
+  el.style.borderColor = theme.light ? 'rgba(0,0,0,0.10)' : theme.accent + '40';
+  el.style.boxShadow = `0 25px 60px rgba(0,0,0,0.6), 0 0 70px ${theme.glow || theme.accent + '55'}`;
+}
+
+// Repaint whichever card is on screen and sync every picker's active state.
+function refreshCardThemes() {
+  const theme = resolveCardTheme(cardThemeId);
+  applyCardTheme(dailyCardEl, theme);
+  applyCardTheme(songCardEl, theme);
+  document.querySelectorAll('.dc-theme-swatch').forEach((b) => {
+    b.classList.toggle('active', b.dataset.theme === cardThemeId);
+    if (b.dataset.theme === 'artist') {
+      // The Artist swatch follows the artist you're currently viewing.
+      const a = resolveCardTheme('artist');
+      b.style.setProperty('--sw-accent', a.accent);
+      b.style.setProperty('--sw-bg', '#111a2e');
+    }
+  });
+}
+
+function buildCardThemePickers() {
+  document.querySelectorAll('[data-theme-picker]').forEach((container) => {
+    if (container.dataset.built) return;
+    container.dataset.built = '1';
+    container.innerHTML = CARD_THEMES.map((t) => {
+      const r = t.id === 'artist' ? resolveCardTheme('artist') : t;
+      const swBg = t.light ? (t.page || '#f2f2f2') : '#111a2e';
+      return `<button type="button" class="dc-theme-swatch" data-theme="${t.id}" title="${t.name}" aria-label="${t.name} theme"
+                style="--sw-accent:${r.accent};--sw-bg:${swBg};"></button>`;
+    }).join('');
+    container.addEventListener('click', (e) => {
+      const btn = e.target.closest('.dc-theme-swatch');
+      if (!btn) return;
+      cardThemeId = btn.dataset.theme;
+      try { localStorage.setItem(CARD_THEME_KEY, cardThemeId); } catch (err) { /* private mode */ }
+      refreshCardThemes();
+    });
+  });
+  refreshCardThemes();
+}
+// NOTE: not called at load time on purpose — ARTIST_THEMES/LANDING_THEME are
+// `const`s declared further down, so touching them here would hit the temporal
+// dead zone. The pickers are built when a card is first opened.
+
 // Parse a YYYY-MM-DD (or any date string) into a LOCAL Date — avoids the UTC
 // midnight shift that makes the calendar day jump by one in some timezones.
 function parseLocalDate(dateStr) {
@@ -1561,14 +1643,9 @@ function cleanAlbumTitle(title) {
 async function openDailyCard() {
   if (!currentAlbumMeta || !dailyCardEl) return;
   const { albumId, title, coverUrl } = currentAlbumMeta;
-  const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
 
   dailyCardModal.classList.remove('hidden');
-  dailyCardEl.style.setProperty('--dc-accent', theme.accent);
-  dailyCardEl.style.setProperty('--dc-accent-rgb', hexToRgbTriplet(theme.accent));
-  dailyCardEl.style.background = theme.bgGradient;
-  dailyCardEl.style.borderColor = theme.accent + '40';
-  dailyCardEl.style.boxShadow = `0 25px 60px rgba(0,0,0,0.6), 0 0 70px ${theme.accentGlow}`;
+  buildCardThemePickers();   // idempotent; also applies the saved colour theme
   dailyCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">Loading…</div>`;
 
   try {
@@ -1643,7 +1720,7 @@ async function openDailyCard() {
           <td class="dc-rank">${i + 1}</td>
           <td class="dc-track" title="${esc(s.title)}">${star}${esc(cleanTrackTitle(s.title))}</td>
           <td>${formatNumber(daily)}</td>
-          <td class="${c.cls}">${c.txt}</td>
+          <td class="${c.cls}">${c.txt}<span class="dc-pct-inline">${c.pct}</span></td>
           <td class="${c.cls}">${c.pct}</td>
           <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
         </tr>`;
@@ -1683,7 +1760,7 @@ async function openDailyCard() {
             <td class="dc-rank"></td>
             <td class="dc-left">TOTAL</td>
             <td>${formatNumber(totalDaily)}</td>
-            <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}</td>
+            <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}<span class="dc-pct-inline">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</span></td>
             <td class="${totalCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</td>
             <td class="dc-totalcol">${formatNumber(totalCum)}</td>
           </tr>
@@ -1708,7 +1785,9 @@ async function downloadDailyCard() {
     // Always render the PNG at the full desktop card width so the exported
     // image looks identical regardless of the (possibly narrow) mobile preview.
     const canvas = await html2canvas(dailyCardEl, {
-      backgroundColor: '#080c14',
+      // Match the chosen card theme's base colour, otherwise a light card gets
+      // dark corners where the rounded border is anti-aliased.
+      backgroundColor: resolveCardTheme(cardThemeId).page || '#080c14',
       // The daily card is small (600px wide) — full 2x fits well under the
       // iOS canvas area limit and keeps text sharp on Retina screens.
       scale: 2,
@@ -1734,6 +1813,10 @@ async function downloadDailyCard() {
         // may hide the % column to fit the screen).
         clonedDoc.querySelectorAll('#daily-card .dc-table th, #daily-card .dc-table td')
           .forEach(c => c.style.setProperty('display', 'table-cell', 'important'));
+        // ...and drop the stacked mobile-only % line, since the real % column
+        // is back. Without this the export would show the value twice.
+        clonedDoc.querySelectorAll('#daily-card .dc-pct-inline')
+          .forEach(c => c.style.setProperty('display', 'none', 'important'));
       }
     });
     const name = (currentAlbumMeta?.title || 'album').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
@@ -1772,7 +1855,6 @@ if (dailyCardModal) dailyCardModal.addEventListener('click', (e) => { if (e.targ
 // ===== Song Share Card =====
 async function openSongCard() {
   if (!currentSongMeta || !songCardEl) return;
-  const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
   // Year-end projection is opt-in (off by default) — it's a noisy estimate, so
   // most fans share the cleaner card without it. The toggle in the action bar
   // re-renders the card when flipped.
@@ -1780,11 +1862,7 @@ async function openSongCard() {
   const showYearEndProj = !!(yearEndToggle && yearEndToggle.checked);
 
   songCardModal.classList.remove('hidden');
-  songCardEl.style.setProperty('--dc-accent', theme.accent);
-  songCardEl.style.setProperty('--dc-accent-rgb', hexToRgbTriplet(theme.accent));
-  songCardEl.style.background = theme.bgGradient;
-  songCardEl.style.borderColor = theme.accent + '40';
-  songCardEl.style.boxShadow = `0 25px 60px rgba(0,0,0,0.6), 0 0 70px ${theme.accentGlow}`;
+  buildCardThemePickers();   // idempotent; also applies the saved colour theme
   songCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">Loading…</div>`;
 
   let percentChange = 0;
@@ -1875,7 +1953,7 @@ async function downloadSongCard() {
   }
   try {
     const canvas = await html2canvas(songCardEl, {
-      backgroundColor: '#080c14',
+      backgroundColor: resolveCardTheme(cardThemeId).page || '#080c14',
       scale: 2,
       useCORS: true,
       imageTimeout: 15000,

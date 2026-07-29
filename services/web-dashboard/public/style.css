@@ -1032,8 +1032,70 @@ tbody tr.featured-row:hover {
 .card-toggle:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.08); }
 .card-toggle input { accent-color: var(--accent-green); cursor: pointer; margin: 0; }
 
+/* Card colour-theme swatches. UI only — sits outside the card element, so it
+   never lands in the exported PNG. */
+.dc-theme-picker {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 22px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.03);
+  max-width: 100%;
+}
+
+.dc-theme-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  background: var(--sw-bg, #111a2e);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.dc-theme-swatch::after {
+  /* Accent dot in the middle so a swatch shows both the card's background
+     and the accent it will use. */
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: var(--sw-accent, #1ed760);
+}
+.dc-theme-swatch:hover { transform: scale(1.12); }
+.dc-theme-swatch.active {
+  border-color: var(--sw-accent, #1ed760);
+  transform: scale(1.12);
+}
+.dc-theme-swatch:focus-visible {
+  outline: 2px solid var(--accent-green);
+  outline-offset: 2px;
+}
+
+/* Every colour inside the card comes from a --dc-* variable so a card theme
+   (see CARD_THEMES in app.js) can repaint it — including light themes — without
+   touching the page's own palette. Defaults reproduce the original dark look. */
 .daily-card {
   --dc-accent: var(--accent-green);
+  --dc-text: var(--text-primary);
+  --dc-text-2: var(--text-secondary);
+  --dc-muted: var(--text-muted);
+  --dc-line: rgba(255, 255, 255, 0.05);
+  --dc-line-strong: rgba(255, 255, 255, 0.14);
+  --dc-soft: rgba(255, 255, 255, 0.03);
+  --dc-soft-strong: rgba(255, 255, 255, 0.08);
+  --dc-zebra: rgba(255, 255, 255, 0.022);
+  --dc-pos: var(--gain-green);
+  --dc-pos-rgb: 30, 215, 96;
+  --dc-neg: var(--accent-red);
+  --dc-neg-rgb: 239, 68, 68;
+  --dc-flat-rgb: 148, 163, 184;
   width: 600px;
   max-width: 92vw;
   box-sizing: border-box;
@@ -1042,8 +1104,27 @@ tbody tr.featured-row:hover {
   border-radius: 18px;
   padding: 26px 28px;
   font-family: 'Outfit', sans-serif;
-  color: var(--text-primary);
+  color: var(--dc-text);
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+}
+
+/* Light card themes: flip the neutrals (hairlines/zebra become dark-on-light)
+   and darken the green so it still reads as green on a pale background. */
+.daily-card.dc-light {
+  --dc-text: #12161f;
+  --dc-text-2: #4b5462;
+  --dc-muted: #7b8494;
+  --dc-line: rgba(0, 0, 0, 0.08);
+  --dc-line-strong: rgba(0, 0, 0, 0.18);
+  --dc-soft: rgba(0, 0, 0, 0.035);
+  --dc-soft-strong: rgba(0, 0, 0, 0.1);
+  --dc-zebra: rgba(0, 0, 0, 0.03);
+  --dc-pos: #0f8a41;
+  --dc-pos-rgb: 15, 138, 65;
+  --dc-neg: #c33a2e;
+  --dc-neg-rgb: 195, 58, 46;
+  --dc-flat-rgb: 100, 112, 130;
+  border-color: rgba(0, 0, 0, 0.1);
 }
 
 .dc-header {
@@ -1065,11 +1146,11 @@ tbody tr.featured-row:hover {
 .dc-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .dc-album { font-size: 1.4rem; font-weight: 800; line-height: 1.12; text-transform: uppercase; }
 .dc-artist { font-size: 0.95rem; font-weight: 700; color: var(--dc-accent); letter-spacing: 1px; }
-.dc-date { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; }
+.dc-date { font-size: 0.78rem; color: var(--dc-muted); text-transform: uppercase; letter-spacing: 1.5px; }
 
 .dc-divider {
   height: 1px;
-  background: linear-gradient(90deg, rgba(var(--dc-accent-rgb, 30, 215, 96), 0.5), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(90deg, rgba(var(--dc-accent-rgb, 30, 215, 96), 0.5), var(--dc-line));
   margin: 18px 0 16px;
 }
 
@@ -1092,7 +1173,7 @@ tbody tr.featured-row:hover {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 1.5px;
-  color: var(--text-muted);
+  color: var(--dc-muted);
   margin-bottom: 2px;
 }
 
@@ -1101,7 +1182,7 @@ tbody tr.featured-row:hover {
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: var(--gain-green);
+  color: var(--dc-pos);
 }
 
 .dc-badge {
@@ -1112,17 +1193,17 @@ tbody tr.featured-row:hover {
   white-space: nowrap;
 }
 
-.dc-badge.up { background: rgba(30, 215, 96, 0.16); color: var(--gain-green); }
-.dc-badge.down { background: rgba(239, 68, 68, 0.16); color: var(--accent-red); }
-.dc-badge.flat { background: rgba(148, 163, 184, 0.16); color: var(--text-secondary); }
+.dc-badge.up { background: rgba(var(--dc-pos-rgb), 0.16); color: var(--dc-pos); }
+.dc-badge.down { background: rgba(var(--dc-neg-rgb), 0.16); color: var(--dc-neg); }
+.dc-badge.flat { background: rgba(var(--dc-flat-rgb), 0.16); color: var(--dc-text-2); }
 
 .dc-total {
   font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: var(--dc-text-2);
   margin-top: 8px;
   font-variant-numeric: tabular-nums;
 }
-.dc-total b { color: var(--text-primary); font-weight: 700; }
+.dc-total b { color: var(--dc-text); font-weight: 700; }
 
 .dc-table {
   width: 100%;
@@ -1144,7 +1225,7 @@ tbody tr.featured-row:hover {
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--text-muted);
+  color: var(--dc-muted);
   font-weight: 600;
   padding: 0 0 8px;
 }
@@ -1153,7 +1234,7 @@ tbody tr.featured-row:hover {
 .dc-table th.dc-rank, .dc-table td.dc-rank {
   text-align: center;
   width: 26px;
-  color: var(--text-muted);
+  color: var(--dc-muted);
   font-size: 0.75rem;
 }
 
@@ -1162,12 +1243,16 @@ tbody tr.featured-row:hover {
   font-size: 0.82rem;
   padding: 6px 4px;
   font-variant-numeric: tabular-nums;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  /* The global `td` rule sets colour + a white bottom hairline; both have to be
+     overridden here or a light card theme renders white-on-white. */
+  color: var(--dc-text);
+  border-top: 1px solid var(--dc-line);
+  border-bottom: none;
   white-space: nowrap;
 }
 
 .dc-table tbody tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.022);
+  background: var(--dc-zebra);
 }
 
 .dc-table td.dc-track {
@@ -1175,21 +1260,26 @@ tbody tr.featured-row:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-primary);
+  color: var(--dc-text);
   padding-left: 4px;
   font-weight: 500;
 }
 
 .dc-star { color: var(--dc-accent); margin-right: 4px; font-size: 0.72rem; vertical-align: middle; }
 
-.dc-pos { color: var(--gain-green); }
-.dc-neg { color: var(--accent-red); }
-.dc-muted { color: var(--text-muted); }
+/* Second line inside the Change cell carrying the % — shown ONLY on the narrow
+   preview, where the standalone % column is hidden. The exported PNG renders at
+   600px (desktop rules), so it keeps the real % column and hides this. */
+.dc-pct-inline { display: none; }
+
+.dc-pos { color: var(--dc-pos); }
+.dc-neg { color: var(--dc-neg); }
+.dc-muted { color: var(--dc-muted); }
 /* Per-song Total column: brighter and bolder so it stands out, not faint */
-.dc-totalcol { color: var(--text-primary); font-weight: 700; }
+.dc-totalcol { color: var(--dc-text); font-weight: 700; }
 
 .dc-table tfoot td {
-  border-top: 2px solid rgba(255, 255, 255, 0.14);
+  border-top: 2px solid var(--dc-line-strong);
   padding-top: 9px;
   font-weight: 800;
   font-size: 0.9rem;
@@ -1202,7 +1292,7 @@ tbody tr.featured-row:hover {
   justify-content: center;
   gap: 7px;
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: var(--dc-muted);
   letter-spacing: 0.5px;
 }
 .dc-footer b { color: var(--dc-accent); }
@@ -1352,13 +1442,21 @@ tbody tr.featured-row:hover {
   .dc-badge { font-size: 0.85rem; padding: 5px 9px; }
   .dc-table { margin-top: 12px; }
   .dc-table th, .dc-table td { font-size: 0.72rem; padding: 5px 2px; }
-  /* Drop the % column on small screens; Change already conveys direction. */
+  /* Drop the standalone % column on small screens — there isn't room for six
+     columns — but keep the number itself by stacking it under Change. */
   .dc-table th:nth-child(5), .dc-table td:nth-child(5) { display: none; }
+  .dc-pct-inline {
+    display: block;
+    font-size: 0.62rem;
+    font-weight: 600;
+    line-height: 1.25;
+    opacity: 0.95;
+  }
   /* Shrink the fixed numeric columns so the preview fits a phone viewport
      (the exported PNG still renders at the full 600px desktop width). */
-  .dc-table th:nth-child(3), .dc-table td:nth-child(3) { width: 62px; }
-  .dc-table th:nth-child(4), .dc-table td:nth-child(4) { width: 52px; }
-  .dc-table th:nth-child(6), .dc-table td:nth-child(6) { width: 90px; }
+  .dc-table th:nth-child(3), .dc-table td:nth-child(3) { width: 56px; }
+  .dc-table th:nth-child(4), .dc-table td:nth-child(4) { width: 56px; }
+  .dc-table th:nth-child(6), .dc-table td:nth-child(6) { width: 86px; }
   .dc-footer { font-size: 0.66rem; margin-top: 12px; }
 }
 
@@ -4533,7 +4631,7 @@ select.tc-input { cursor: pointer; }
 /* Make the hero daily number the focal point with a subtle accent glow
    (text-shadow exports cleanly in html2canvas). */
 .song-card .dc-daily-num {
-  text-shadow: 0 0 22px rgba(30, 215, 96, 0.30);
+  text-shadow: 0 0 22px rgba(var(--dc-accent-rgb, 30, 215, 96), 0.30);
 }
 
 .sc-stats-grid {
@@ -4544,8 +4642,8 @@ select.tc-input { cursor: pointer; }
 }
 
 .sc-stat-box {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--dc-soft);
+  border: 1px solid var(--dc-line);
   border-radius: 12px;
   padding: 12px 14px;
   display: flex;
@@ -4555,7 +4653,7 @@ select.tc-input { cursor: pointer; }
 
 .sc-stat-label {
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: var(--dc-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -4563,7 +4661,7 @@ select.tc-input { cursor: pointer; }
 .sc-stat-val {
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--dc-text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -4587,7 +4685,7 @@ select.tc-input { cursor: pointer; }
 }
 
 .sc-milestone-label {
-  color: var(--text-primary);
+  color: var(--dc-text);
 }
 
 .sc-milestone-label b {
@@ -4595,13 +4693,13 @@ select.tc-input { cursor: pointer; }
 }
 
 .sc-milestone-eta {
-  color: var(--text-secondary);
+  color: var(--dc-text-2);
   font-weight: 500;
 }
 
 .sc-progress-bar-container {
   height: 8px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--dc-soft-strong);
   border-radius: 4px;
   overflow: hidden;
   position: relative;
@@ -4609,14 +4707,14 @@ select.tc-input { cursor: pointer; }
 
 .sc-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, var(--dc-accent) 0%, var(--accent-green-hover, #1db954) 100%);
+  background: linear-gradient(90deg, rgba(var(--dc-accent-rgb, 30, 215, 96), 0.65) 0%, var(--dc-accent) 100%);
   border-radius: 4px;
   transition: width 0.6s ease;
 }
 
 .sc-progress-percent {
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--dc-muted);
   text-align: right;
 }
 
