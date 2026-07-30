@@ -1982,7 +1982,11 @@ function lcDelta(change, prev) {
 // then his 15 biggest tracks, then the catalogue total. Green-on-navy to match
 // his dashboard theme.
 const JT_ARTIST_ID = '31TPClRtHm23RisEBtV3X7';
-const JT_TOP_TRACKS = 15;
+const JT_TOP_TRACKS = 30;
+
+// Which column orders the sortable cards. Governs both sections so the albums
+// and the tracks are always ranked by the same thing.
+let statsCardSort = 'total';   // 'total' | 'daily'
 // Built lazily: HERO_IMAGE_VERSION is a const declared further down, so reading
 // it at this point in the file hits the temporal dead zone and kills the whole
 // script before any of the element lookups below it run.
@@ -2016,7 +2020,10 @@ function renderJtCard() {
     if (song.recorded_date && (!recordedDate || song.recorded_date > recordedDate)) recordedDate = song.recorded_date;
   }
 
-  // --- Albums, biggest first ---
+  const byDaily = statsCardSort === 'daily';
+  const rank = (a, b) => (byDaily ? b.daily - a.daily : b.cum - a.cum);
+
+  // --- Albums ---
   const albums = (Array.isArray(allAlbums) ? allAlbums : [])
     .map((a) => ({
       label: cleanAlbumTitle(a.album_title) || a.album_title,
@@ -2025,9 +2032,9 @@ function renderJtCard() {
       prev: Number(a.prev_daily_gain || 0),
     }))
     .filter((a) => a.cum > 0)
-    .sort((a, b) => b.cum - a.cum);
+    .sort(rank);
 
-  // --- Top tracks by total streams ---
+  // --- Top tracks ---
   const tracks = [...allSongs]
     .map((sg) => ({
       label: statsCardLabel(sg.title) || sg.title,
@@ -2035,7 +2042,7 @@ function renderJtCard() {
       daily: Number(sg.daily_gain || 0),
       prev: Number(sg.prev_daily_gain || 0),
     }))
-    .sort((a, b) => b.cum - a.cum)
+    .sort(rank)
     .slice(0, JT_TOP_TRACKS);
 
   // --- Catalogue total: every tracked song, not the album sum. Albums overlap
@@ -2047,9 +2054,11 @@ function renderJtCard() {
     return acc;
   }, { cum: 0, daily: 0, prev: 0 });
 
-  let html = band(`ALBUMS (${albums.length})`);
+  // Say what the ranking is — the card gets shared without the picker next to it.
+  const byLabel = byDaily ? 'BY DAILY' : 'BY TOTAL';
+  let html = band(`ALBUMS (${albums.length}) · ${byLabel}`);
   for (const a of albums) html += row(a.label, a);
-  html += band(`TOP ${tracks.length} TRACKS`);
+  html += band(`TOP ${tracks.length} TRACKS · ${byLabel}`);
   for (const t of tracks) html += row(t.label, t);
   html += row('OVERALL', overall, 'lc-group');
 
@@ -2087,13 +2096,15 @@ const statsCardEl = document.getElementById('stats-card');
 const statsCardBtn = document.getElementById('stats-card-btn');
 const statsCardCloseBtn = document.getElementById('stats-card-close-btn');
 const statsCardDownloadBtn = document.getElementById('stats-card-download-btn');
+const statsCardSortWrap = document.getElementById('stats-card-sort-wrap');
+const statsCardSortSel = document.getElementById('stats-card-sort');
 
 // Artists that have a hand-built stats card. Each entry supplies the palette
 // class, the flat colour html2canvas paints behind the card, and the renderer.
 // Adding a third artist is one entry plus a render function.
 const STATS_CARD_RENDERERS = {
   [LISA_ARTIST_ID]: { theme: 'theme-lisa', bg: '#f5d67a', render: renderLisaCard },
-  [JT_ARTIST_ID]:   { theme: 'theme-jt',   bg: '#080c14', render: renderJtCard },
+  [JT_ARTIST_ID]:   { theme: 'theme-jt',   bg: '#080c14', render: renderJtCard, sortable: true },
 };
 
 // Called from applyArtistTheme, which every artist-switch path goes through
@@ -2231,6 +2242,8 @@ function openStatsCard() {
   if (!statsCardModal || !conf) return;
   // Palette is per artist; drop whatever the previous one left behind.
   statsCardEl.className = 'stats-card ' + conf.theme;
+  if (statsCardSortWrap) statsCardSortWrap.classList.toggle('hidden', !conf.sortable);
+  if (statsCardSortSel) statsCardSortSel.value = statsCardSort;
   statsCardModal.classList.remove('hidden');
   conf.render();
   fitStatsCard();
@@ -2292,6 +2305,11 @@ async function downloadStatsCard() {
   }
 }
 
+if (statsCardSortSel) statsCardSortSel.addEventListener('change', () => {
+  statsCardSort = statsCardSortSel.value === 'daily' ? 'daily' : 'total';
+  const conf = STATS_CARD_RENDERERS[currentArtist];
+  if (conf) { conf.render(); fitStatsCard(); }
+});
 if (statsCardBtn) statsCardBtn.addEventListener('click', openStatsCard);
 if (statsCardCloseBtn) statsCardCloseBtn.addEventListener('click', () => statsCardModal.classList.add('hidden'));
 if (statsCardDownloadBtn) statsCardDownloadBtn.addEventListener('click', downloadStatsCard);

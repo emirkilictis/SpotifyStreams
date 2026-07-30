@@ -1032,6 +1032,41 @@ tbody tr.featured-row:hover {
 .card-toggle:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.08); }
 .card-toggle input { accent-color: var(--accent-green); cursor: pointer; margin: 0; }
 
+/* Same chip as .card-toggle, but wrapping a <select> (card ordering). */
+.card-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  user-select: none;
+  padding: 5px 8px 5px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+  transition: var(--transition-smooth);
+}
+.card-select:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.08); }
+.card-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 3px 22px 3px 6px;
+  border-radius: 14px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 10px center, right 5px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.card-select select:focus-visible { outline: 2px solid var(--accent-green); outline-offset: 1px; }
+.card-select option { background: #101722; color: var(--text-primary); }
+
 /* Card colour-theme swatches. UI only — sits outside the card element, so it
    never lands in the exported PNG. */
 .dc-theme-picker {

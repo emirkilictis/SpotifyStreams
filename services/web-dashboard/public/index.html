@@ -589,6 +589,15 @@
   <div class="modal-backdrop hidden" id="stats-card-modal">
     <div class="daily-card-shell stats-card-shell">
       <div class="daily-card-actions">
+        <!-- Only shown for cards whose renderer supports ordering (see
+             STATS_CARD_RENDERERS.sortable) — LISA's is fixed era order. -->
+        <label class="card-select hidden" id="stats-card-sort-wrap">
+          <span>Sort by</span>
+          <select id="stats-card-sort">
+            <option value="total">Total streams</option>
+            <option value="daily">Daily streams</option>
+          </select>
+        </label>
         <button id="stats-card-download-btn" class="btn-primary" type="button" style="display:inline-flex;align-items:center;gap:8px;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Save PNG</span>
