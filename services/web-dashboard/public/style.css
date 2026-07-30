@@ -1275,6 +1275,12 @@ tbody tr.featured-row:hover {
 .dc-pos { color: var(--dc-pos); }
 .dc-neg { color: var(--dc-neg); }
 .dc-muted { color: var(--dc-muted); }
+/* These have to out-specify `.dc-table td`, which sets a colour of its own for
+   the light card themes. A bare `.dc-pos` (0,1,0) loses to it (0,1,1) and every
+   Change / % cell renders in the plain text colour instead of green or red. */
+.dc-table td.dc-pos, .dc-table tfoot td.dc-pos { color: var(--dc-pos); }
+.dc-table td.dc-neg, .dc-table tfoot td.dc-neg { color: var(--dc-neg); }
+.dc-table td.dc-muted, .dc-table tfoot td.dc-muted { color: var(--dc-muted); }
 /* Per-song Total column: brighter and bolder so it stands out, not faint */
 .dc-totalcol { color: var(--dc-text); font-weight: 700; }
 
