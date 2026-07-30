@@ -219,10 +219,35 @@ function hexToRgbTriplet(hex) {
 
 function formatDate(dateStr) {
   if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr.slice(0, 10);
+  // parseLocalDate, not new Date(): a bare "2026-07-28" parses as UTC midnight,
+  // which renders as the 27th for anyone west of Greenwich.
+  const d = parseLocalDate(dateStr);
+  if (isNaN(d.getTime())) return String(dateStr).slice(0, 10);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
+
+// Spotify's playcounts run a day behind: the number scraped on the 28th is the
+// catalogue as of the 27th, so the gain between two scrapes belongs to the
+// earlier day.
+//
+// APPLIED ONLY TO THE LISA / JT STATS CARDS for now. Those are captions on a
+// single day's numbers, which is where the off-by-one actually misleads a
+// reader. Everything else — the last-update chip, chart axes, share-card
+// captions, achieved-milestone dates, the admin panel — still shows the raw
+// scrape date, so what the site says keeps matching what recorded_date says
+// when something needs debugging. Set to 0 to drop the shift entirely.
+const STREAM_DATE_OFFSET_DAYS = -1;
+
+// Returns a YYYY-MM-DD string so downstream formatters stay on a local date.
+function toStreamDay(dateStr) {
+  if (!dateStr || !STREAM_DATE_OFFSET_DAYS) return dateStr;
+  const d = parseLocalDate(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  d.setDate(d.getDate() + STREAM_DATE_OFFSET_DAYS);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 
 function filterHistoryByRange(history, range) {
   if (!history || history.length === 0) return [];
@@ -2029,7 +2054,7 @@ function renderJtCard() {
   html += row('OVERALL', overall, 'lc-group');
 
   const dateStr = recordedDate
-    ? parseLocalDate(recordedDate).toLocaleDateString('en-GB').replace(/\//g, '.')
+    ? parseLocalDate(toStreamDay(recordedDate)).toLocaleDateString('en-GB').replace(/\//g, '.')
     : '';
 
   statsCardEl.innerHTML = `
@@ -2154,7 +2179,7 @@ function renderLisaCard() {
   html += groupRow('OVERALL', totals.all);
 
   const dateStr = recordedDate
-    ? parseLocalDate(recordedDate).toLocaleDateString('en-GB').replace(/\//g, '.')
+    ? parseLocalDate(toStreamDay(recordedDate)).toLocaleDateString('en-GB').replace(/\//g, '.')
     : '';
 
   statsCardEl.innerHTML = `
@@ -4122,7 +4147,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     titleStr += `${currentArtistName} Spotify Stats`;
     
     if (isDateChecked && currentArtistRawStats && currentArtistRawStats.last_update) {
-      const d = new Date(currentArtistRawStats.last_update);
+      const d = parseLocalDate(currentArtistRawStats.last_update);
       if (!isNaN(d.getTime())) {
         const dateFormatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         titleStr += ` (${dateFormatted})`;
