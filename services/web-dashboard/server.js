@@ -335,7 +335,46 @@ function fmtStreamsShort(n) {
   return String(v);
 }
 
+// These caches used to refresh ONLY at boot and on writes made through the
+// admin API. reconcile-kworb.js runs in GitHub Actions and writes
+// extra_artist_songs straight to the DB, so without a reload an auto-linked
+// collab stays invisible here until the next deploy.
+//
+// This is deliberately LAZY rather than a setInterval. Neon suspends the
+// compute after a few idle minutes and bills by the hour it stays awake; a
+// background timer pings it forever and the database never sleeps, which is
+// what burned through the monthly compute allowance. Refreshing on the next
+// request that arrives after the TTL means an idle site costs nothing.
+const ROSTER_CACHE_TTL_MS = 10 * 60 * 1000;
+const OG_CACHE_TTL_MS = 30 * 60 * 1000;
+let rosterCacheAt = 0;
+let ogCacheAt = 0;
+let rosterRefreshInFlight = null;
+
+function refreshRosterCaches() {
+  rosterCacheAt = Date.now();
+  return Promise.all([
+    refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(),
+    refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(),
+  ]);
+}
+
+// Fire-and-forget: never make a page wait on a cache that is merely stale.
+function touchRosterCaches() {
+  const now = Date.now();
+  if (now - rosterCacheAt >= ROSTER_CACHE_TTL_MS && !rosterRefreshInFlight) {
+    rosterRefreshInFlight = refreshRosterCaches()
+      .catch(() => {})
+      .finally(() => { rosterRefreshInFlight = null; });
+  }
+  if (now - ogCacheAt >= OG_CACHE_TTL_MS) {
+    ogCacheAt = now;
+    refreshOgStatsCache().catch(() => {});
+  }
+}
+
 async function refreshOgStatsCache() {
+  ogCacheAt = Date.now();
   try {
     const roster = activeArtistsCache;
     const next = new Map();
@@ -631,6 +670,9 @@ process.on('uncaughtException', (err) => {
 
 app.use(express.json());
 app.use(cookieParser('spotify-streams-secret-key'));
+// Refresh the roster/OG caches off the back of real traffic instead of a timer,
+// so an idle site lets the database suspend. See touchRosterCaches.
+app.use((req, res, next) => { touchRosterCaches(); next(); });
 
 // Auth check middleware.
 // The general site passcode has been removed — the dashboard is public.
@@ -1020,8 +1062,41 @@ app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res)
   }
 });
 
+// The dashboard polls this endpoint continuously, so it must stay cheap: the
+// answer is identical for every visitor, so compute it at most once per window
+// and hand out the same object. Without this, N open tabs meant N queries every
+// poll — the single biggest driver of Neon compute usage.
+const SCRAPER_STATUS_TTL_MS = 30 * 1000;
+let scraperStatusCache = null;
+let scraperStatusAt = 0;
+let scraperStatusInFlight = null;
+
 app.get('/api/scraper-status', requireAuth, async (req, res) => {
   try {
+    if (scraperStatusCache && Date.now() - scraperStatusAt < SCRAPER_STATUS_TTL_MS) {
+      return res.json(scraperStatusCache);
+    }
+    // Collapse concurrent misses into one query.
+    if (scraperStatusInFlight) return res.json(await scraperStatusInFlight);
+    scraperStatusInFlight = buildScraperStatus()
+      .catch((err) => {
+        // Over quota, asleep, whatever — the banner is decoration. Degrade to
+        // "idle" and cache THAT too, so a database that is refusing queries
+        // doesn't get one retry per poll per tab.
+        console.error('Scraper status error:', err.message);
+        return { status: 'idle', started_at: null, updated_at: null, artists: [] };
+      })
+      .then((payload) => { scraperStatusCache = payload; scraperStatusAt = Date.now(); return payload; })
+      .finally(() => { scraperStatusInFlight = null; });
+    return res.json(await scraperStatusInFlight);
+  } catch (err) {
+    console.error('Scraper status error:', err);
+    return res.json({ status: 'idle', started_at: null, updated_at: null, artists: [] });
+  }
+});
+
+async function buildScraperStatus() {
+  {
     // 1. Global scraper status row
     const statusRes = await dbQuery(
       'SELECT status, started_at, updated_at FROM scraper_status WHERE id = 1'
@@ -1034,19 +1109,22 @@ app.get('/api/scraper-status', requireAuth, async (req, res) => {
     //    Falls back gracefully if tracked_artists doesn't exist yet.
     let perArtist = [];
     try {
+      // Reads canonical_streams DIRECTLY, not daily_streams_canonical: that view
+      // recomputes a running MAX and a LAG over the whole catalogue every time
+      // it is touched. The banner only needs each artist's newest snapshot date
+      // — the row_count / first_date this used to also compute were never read
+      // by the client, and COUNT(DISTINCT) over that view was the expensive bit.
       const artistRes = await dbQuery(`
         SELECT
           ta.artist_id,
           ta.name,
           ta.active,
-          COUNT(DISTINCT dsc.canonical_id)::int  AS row_count,
-          MAX(dsc.recorded_date)                  AS last_date,
-          MIN(dsc.recorded_date)                  AS first_date
+          MAX(cs.recorded_date) AS last_date
         FROM tracked_artists ta
         LEFT JOIN songs s
           ON s.primary_artist = 'spotify:artist:' || ta.artist_id
-        LEFT JOIN daily_streams_canonical dsc
-          ON dsc.canonical_id = s.id
+        LEFT JOIN canonical_streams cs
+          ON cs.song_id = s.id
         GROUP BY ta.artist_id, ta.name, ta.active
         ORDER BY ta.sort_order, ta.name
       `);
@@ -1056,16 +1134,14 @@ app.get('/api/scraper-status', requireAuth, async (req, res) => {
     }
 
 
-    res.json({
+    return {
       status:      global.status,
       started_at:  global.started_at,
       updated_at:  global.updated_at,
       artists:     perArtist,
-    });
-  } catch (err) {
-    res.json({ status: 'idle', started_at: null, updated_at: null, artists: [] });
+    };
   }
-});
+}
 
 
 app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req, res) => {
@@ -3305,18 +3381,7 @@ app.get('*', requireAuth, (req, res) => {
 
 app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
-  const refreshRosterCaches = () => Promise.all([
-    refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(),
-    refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(),
-  ]);
   await refreshRosterCaches();
-  // These caches used to refresh ONLY at boot and on writes made through the
-  // admin API. reconcile-kworb.js runs in GitHub Actions and writes
-  // extra_artist_songs straight to the DB, so without a periodic reload an
-  // auto-linked collab would stay invisible here until the next deploy — the
-  // repair would look like it silently did nothing. The queries are tiny.
-  setInterval(() => { refreshRosterCaches().catch(() => {}); }, 10 * 60 * 1000).unref();
   // OG preview stats depend on the roster cache above being populated first.
   refreshOgStatsCache();
-  setInterval(refreshOgStatsCache, 30 * 60 * 1000).unref();
 });

@@ -4077,9 +4077,13 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     finally { setDashboardLoading(false); }
   }
 
+  // Drives the poll cadence below — fast only while a scrape is in flight.
+  let syncIsActive = false;
+
   async function updateSync(data) {
     const status = data.status || 'idle';
     const active = status === 'scraping' || status === 'deduping';
+    syncIsActive = active;
     const { sel, selDate, selectedFresh } = selectedInfo(data);
 
     if (active) {
@@ -4118,8 +4122,42 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   // Check immediately on load
   checkScraperStatus();
 
-  // Poll every 10 seconds
-  setInterval(checkScraperStatus, 10000);
+  // Adaptive polling. A fixed 10s tick meant every open tab hit the database
+  // six times a minute forever, which kept Neon's compute awake around the
+  // clock — the fastest way to burn a monthly compute allowance. Poll quickly
+  // only while a scrape is actually running, slowly when it isn't, and not at
+  // all while the tab is in the background.
+  const POLL_ACTIVE_MS = 10000;          // a scrape is in flight
+  const POLL_IDLE_STEPS = [120000, 300000, 900000];  // 2min -> 5min -> 15min
+  let pollTimer = null;
+  let idleStep = 0;
+
+  function schedulePoll() {
+    clearTimeout(pollTimer);
+    if (document.hidden) return;         // resumed by visibilitychange below
+    if (syncIsActive) {
+      idleStep = 0;
+    } else if (idleStep >= POLL_IDLE_STEPS.length) {
+      // Nothing has happened for ~20 minutes. Stop entirely rather than ping a
+      // sleeping database forever — a forgotten open tab is not a reason to
+      // keep the compute awake. Refocusing the tab starts it up again.
+      return;
+    }
+    const delay = syncIsActive ? POLL_ACTIVE_MS : POLL_IDLE_STEPS[idleStep++];
+    pollTimer = setTimeout(async () => {
+      await checkScraperStatus();
+      schedulePoll();
+    }, delay);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { clearTimeout(pollTimer); return; }
+    // Back in view: catch up once, then restart the ladder from the top.
+    idleStep = 0;
+    checkScraperStatus().finally(schedulePoll);
+  });
+
+  schedulePoll();
 })();
 
 // ===== Twitter Post Generator =====
