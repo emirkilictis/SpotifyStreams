@@ -1977,22 +1977,30 @@ function lcDelta(change, prev) {
   };
 }
 
-// ===== Justin Timberlake card: albums + top tracks =====
-// Same poster shape as LISA's, different cut of the data: every album he has,
-// then his 15 biggest tracks, then the catalogue total. Green-on-navy to match
-// his dashboard theme.
+// ===== Catalogue card: albums + top tracks =====
+// The default card for every artist (LISA has her own era-grouped one): all of
+// their albums, then their biggest tracks, then the catalogue total. It paints
+// itself from whatever accent that artist's dashboard theme uses.
 const JT_ARTIST_ID = '31TPClRtHm23RisEBtV3X7';
-const JT_TOP_TRACKS = 30;
+const CARD_TOP_TRACKS = 30;
+// Discographies vary wildly — JT has 6 albums, Stray Kids have dozens. Without a
+// ceiling the card renders 3000px tall and stops being shareable. Everything up
+// to this many albums is shown in full; past it the band says what was cut.
+const CARD_MAX_ALBUMS = 20;
 
 // Which column orders the sortable cards. Governs both sections so the albums
 // and the tracks are always ranked by the same thing.
 let statsCardSort = 'total';   // 'total' | 'daily'
-// Built lazily: HERO_IMAGE_VERSION is a const declared further down, so reading
-// it at this point in the file hits the temporal dead zone and kills the whole
-// script before any of the element lookups below it run.
-const jtPhotoUrl = () => `/images/jt.jpg?v=${HERO_IMAGE_VERSION}`;
+// Built lazily: ARTIST_THEMES / HERO_IMAGE_VERSION are consts declared further
+// down, so reading them at this point in the file hits the temporal dead zone
+// and kills the whole script before any of the element lookups below it run.
+function cardPhotoUrl() {
+  const img = (ARTIST_THEMES[currentArtist] || {}).img || '/images/default.jpg';
+  // Local files can be hot-swapped; bust the cache the same way the hero does.
+  return img.startsWith('/') ? `${img}?v=${HERO_IMAGE_VERSION}` : img;
+}
 
-function renderJtCard() {
+function renderCatalogueCard() {
   if (!statsCardEl) return;
   const songsReady = Array.isArray(allSongs) && allSongs.length > 0;
   if (!songsReady) {
@@ -2024,7 +2032,7 @@ function renderJtCard() {
   const rank = (a, b) => (byDaily ? b.daily - a.daily : b.cum - a.cum);
 
   // --- Albums ---
-  const albums = (Array.isArray(allAlbums) ? allAlbums : [])
+  const allAlbumRows = (Array.isArray(allAlbums) ? allAlbums : [])
     .map((a) => ({
       label: cleanAlbumTitle(a.album_title) || a.album_title,
       cum: Number(a.total_streams || 0),
@@ -2033,6 +2041,7 @@ function renderJtCard() {
     }))
     .filter((a) => a.cum > 0)
     .sort(rank);
+  const albums = allAlbumRows.slice(0, CARD_MAX_ALBUMS);
 
   // --- Top tracks ---
   const tracks = [...allSongs]
@@ -2043,7 +2052,7 @@ function renderJtCard() {
       prev: Number(sg.prev_daily_gain || 0),
     }))
     .sort(rank)
-    .slice(0, JT_TOP_TRACKS);
+    .slice(0, CARD_TOP_TRACKS);
 
   // --- Catalogue total: every tracked song, not the album sum. Albums overlap
   // (deluxe editions, compilations), so adding them up would double-count. ---
@@ -2054,9 +2063,13 @@ function renderJtCard() {
     return acc;
   }, { cum: 0, daily: 0, prev: 0 });
 
-  // Say what the ranking is — the card gets shared without the picker next to it.
+  // Say what the ranking is — the card gets shared without the picker next to it,
+  // and say so out loud when the album list had to be trimmed.
   const byLabel = byDaily ? 'BY DAILY' : 'BY TOTAL';
-  let html = band(`ALBUMS (${albums.length}) · ${byLabel}`);
+  const albumBand = allAlbumRows.length > albums.length
+    ? `ALBUMS · TOP ${albums.length} OF ${allAlbumRows.length} · ${byLabel}`
+    : `ALBUMS (${albums.length}) · ${byLabel}`;
+  let html = band(albumBand);
   for (const a of albums) html += row(a.label, a);
   html += band(`TOP ${tracks.length} TRACKS · ${byLabel}`);
   for (const t of tracks) html += row(t.label, t);
@@ -2068,13 +2081,13 @@ function renderJtCard() {
 
   statsCardEl.innerHTML = `
     <div class="lc-head">
-      <img class="lc-photo" src="${jtPhotoUrl()}" crossorigin="anonymous" alt="">
+      <img class="lc-photo" src="${cardPhotoUrl()}" crossorigin="anonymous" alt="">
       <div class="lc-head-band">
-        <div class="lc-title">Justin Timberlake Streams On Spotify</div>
+        <div class="lc-title">${esc(currentArtistName || 'Artist')} Streams On Spotify</div>
         <div class="lc-date">${dateStr}</div>
         <div class="lc-era">Total: ${lcNum(overall.cum)}</div>
         <div class="lc-era">Daily: ${lcNum(overall.daily)}</div>
-        <div class="lc-era">Songs: ${lcNum(allSongs.length)} · Albums: ${lcNum(albums.length)}</div>
+        <div class="lc-era">Songs: ${lcNum(allSongs.length)} · Albums: ${lcNum(allAlbumRows.length)}</div>
       </div>
     </div>
     <table class="lc-table">
@@ -2099,20 +2112,43 @@ const statsCardDownloadBtn = document.getElementById('stats-card-download-btn');
 const statsCardSortWrap = document.getElementById('stats-card-sort-wrap');
 const statsCardSortSel = document.getElementById('stats-card-sort');
 
-// Artists that have a hand-built stats card. Each entry supplies the palette
-// class, the flat colour html2canvas paints behind the card, and the renderer.
-// Adding a third artist is one entry plus a render function.
-const STATS_CARD_RENDERERS = {
+// Every artist gets the catalogue card; a few have a bespoke one instead.
+// The config supplies the palette class, the flat colour html2canvas paints
+// behind the card, and the renderer.
+const STATS_CARD_OVERRIDES = {
   [LISA_ARTIST_ID]: { theme: 'theme-lisa', bg: '#f5d67a', render: renderLisaCard },
-  [JT_ARTIST_ID]:   { theme: 'theme-jt',   bg: '#080c14', render: renderJtCard, sortable: true },
 };
+const CATALOGUE_CARD_CONF = {
+  theme: 'theme-artist', bg: '#080c14', render: renderCatalogueCard, sortable: true, accented: true,
+};
+
+function statsCardConfig(artistId) {
+  const id = artistId === undefined ? currentArtist : artistId;
+  if (!id) return null;               // on the picker there is nothing to draw
+  return STATS_CARD_OVERRIDES[id] || CATALOGUE_CARD_CONF;
+}
+
+// The catalogue card borrows the artist's accent. Bands are filled with it, so
+// pick the ink from its luminance — Stray Kids' near-white and JT's green both
+// need dark text, a deep indigo would not.
+function applyStatsCardAccent(el, artistId) {
+  const accent = (ARTIST_THEMES[artistId] || LANDING_THEME).accent || '#1ed760';
+  const rgb = hexToRgbTriplet(accent);
+  const [r, g, b] = rgb.split(',').map((n) => Number(n.trim()));
+  const light = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55;
+  el.style.setProperty('--sc-accent', accent);
+  el.style.setProperty('--sc-accent-rgb', rgb);
+  el.style.setProperty('--sc-total-ink', light ? '#0b1220' : '#f8fafc');
+  el.style.setProperty('--sc-total-pos', light ? '#064e2a' : '#4ade80');
+  el.style.setProperty('--sc-total-neg', light ? '#7f1d1d' : '#fca5a5');
+}
 
 // Called from applyArtistTheme, which every artist-switch path goes through
 // (deep link, picker card, header dropdown).
 function syncStatsCardButton(artistId) {
   if (!statsCardBtn) return;
   const id = artistId === undefined ? currentArtist : artistId;
-  const has = !!STATS_CARD_RENDERERS[id];
+  const has = !!statsCardConfig(id);
   statsCardBtn.classList.toggle('hidden', !has);
   if (!has && statsCardModal) statsCardModal.classList.add('hidden');
 }
@@ -2238,10 +2274,12 @@ function fitStatsCard() {
 }
 
 function openStatsCard() {
-  const conf = STATS_CARD_RENDERERS[currentArtist];
+  const conf = statsCardConfig(currentArtist);
   if (!statsCardModal || !conf) return;
   // Palette is per artist; drop whatever the previous one left behind.
   statsCardEl.className = 'stats-card ' + conf.theme;
+  statsCardEl.removeAttribute('style');
+  if (conf.accented) applyStatsCardAccent(statsCardEl, currentArtist);
   if (statsCardSortWrap) statsCardSortWrap.classList.toggle('hidden', !conf.sortable);
   if (statsCardSortSel) statsCardSortSel.value = statsCardSort;
   statsCardModal.classList.remove('hidden');
@@ -2253,7 +2291,7 @@ window.addEventListener('resize', fitStatsCard);
 
 async function downloadStatsCard() {
   if (!statsCardEl) return;
-  const conf = STATS_CARD_RENDERERS[currentArtist] || {};
+  const conf = statsCardConfig(currentArtist) || {};
   const width = statsCardWidth();
   const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
   const photo = statsCardEl.querySelector('.lc-photo');
@@ -2307,7 +2345,7 @@ async function downloadStatsCard() {
 
 if (statsCardSortSel) statsCardSortSel.addEventListener('change', () => {
   statsCardSort = statsCardSortSel.value === 'daily' ? 'daily' : 'total';
-  const conf = STATS_CARD_RENDERERS[currentArtist];
+  const conf = statsCardConfig(currentArtist);
   if (conf) { conf.render(); fitStatsCard(); }
 });
 if (statsCardBtn) statsCardBtn.addEventListener('click', openStatsCard);

@@ -4830,16 +4830,20 @@ select.tc-input { cursor: pointer; }
    preview), which is the thing people actually post. */
 .stats-card.theme-lisa { --sc-width: 860; }
 
-/* Justin Timberlake — his dashboard's green-on-navy. */
-.stats-card.theme-jt {
+/* The default card: dark navy body, framed and banded in whatever accent that
+   artist's dashboard theme uses. app.js sets --sc-accent plus the three colours
+   that have to sit ON the accent band (see applyStatsCardAccent). */
+.stats-card.theme-artist {
+  --sc-accent: #1ed760;
+  --sc-accent-rgb: 30, 215, 96;
   --sc-page: radial-gradient(circle at 50% 0%, #13203a 0%, #080c14 100%);
-  --sc-band: rgba(30, 215, 96, 0.09);
+  --sc-band: rgba(var(--sc-accent-rgb), 0.09);
   --sc-ink: #e8eef7;
   --sc-row: #101a2b;
   --sc-head-row: #16233a;
   --sc-grid: #24344f;
-  --sc-frame: #1ed760;
-  --sc-total-bg: #1ed760;
+  --sc-frame: var(--sc-accent);
+  --sc-total-bg: var(--sc-accent);
   --sc-total-ink: #052a13;
   --sc-pos: #4ade80;
   --sc-neg: #f87171;
@@ -4864,7 +4868,7 @@ select.tc-input { cursor: pointer; }
   border-radius: 12px;
   border: 1px solid rgba(0, 0, 0, 0.25);
 }
-.theme-jt .lc-photo { border-color: rgba(30, 215, 96, 0.45); }
+.theme-artist .lc-photo { border-color: rgba(var(--sc-accent-rgb), 0.45); }
 
 .lc-head-band {
   flex: 1 1 auto;
@@ -4873,8 +4877,8 @@ select.tc-input { cursor: pointer; }
   padding: 12px 16px;
   font-family: 'Times New Roman', Georgia, serif;
 }
-.theme-jt .lc-head-band {
-  border: 1px solid rgba(30, 215, 96, 0.3);
+.theme-artist .lc-head-band {
+  border: 1px solid rgba(var(--sc-accent-rgb), 0.3);
   border-radius: 8px;
   font-family: 'Outfit', Arial, Helvetica, sans-serif;
 }
@@ -4888,7 +4892,7 @@ select.tc-input { cursor: pointer; }
 .lc-date { font-size: 1rem; font-weight: 600; margin-bottom: 12px; }
 /* nowrap as a second guard: the totals here must never break mid-number. */
 .lc-era { font-size: 1rem; font-weight: 600; line-height: 1.6; white-space: nowrap; }
-.theme-jt .lc-era { color: #c9f7dc; }
+.theme-artist .lc-era { color: var(--sc-accent); }
 
 .lc-table {
   width: 100%;
@@ -4929,14 +4933,14 @@ select.tc-input { cursor: pointer; }
 /* His titles are the longest on any card, so give that column the room and take
    it back off the two narrow delta columns. Left-aligned too: a centred title
    that ellipsises reads as damage, a left-aligned one reads as a list. */
-.theme-jt .lc-table col.lc-c-song { width: 42%; }
-.theme-jt .lc-table tbody td.lc-song { text-align: left; padding-left: 12px; }
-.theme-jt .lc-table tbody tr.lc-group td.lc-song { text-align: center; padding-left: 8px; }
-.theme-jt .lc-table tbody tr.lc-band td { text-align: center; }
-.theme-jt .lc-table col.lc-c-overall { width: 20%; }
-.theme-jt .lc-table col.lc-c-daily { width: 15%; }
-.theme-jt .lc-table col.lc-c-delta { width: 13%; }
-.theme-jt .lc-table col.lc-c-pct { width: 10%; }
+.theme-artist .lc-table col.lc-c-song { width: 42%; }
+.theme-artist .lc-table tbody td.lc-song { text-align: left; padding-left: 12px; }
+.theme-artist .lc-table tbody tr.lc-group td.lc-song { text-align: center; padding-left: 8px; }
+.theme-artist .lc-table tbody tr.lc-band td { text-align: center; }
+.theme-artist .lc-table col.lc-c-overall { width: 20%; }
+.theme-artist .lc-table col.lc-c-daily { width: 15%; }
+.theme-artist .lc-table col.lc-c-delta { width: 13%; }
+.theme-artist .lc-table col.lc-c-pct { width: 10%; }
 .lc-table col.lc-c-overall { width: 22%; }
 .lc-table col.lc-c-daily { width: 18%; }
 .lc-table col.lc-c-delta { width: 15%; }
