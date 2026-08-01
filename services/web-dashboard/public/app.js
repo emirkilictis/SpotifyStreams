@@ -1988,6 +1988,56 @@ const CARD_TOP_TRACKS = 30;
 // to this many albums is shown in full; past it the band says what was cut.
 const CARD_MAX_ALBUMS = 20;
 
+// The albums section is supposed to be the artist's records, but Spotify files
+// singles, maxi-singles, remix packs and hits compilations as albums too — and
+// they distort the list badly, because a compilation claims every song on it.
+// Britney's "The Singles Collection" outranks every real album she made at
+// 10.4B, and Billie's top ten is half one-track singles.
+//
+// There is no album_type column to lean on, so this is title + size based:
+const CARD_NON_ALBUM_RE = /(\bremix(es|ed)?\b|greatest hits|\bsingles?\s+collection\b|\bbest of\b|\banthology\b|\bessential\b|\bcompilation\b|\bhits\b|\bb-sides?\b|\bkaraoke\b|\blive\s+(at|from|in)\b)/i;
+const CARD_MIN_ALBUM_TRACKS = 5;    // fewer than this is a single or an EP-sized release
+// A short release named after one of its own songs, where that song accounts for
+// nearly all of it, is a single ("Lucky": 7 tracks, share 1.00). Deliberately
+// capped at a low track count: share alone is NOT a discriminator, because a
+// real album edition can also read 1.00 when its other tracks are deduped away
+// (Britney's 11-track "Oops!... I Did It Again" does exactly that). Losing a
+// real album is far worse than keeping a maxi-single, so this stays narrow.
+const CARD_TITLE_TRACK_SHARE = 0.9;
+const CARD_SINGLE_MAX_TRACKS = 8;
+
+// Normalised form for matching an album title against the song titles.
+const cardTitleKey = (t) => String(t || '')
+  .toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+function isCatalogueAlbum(album, songStreamsByTitle) {
+  if (CARD_NON_ALBUM_RE.test(album.album_title || '')) return false;
+  // track_count is how many canonical songs we track on it, which is what makes
+  // a single look like a single here; 0 means unknown, so don't judge it.
+  const n = Number(album.track_count || 0);
+  if (n && n < CARD_MIN_ALBUM_TRACKS) return false;
+  if (n && n <= CARD_SINGLE_MAX_TRACKS) {
+    const titleTrack = songStreamsByTitle.get(cardTitleKey(album.album_title)) || 0;
+    const total = Number(album.total_streams || 0);
+    if (titleTrack && total && titleTrack / total >= CARD_TITLE_TRACK_SHARE) return false;
+  }
+  return true;
+}
+
+// Spotify carries the same record several times over (standard / deluxe / an
+// anniversary reissue), and they arrive as separate albums with separate
+// totals. Three "Oops!... I Did It Again" rows say nothing that one doesn't, so
+// keep the biggest edition of each and drop the rest.
+function dedupeAlbumEditions(rows) {
+  const best = new Map();
+  for (const a of rows) {
+    const key = cardTitleKey(cleanAlbumTitle(a.label) || a.label);
+    const prev = best.get(key);
+    if (!prev || a.cum > prev.cum) best.set(key, a);
+  }
+  return rows.filter((a) => best.get(cardTitleKey(cleanAlbumTitle(a.label) || a.label)) === a);
+}
+
 // Which column orders the sortable cards. Governs both sections so the albums
 // and the tracks are always ranked by the same thing.
 let statsCardSort = 'total';   // 'total' | 'daily'
@@ -2031,16 +2081,22 @@ function renderCatalogueCard() {
   const byDaily = statsCardSort === 'daily';
   const rank = (a, b) => (byDaily ? b.daily - a.daily : b.cum - a.cum);
 
-  // --- Albums ---
-  const allAlbumRows = (Array.isArray(allAlbums) ? allAlbums : [])
+  // --- Albums (singles / remix packs / hits compilations filtered out) ---
+  const songStreamsByTitle = new Map();
+  for (const sg of allSongs) {
+    const k = cardTitleKey(sg.title);
+    songStreamsByTitle.set(k, Math.max(songStreamsByTitle.get(k) || 0, Number(sg.cumulative || 0)));
+  }
+  const dedupedInput = (Array.isArray(allAlbums) ? allAlbums : [])
+    .filter((a) => isCatalogueAlbum(a, songStreamsByTitle))
     .map((a) => ({
       label: cleanAlbumTitle(a.album_title) || a.album_title,
       cum: Number(a.total_streams || 0),
       daily: Number(a.daily_gain || 0),
       prev: Number(a.prev_daily_gain || 0),
     }))
-    .filter((a) => a.cum > 0)
-    .sort(rank);
+    .filter((a) => a.cum > 0);
+  const allAlbumRows = dedupeAlbumEditions(dedupedInput).sort(rank);
   const albums = allAlbumRows.slice(0, CARD_MAX_ALBUMS);
 
   // --- Top tracks ---
