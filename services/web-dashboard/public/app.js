@@ -2006,11 +2006,21 @@ const CARD_MIN_ALBUM_TRACKS = 5;    // fewer than this is a single or an EP-size
 const CARD_TITLE_TRACK_SHARE = 0.9;
 const CARD_SINGLE_MAX_TRACKS = 8;
 
+// The handful the rules above genuinely cannot reach: remix maxi-singles long
+// enough to look like a short album, with nothing in the title to give them
+// away. Nothing we store separates these from a real record — Spotify's own
+// album_type would, and if that ever gets scraped this list should go.
+const CARD_EXCLUDED_ALBUM_IDS = new Set([
+  '1pciBzMaZtpYkvWAsmKt6S',   // Britney — "Stronger" (13 remix tracks)
+  '5Du1IWrvNrIkyaYQjmhAe6',   // Britney — "Don't Let Me Be The Last To Know" (10)
+]);
+
 // Normalised form for matching an album title against the song titles.
 const cardTitleKey = (t) => String(t || '')
   .toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
 function isCatalogueAlbum(album, songStreamsByTitle) {
+  if (CARD_EXCLUDED_ALBUM_IDS.has(album.album_id)) return false;
   if (CARD_NON_ALBUM_RE.test(album.album_title || '')) return false;
   // track_count is how many canonical songs we track on it, which is what makes
   // a single look like a single here; 0 means unknown, so don't judge it.

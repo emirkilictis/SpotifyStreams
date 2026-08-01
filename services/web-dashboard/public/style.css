@@ -1510,6 +1510,25 @@ tbody tr.featured-row:hover {
   color: var(--text-muted);
   font-size: 0.85rem;
 }
+
+.footer-credit { margin-top: 10px; font-size: 0.8rem; color: var(--text-muted); }
+.footer-x {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px solid var(--card-border);
+  transition: var(--transition-smooth);
+}
+.footer-x:hover {
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+  background: rgba(var(--accent-green-rgb, 30, 215, 96), 0.08);
+}
+.footer-x svg { flex: 0 0 auto; }
 /* Clear the floating feedback button so it never covers the footer text. */
 @media (max-width: 768px) {
   .dashboard-footer {
