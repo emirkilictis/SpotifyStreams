@@ -5224,3 +5224,17 @@ select.tc-input { cursor: pointer; }
   #timemachine-btn span { display: none; }
   #timemachine-btn { padding: 7px 11px; }
 }
+
+/* Time Machine: the day predates full-catalogue coverage, so per-song numbers
+   are real but their sum is not the artist's total. */
+.tm-warn {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: rgba(253, 224, 71, 0.08);
+  border: 1px solid rgba(253, 224, 71, 0.3);
+}
+.tm-warn strong { color: #fde68a; }

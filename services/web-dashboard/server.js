@@ -1033,6 +1033,27 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
 // ---------------------------------------------------------------------------
 const STREAMS_ON_TOP_SONGS = 30;
 
+// ---------------------------------------------------------------------------
+// Artists carrying BACKFILLED history that predates full-catalogue coverage.
+//
+// LISA's solo-era discography was donated as a spreadsheet and imported by
+// services/spotify-scraper/import-history-json.js — 18 songs going back to
+// 2024-06-29. Those 18 series are each complete and correct (they matched our
+// own scrapes to the digit where they overlap), but they are not her whole
+// catalogue: MONEY, LALISA, SG, Shoong! and every remix version are missing,
+// roughly half her streams.
+//
+// So: single-song charts may use the full depth, but anything that SUMS across
+// songs must not present a total from before this date as the artist's real
+// total. Any future donation of the same shape needs a line here.
+// ---------------------------------------------------------------------------
+const ARTIST_HISTORY_COMPLETE_FROM = {
+  '5L1lO4eRHmJ7a0Q6csE5cT': '2026-05-28', // LISA — our own scraping starts here
+};
+
+const historyCompleteFrom = (artistId) =>
+  ARTIST_HISTORY_COMPLETE_FROM[String(artistId || '').replace('spotify:artist:', '')] || null;
+
 // The artist's first/last snapshot dates, for bounding the date picker. A full
 // history scan per artist, so it's cached — the answer only moves once a day.
 const artistRangeCache = new Map(); // artistUri -> { at, range }
@@ -1141,9 +1162,14 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess, async (req, res) =
       artistDateRange(artistUri).catch(() => ({ min_date: null, max_date: null })),
     ]);
     const row = result.rows[0] || {};
+    // Before this date the sums are missing whatever the backfill didn't cover,
+    // so the client shows the per-song numbers but not an artist total.
+    const completeFrom = historyCompleteFrom(artistUri);
     res.json({
       date,
       as_of: row.as_of || null,
+      complete_from: completeFrom,
+      partial: !!(completeFrom && row.as_of && row.as_of < completeFrom),
       total_streams: row.total_streams || 0,
       lead_streams: row.lead_streams || 0,
       feat_streams: row.feat_streams || 0,
@@ -1907,10 +1933,29 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
         SUM(dsc.daily_gain)::bigint AS daily_gain
       FROM daily_streams_canonical dsc
       JOIN album_canonicals ac ON ac.cid = dsc.canonical_id
+      -- Backfilled artists only: start the chart on the day EVERY track on the
+      -- album has history. The donated series cover some tracks and not others
+      -- (Rockstar yes, Rockstar - Sped Up no), so summing across the seam would
+      -- draw a step change that never happened. Off by default — for a normally
+      -- scraped album this rule would truncate the chart at its newest track.
+      WHERE (
+        NOT $2::boolean
+        OR dsc.recorded_date >= (
+          SELECT MAX(first_seen) FROM (
+            SELECT MIN(d2.recorded_date) AS first_seen
+            FROM daily_streams_canonical d2
+            JOIN album_canonicals ac2 ON ac2.cid = d2.canonical_id
+            GROUP BY d2.canonical_id
+          ) f
+        )
+      )
       GROUP BY dsc.recorded_date
       ORDER BY dsc.recorded_date ASC;
     `;
-    const result = await dbQuery(query, [req.params.id]);
+    // Mixed-artist albums: if ANY credited artist carries a backfill, the album
+    // can contain half-covered tracks, so apply the rule.
+    const backfilled = albumCheck.rows.some(r => historyCompleteFrom(r.primary_artist));
+    const result = await dbQuery(query, [req.params.id, backfilled]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch album history error:', err);

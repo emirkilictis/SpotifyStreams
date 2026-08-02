@@ -271,6 +271,14 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+// Axis label for the history charts. formatDate() gives "June 28, 2024", which
+// the charts used to cut to 10 characters — printing "June 28, 2" on every tick.
+function formatChartDate(dateStr) {
+  const d = parseLocalDate(dateStr);
+  if (isNaN(d.getTime())) return String(dateStr).slice(0, 10);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
+
 // Spotify's playcounts run a day behind: the number scraped on the 28th is the
 // catalogue as of the 27th, so the gain between two scrapes belongs to the
 // earlier day.
@@ -1144,7 +1152,7 @@ function renderAlbumChart() {
     // Filter history by range
     const filteredHistory = filterHistoryByRange(activeAlbumHistory, albumChartRange);
 
-    const dates = filteredHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
+    const dates = filteredHistory.map(row => formatChartDate(row.recorded_date));
     const dataPoints = filteredHistory.map(row => Number(row.cumulative));
     
     const artistTheme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
@@ -1178,6 +1186,10 @@ function renderAlbumChart() {
       },
       xaxis: {
         categories: dates,
+        // Category axes print EVERY label by default; with a backfilled artist
+        // that is 700+ dates crushed into 400px. Cap the count instead.
+        tickAmount: Math.min(8, Math.max(2, dates.length - 1)),
+        labels: { rotate: -45, rotateAlways: false, hideOverlappingLabels: true, trim: false },
         axisBorder: { show: false },
         axisTicks: { show: false },
         tooltip: { enabled: false }
@@ -3334,7 +3346,7 @@ function renderSongChart() {
   
   const filteredHistory = filterHistoryByRange(activeSongHistory, songChartRange);
 
-  const dates = filteredHistory.map(row => formatDate(row.recorded_date).slice(0, 10));
+  const dates = filteredHistory.map(row => formatChartDate(row.recorded_date));
   let dataPoints = [];
   let seriesName = '';
   
@@ -3375,6 +3387,9 @@ function renderSongChart() {
     },
     xaxis: {
       categories: dates,
+      // See renderAlbumChart: cap the label count so a long history stays legible.
+      tickAmount: Math.min(8, Math.max(2, dates.length - 1)),
+      labels: { rotate: -45, rotateAlways: false, hideOverlappingLabels: true, trim: false },
       axisBorder: { show: false },
       axisTicks: { show: false },
       tooltip: { enabled: false }
@@ -5205,7 +5220,22 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       </tr>`;
     }).join('');
 
+    // Before full-catalogue coverage the per-song rows are real but their SUM
+    // isn't the artist's total, so the headline and the splits are withheld
+    // rather than shown with a caveat nobody reads.
+    const partial = !!data.partial;
+    const completeFromDay = data.complete_from
+      ? toStreamDay(String(data.complete_from).slice(0, 10)) : null;
+
     resultEl.innerHTML = `
+      ${partial ? `
+        <div class="tm-warn">
+          <strong>${esc(formatDate(streamDay))} — partial catalogue.</strong>
+          Before ${esc(completeFromDay ? formatDate(completeFromDay) : 'full coverage')}
+          only the ${formatNumber(data.total_songs)} tracks below have history — the rest of the
+          discography isn't covered, so there's no artist total to show for this day.
+          Each track's own number is exact.
+        </div>` : `
       <div class="tm-headline">
         <div class="tm-headline-main">
           <span class="tm-headline-label">Total streams on ${esc(formatDate(streamDay))}</span>
@@ -5220,7 +5250,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
         ${splitRow('Lead', data.lead_streams, total)}
         ${splitRow('Solo', data.solo_streams, total)}
         ${splitRow('Featured', data.feat_streams, total)}
-      </div>
+      </div>`}
       <div class="table-wrapper tm-table-wrap">
         <table class="modal-table tm-table">
           <thead>
