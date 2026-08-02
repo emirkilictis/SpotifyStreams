@@ -5004,3 +5004,223 @@ select.tc-input { cursor: pointer; }
   }
   .stats-card-shell { align-items: center; }
 }
+
+/* ── Peak monthly listeners ───────────────────────────────────────────────
+   Sits under the current figure in the hero. Only rendered for artists with a
+   peak on record, so it can be styled loudly without cluttering everyone. */
+.hero-stat-peak {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: #fde68a;
+  background: rgba(253, 224, 71, 0.12);
+  border: 1px solid rgba(253, 224, 71, 0.28);
+  text-shadow: none;
+}
+/* Current == peak: the artist is at their all-time high right now. */
+.hero-stat-peak.at-peak {
+  color: #fff7d6;
+  background: rgba(253, 224, 71, 0.22);
+  border-color: rgba(253, 224, 71, 0.55);
+  box-shadow: 0 0 14px rgba(253, 224, 71, 0.18);
+}
+
+/* ── Breakdown share-of-total ─────────────────────────────────────────────
+   .breakdown-row's `span:last-child` bold rule now lands on the wrapper, so
+   the percentage has to opt back out of it. */
+.breakdown-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.breakdown-pct {
+  min-width: 42px;
+  text-align: right;
+  font-size: 0.78rem;
+  font-weight: 600 !important;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Time Machine ─────────────────────────────────────────────────────── */
+.timemachine-card {
+  max-width: 880px;
+  width: 100%;
+}
+.tm-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+.tm-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.tm-step {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+.tm-step:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.1); }
+.tm-date-wrap input[type="date"] {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 3px 6px;
+}
+.tm-date-wrap input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.6;
+  cursor: pointer;
+}
+.tm-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.tm-preset {
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+.tm-preset:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.1); }
+
+.tm-loading, .tm-empty {
+  padding: 28px 4px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+.tm-note {
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+}
+.tm-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.tm-headline-main { display: flex; flex-direction: column; gap: 2px; }
+.tm-headline-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tm-headline-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.tm-headline-sub { font-size: 0.82rem; color: var(--text-secondary); }
+.tm-since {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.tm-since-note {
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.tm-splits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.tm-split-row {
+  flex: 1 1 160px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+  font-variant-numeric: tabular-nums;
+}
+.tm-split-label { font-size: 0.75rem; color: var(--text-secondary); }
+.tm-split-value { font-family: 'Outfit', sans-serif; font-weight: 700; margin-left: auto; }
+.tm-split-pct { font-size: 0.75rem; color: var(--text-muted); min-width: 38px; text-align: right; }
+
+.tm-table-wrap { max-height: 46vh; overflow-y: auto; }
+.tm-table th, .tm-table td { padding: 10px 12px; }
+.tm-table .tm-num { text-align: right; font-variant-numeric: tabular-nums; }
+.tm-rank { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tm-song { display: flex; flex-direction: column; gap: 1px; }
+.tm-song-title { font-weight: 600; }
+.tm-song-album { font-size: 0.72rem; color: var(--text-muted); }
+/* --gain-green, not --accent-green: the accent is re-themed per artist
+   (gold for LISA), and a day's gain should stay green like everywhere else. */
+.tm-table .tm-gain { color: var(--gain-green); font-weight: 600; }
+
+@media (max-width: 600px) {
+  /* .modal-table hides its 3rd column on mobile to drop Duration in the album
+     modal. Here the 3rd column is the streams total — the whole point — so it
+     has to come back. Same specificity, later in the file, so this wins. */
+  .tm-table th:nth-child(3),
+  .tm-table td:nth-child(3) { display: table-cell; }
+  .tm-presets { margin-left: 0; width: 100%; }
+  .tm-headline { align-items: flex-start; }
+  .tm-since { align-items: flex-start; }
+  .tm-since-note { text-align: left; }
+  .tm-headline-value { font-size: 1.8rem; }
+  .tm-song-album { display: none; }
+}
+
+/* The header row is nowrap on mobile, so the Time Machine button collapses to
+   its icon there rather than stealing width from the artist switcher. */
+@media (max-width: 768px) {
+  #timemachine-btn span { display: none; }
+  #timemachine-btn { padding: 7px 11px; }
+}

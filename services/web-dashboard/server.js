@@ -1018,6 +1018,177 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Time machine: the artist's catalogue as it stood on one specific day.
+//
+// Deliberately reads canonical_streams (the plain per-day MAX view) instead of
+// daily_streams_canonical: the latter runs a window function over EVERY row in
+// history, which is exactly what we don't want on an endpoint a user can fire
+// once per date change. Bounding by recorded_date first keeps it a single
+// date-limited aggregate.
+//
+// cum_at is MAX(stream_count) over every snapshot up to the date, not the last
+// one — same running-max rule the rest of the site uses, so a dipped playcount
+// can never make a past day read lower than it did at the time.
+// ---------------------------------------------------------------------------
+const STREAMS_ON_TOP_SONGS = 30;
+
+// The artist's first/last snapshot dates, for bounding the date picker. A full
+// history scan per artist, so it's cached — the answer only moves once a day.
+const artistRangeCache = new Map(); // artistUri -> { at, range }
+const ARTIST_RANGE_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function artistDateRange(artistUri) {
+  const hit = artistRangeCache.get(artistUri);
+  if (hit && Date.now() - hit.at < ARTIST_RANGE_TTL_MS) return hit.range;
+  const q = `
+    -- ::text on purpose: node-postgres hands back a DATE as a JS Date at local
+    -- midnight, which serialises to the PREVIOUS day's UTC timestamp for anyone
+    -- east of Greenwich. Plain YYYY-MM-DD strings keep the client honest.
+    SELECT MIN(ss.recorded_date)::text AS min_date, MAX(ss.recorded_date)::text AS max_date
+    FROM stream_stats ss
+    JOIN songs s ON s.id = ss.song_id
+    JOIN albums a ON s.album_id = a.id
+    WHERE ${artistBucketMatchSQL('s', 'a')}
+  `;
+  const r = await dbQuery(q, [artistUri]);
+  const range = { min_date: r.rows[0]?.min_date || null, max_date: r.rows[0]?.max_date || null };
+  artistRangeCache.set(artistUri, { at: Date.now(), range });
+  return range;
+}
+
+app.get('/api/streams-on', requireAuth, validateArtistAccess, async (req, res) => {
+  const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
+  const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
+  const date = String(req.query.date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  }
+  try {
+    const query = `
+      WITH bounded AS (
+        SELECT
+          cs.song_id,
+          cs.recorded_date,
+          -- Running max, exactly like daily_streams_canonical: a dipped
+          -- playcount can never make a past day read lower than it did then.
+          MAX(cs.stream_count) OVER (
+            PARTITION BY cs.song_id ORDER BY cs.recorded_date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS runmax,
+          -- rn 1 = the snapshot we land on, rn 2 = the one before it. The
+          -- "before" has to be relative to the LANDED day, not to the day the
+          -- user asked for: ask for a date past the last scrape and both would
+          -- otherwise resolve to the same snapshot, reporting a 0 daily gain.
+          ROW_NUMBER() OVER (
+            PARTITION BY cs.song_id ORDER BY cs.recorded_date DESC
+          ) AS rn
+        FROM canonical_streams cs
+        WHERE cs.recorded_date <= $2::date
+      ),
+      snap AS (
+        SELECT
+          song_id,
+          MAX(runmax)        FILTER (WHERE rn = 1) AS cum_at,
+          MAX(recorded_date) FILTER (WHERE rn = 1) AS as_of,
+          MAX(runmax)        FILTER (WHERE rn = 2) AS cum_prev,
+          MAX(recorded_date) FILTER (WHERE rn = 2) AS prev_date
+        FROM bounded
+        WHERE rn <= 2
+        GROUP BY song_id
+      ),
+      rows AS (
+        SELECT
+          s.id,
+          s.title,
+          s.is_featured,
+          s.is_solo,
+          a.title AS album_title,
+          snap.cum_at,
+          snap.as_of,
+          -- Calendar-normalised, exactly like daily_streams_canonical: if the
+          -- previous snapshot is two days back, the gain is split across both.
+          COALESCE(
+            CASE WHEN snap.prev_date IS NULL THEN NULL
+                 ELSE ((snap.cum_at - snap.cum_prev)
+                       / NULLIF(snap.as_of - snap.prev_date, 0))::bigint END,
+            0
+          )::bigint AS daily_gain
+        FROM snap
+        JOIN songs s ON s.id = snap.song_id
+        JOIN albums a ON s.album_id = a.id
+        -- Same canonical-head guard as /api/stats: only true heads are summed,
+        -- so a residual dedup chain can't double-count a recording here either.
+        WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})
+      )
+      SELECT
+        (SELECT COALESCE(SUM(cum_at), 0)::bigint FROM rows) AS total_streams,
+        (SELECT COALESCE(SUM(cum_at) FILTER (WHERE NOT is_featured), 0)::bigint FROM rows) AS lead_streams,
+        (SELECT COALESCE(SUM(cum_at) FILTER (WHERE is_featured), 0)::bigint FROM rows) AS feat_streams,
+        (SELECT COALESCE(SUM(cum_at) FILTER (WHERE is_solo), 0)::bigint FROM rows) AS solo_streams,
+        (SELECT COALESCE(SUM(daily_gain), 0)::bigint FROM rows) AS daily_gain,
+        (SELECT COUNT(*)::int FROM rows) AS total_songs,
+        (SELECT MAX(as_of)::text FROM rows) AS as_of,
+        (SELECT json_agg(t) FROM (
+           SELECT id, title, album_title, is_featured, is_solo,
+                  cum_at::bigint AS cumulative, daily_gain, as_of::text AS as_of
+           FROM rows ORDER BY cum_at DESC LIMIT ${STREAMS_ON_TOP_SONGS}
+         ) t) AS top_songs
+    `;
+    const [result, range] = await Promise.all([
+      dbQuery(query, [artistUri, date]),
+      artistDateRange(artistUri).catch(() => ({ min_date: null, max_date: null })),
+    ]);
+    const row = result.rows[0] || {};
+    res.json({
+      date,
+      as_of: row.as_of || null,
+      total_streams: row.total_streams || 0,
+      lead_streams: row.lead_streams || 0,
+      feat_streams: row.feat_streams || 0,
+      solo_streams: row.solo_streams || 0,
+      daily_gain: row.daily_gain || 0,
+      total_songs: row.total_songs || 0,
+      top_songs: row.top_songs || [],
+      range,
+    });
+  } catch (err) {
+    console.error('Fetch streams-on error:', err);
+    res.status(500).json({ error: 'Failed to load that day.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Peak monthly listeners.
+//
+// artist_stats only goes back as far as this project does, so an artist whose
+// real peak predates our first snapshot needs a seeded floor. The seed is a
+// FLOOR, never a ceiling: the moment a tracked snapshot beats it, the tracked
+// value takes over on its own, with its real date. No maintenance needed.
+//
+// Only artists listed here get a peak shown at all — an artist we've tracked
+// for three weeks has a "peak" that's just their current number, which would be
+// noise. Add an artist with { value: 0, date: null } to show the tracked
+// high-water mark without seeding a historical figure.
+// ---------------------------------------------------------------------------
+const MONTHLY_LISTENERS_PEAK_SEEDS = {
+  // LISA — reported peak, predates our tracking, so no date.
+  '5L1lO4eRHmJ7a0Q6csE5cT': { value: 28626697, date: null },
+};
+
+function peakMonthlyListeners(artistId, history) {
+  const seed = MONTHLY_LISTENERS_PEAK_SEEDS[artistId];
+  if (!seed) return null;
+  let best = { value: Number(seed.value) || 0, date: seed.date || null, seeded: true };
+  for (const row of history || []) {
+    const v = Number(row.monthly_listeners);
+    if (!Number.isFinite(v) || v <= best.value) continue;
+    best = { value: v, date: row.recorded_date, seeded: false };
+  }
+  return best.value > 0 ? best : null;
+}
+
 app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistId = artistParam.replace('spotify:artist:', '');
@@ -1039,6 +1210,11 @@ app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res)
       [artistId]
     );
 
+    // All-time peak monthly listeners. Spotify's 28-day rolling figure moves
+    // both ways, so the high-water mark is worth showing next to the current
+    // one — and it's free here, history is already loaded.
+    const peak = peakMonthlyListeners(artistId, historyRes.rows);
+
     const latest = latestRes.rows[0] || null;
     const prev = latestRes.rows[1] || null;
     let monthlyListenersChange = null;
@@ -1054,6 +1230,7 @@ app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res)
 
     res.json({
       latest: latest ? { ...latest, monthly_listeners_change: monthlyListenersChange, followers_change: followersChange } : null,
+      peak,
       history: historyRes.rows
     });
   } catch (err) {

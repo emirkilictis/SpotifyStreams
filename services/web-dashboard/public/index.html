@@ -209,6 +209,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>
           <span>Daily Card</span>
         </button>
+        <button id="timemachine-btn" class="btn-secondary btn-share" title="Streams on a past date">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15.5 14"></polyline></svg>
+          <span>Time Machine</span>
+        </button>
         <button id="back-to-picker-btn" class="btn-secondary" title="Switch Artist">← Artists</button>
         <a href="/logout" class="btn-secondary">Log Out</a>
       </div>
@@ -229,6 +233,9 @@
             <span class="hero-stat-label">Monthly Listeners</span>
             <p id="monthly-listeners">-</p>
             <span id="monthly-listeners-change" class="stat-delta"></span>
+            <!-- All-time high. Only rendered for artists with a peak on record
+                 (see MONTHLY_LISTENERS_PEAK_SEEDS in server.js). -->
+            <span id="monthly-listeners-peak" class="hero-stat-peak hidden"></span>
           </div>
           <div class="hero-stat">
             <span class="hero-stat-label">Followers</span>
@@ -253,9 +260,9 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
         <div id="streams-breakdown" class="streams-breakdown collapsed">
-          <div class="breakdown-row"><span class="breakdown-label">Lead</span><span id="lead-streams">-</span></div>
-          <div class="breakdown-row"><span class="breakdown-label">Solo</span><span id="solo-streams">-</span></div>
-          <div class="breakdown-row"><span class="breakdown-label">Featured</span><span id="feat-streams">-</span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Lead</span><span class="breakdown-value"><span id="lead-streams">-</span><span id="lead-streams-pct" class="breakdown-pct"></span></span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Solo</span><span class="breakdown-value"><span id="solo-streams">-</span><span id="solo-streams-pct" class="breakdown-pct"></span></span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Featured</span><span class="breakdown-value"><span id="feat-streams">-</span><span id="feat-streams-pct" class="breakdown-pct"></span></span></div>
         </div>
       </div>
 
@@ -271,8 +278,8 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
         <div id="daily-streams-breakdown" class="streams-breakdown collapsed">
-          <div class="breakdown-row"><span class="breakdown-label">Lead</span><span id="lead-daily-streams">-</span></div>
-          <div class="breakdown-row"><span class="breakdown-label">Featured</span><span id="feat-daily-streams">-</span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Lead</span><span class="breakdown-value"><span id="lead-daily-streams">-</span><span id="lead-daily-pct" class="breakdown-pct"></span></span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Featured</span><span class="breakdown-value"><span id="feat-daily-streams">-</span><span id="feat-daily-pct" class="breakdown-pct"></span></span></div>
         </div>
       </div>
     </section>
@@ -619,6 +626,36 @@
         <button id="stats-card-close-btn" class="btn-secondary" type="button">Close</button>
       </div>
       <div id="stats-card" class="stats-card"></div>
+    </div>
+  </div>
+
+  <!-- Time Machine: the artist's catalogue as it stood on a chosen day.
+       Dates here are STREAM days (what Spotify was counting that day), not
+       scrape dates — the shift is applied in app.js, same as the share cards. -->
+  <div class="modal-backdrop hidden" id="timemachine-modal">
+    <div class="modal-card glass timemachine-card">
+      <button class="modal-close" id="tm-close-btn">&times;</button>
+      <div class="modal-header">
+        <h2 class="tm-title">Time Machine</h2>
+        <p class="modal-subtitle" id="tm-subtitle">Pick a day to see where the catalogue stood.</p>
+      </div>
+      <div class="modal-body">
+        <div class="tm-controls">
+          <button class="tm-step" id="tm-prev-day" type="button" title="Previous day" aria-label="Previous day">‹</button>
+          <label class="card-select tm-date-wrap">
+            <span>Date</span>
+            <input type="date" id="tm-date">
+          </label>
+          <button class="tm-step" id="tm-next-day" type="button" title="Next day" aria-label="Next day">›</button>
+          <div class="tm-presets">
+            <button class="tm-preset" type="button" data-tm-ago="7">7d ago</button>
+            <button class="tm-preset" type="button" data-tm-ago="30">30d ago</button>
+            <button class="tm-preset" type="button" data-tm-ago="90">90d ago</button>
+            <button class="tm-preset" type="button" data-tm-ago="365">1y ago</button>
+          </div>
+        </div>
+        <div id="tm-result" class="tm-result"></div>
+      </div>
     </div>
   </div>
 

@@ -61,6 +61,7 @@ const sortHeaders = document.querySelectorAll('th.sortable');
 const totalStreamsEl = document.getElementById('total-streams');
 const monthlyListenersEl = document.getElementById('monthly-listeners');
 const monthlyListenersChangeEl = document.getElementById('monthly-listeners-change');
+const monthlyListenersPeakEl = document.getElementById('monthly-listeners-peak');
 const followersEl = document.getElementById('followers');
 const followersChangeEl = document.getElementById('followers-change');
 
@@ -82,6 +83,12 @@ const achievedListEl = document.getElementById('achieved-list');
 const leadStreamsEl = document.getElementById('lead-streams');
 const featStreamsEl = document.getElementById('feat-streams');
 const soloStreamsEl = document.getElementById('solo-streams');
+// Share-of-total labels sitting next to each breakdown number.
+const leadStreamsPctEl = document.getElementById('lead-streams-pct');
+const featStreamsPctEl = document.getElementById('feat-streams-pct');
+const soloStreamsPctEl = document.getElementById('solo-streams-pct');
+const leadDailyPctEl = document.getElementById('lead-daily-pct');
+const featDailyPctEl = document.getElementById('feat-daily-pct');
 const dailyStreamsEl = document.getElementById('daily-streams');
 const totalSongsEl = document.getElementById('total-songs');
 const lastUpdateEl = document.getElementById('last-update');
@@ -195,6 +202,44 @@ function setStatDelta(el, change) {
     el.textContent = '— 0';
     el.className = 'stat-delta gain-neutral';
   }
+}
+
+// All-time high monthly listeners. Hidden entirely for artists with no peak on
+// record. When today's figure IS the peak, say so instead of printing the same
+// number twice.
+function setListenersPeak(peak, current) {
+  if (!monthlyListenersPeakEl) return;
+  const value = Number(peak?.value);
+  if (!peak || !Number.isFinite(value) || value <= 0) {
+    monthlyListenersPeakEl.classList.add('hidden');
+    monthlyListenersPeakEl.textContent = '';
+    monthlyListenersPeakEl.removeAttribute('title');
+    return;
+  }
+  const cur = Number(current);
+  const atPeak = Number.isFinite(cur) && cur >= value;
+  monthlyListenersPeakEl.textContent = atPeak
+    ? `★ Peak ${formatNumber(value)} — all-time high`
+    : `★ Peak ${formatNumber(value)}`;
+  monthlyListenersPeakEl.title = peak.date
+    ? `Peak reached on ${formatDate(peak.date)}`
+    : 'Peak reached before tracking started';
+  monthlyListenersPeakEl.classList.toggle('at-peak', atPeak);
+  monthlyListenersPeakEl.classList.remove('hidden');
+}
+
+// "part of whole" as a percentage, for the Lead / Solo / Featured breakdowns.
+// One decimal below 10% so a small featured share doesn't collapse to "0%".
+function setSharePct(el, part, whole) {
+  if (!el) return;
+  const p = Number(part);
+  const w = Number(whole);
+  if (!Number.isFinite(p) || !Number.isFinite(w) || w <= 0) {
+    el.textContent = '';
+    return;
+  }
+  const pct = (p / w) * 100;
+  el.textContent = `${pct >= 10 ? Math.round(pct) : pct.toFixed(1)}%`;
 }
 
 function formatDuration(ms) {
@@ -324,7 +369,13 @@ async function fetchData() {
     leadStreamsEl.textContent = formatNumber(statsData.lead_streams);
     featStreamsEl.textContent = formatNumber(statsData.feat_streams);
     soloStreamsEl.textContent = formatNumber(statsData.solo_streams);
-    
+
+    // Each slice as a share of the total. Lead + Featured = 100%; Solo is a
+    // subset of Lead, so it isn't part of that split and can overlap it.
+    setSharePct(leadStreamsPctEl, statsData.lead_streams, statsData.total_streams);
+    setSharePct(featStreamsPctEl, statsData.feat_streams, statsData.total_streams);
+    setSharePct(soloStreamsPctEl, statsData.solo_streams, statsData.total_streams);
+
     // Bind daily streams. Show the raw daily streams (daily gain).
     const dailyGain = Number(statsData.daily_gain);
     dailyStreamsEl.textContent = (dailyGain > 0 ? '+' : '') + formatNumber(dailyGain);
@@ -338,6 +389,8 @@ async function fetchData() {
       const featDaily = Number(statsData.feat_daily_gain);
       featDailyStreamsEl.textContent = (featDaily > 0 ? '+' : '') + formatNumber(featDaily);
     }
+    setSharePct(leadDailyPctEl, statsData.lead_daily_gain, dailyGain);
+    setSharePct(featDailyPctEl, statsData.feat_daily_gain, dailyGain);
     
     totalSongsEl.textContent = statsData.total_songs ?? '0';
     lastUpdateEl.textContent = formatDate(statsData.last_update);
@@ -352,6 +405,7 @@ async function fetchData() {
         const ml = artistStats.latest?.monthly_listeners;
         monthlyListenersEl.textContent = (ml !== null && ml !== undefined) ? formatNumber(ml) : '-';
         setStatDelta(monthlyListenersChangeEl, artistStats.latest?.monthly_listeners_change);
+        setListenersPeak(artistStats.peak, ml);
         const fol = artistStats.latest?.followers;
         if (followersEl) followersEl.textContent = (fol !== null && fol !== undefined) ? formatNumber(fol) : '-';
         setStatDelta(followersChangeEl, artistStats.latest?.followers_change);
@@ -372,6 +426,7 @@ async function fetchData() {
       } else {
         monthlyListenersEl.textContent = '-';
         setStatDelta(monthlyListenersChangeEl, null);
+        setListenersPeak(null);
         if (followersEl) followersEl.textContent = '-';
         setStatDelta(followersChangeEl, null);
 
@@ -384,6 +439,7 @@ async function fetchData() {
     } catch (e) {
       monthlyListenersEl.textContent = '-';
       setStatDelta(monthlyListenersChangeEl, null);
+      setListenersPeak(null);
       if (followersEl) followersEl.textContent = '-';
       setStatDelta(followersChangeEl, null);
 
@@ -5011,3 +5067,261 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 })();
 
 
+
+// ===========================================================================
+// Time Machine — the artist's catalogue as it stood on a chosen day.
+//
+// The date the user picks is a STREAM day (what Spotify was counting that day),
+// matching the share cards. The API keys on scrape dates, so every request
+// converts stream day -> snapshot day on the way out and back again on the way
+// in; with STREAM_DATE_OFFSET_DAYS = 0 both conversions become identities.
+// ===========================================================================
+(function timeMachine() {
+  const modal = document.getElementById('timemachine-modal');
+  const openBtn = document.getElementById('timemachine-btn');
+  if (!modal || !openBtn) return;
+
+  const closeBtn = document.getElementById('tm-close-btn');
+  const dateInput = document.getElementById('tm-date');
+  const prevBtn = document.getElementById('tm-prev-day');
+  const nextBtn = document.getElementById('tm-next-day');
+  const subtitle = document.getElementById('tm-subtitle');
+  const resultEl = document.getElementById('tm-result');
+  const presetBtns = modal.querySelectorAll('[data-tm-ago]');
+
+  // Bumped on every load; a response whose id is stale gets dropped, so
+  // hammering the day arrows can't paint an older day over a newer one.
+  let reqId = 0;
+  let loadedRange = null;
+  let lastArtist = null;
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  function shiftDay(dateStr, delta) {
+    const d = parseLocalDate(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    d.setDate(d.getDate() + delta);
+    return iso(d);
+  }
+  // Inverse of toStreamDay(): stream day -> the scrape that reported it.
+  const toSnapshotDay = (streamDay) => shiftDay(streamDay, -STREAM_DATE_OFFSET_DAYS);
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
+  ));
+
+  // Bounds come from the endpoint's own range (plain YYYY-MM-DD strings), NOT
+  // from /api/stats.last_update — that one is a pg DATE, so its JSON form is a
+  // timestamp that lands on the previous day under any TZ east of UTC. Until
+  // the first response arrives we don't know the range, hence the today/null
+  // fallbacks; the first load asks for "today" and the server clamps it to the
+  // newest snapshot it actually has.
+  const rangeDay = (key) => (loadedRange?.[key] ? toStreamDay(String(loadedRange[key]).slice(0, 10)) : null);
+  const latestStreamDay = () => rangeDay('max_date') || iso(new Date());
+
+  function clampToRange(streamDay) {
+    const max = latestStreamDay();
+    if (streamDay > max) return max;
+    const min = rangeDay('min_date');
+    if (min && streamDay < min) return min;
+    return streamDay;
+  }
+
+  function applyBounds() {
+    if (!dateInput) return;
+    dateInput.max = latestStreamDay();
+    const min = rangeDay('min_date');
+    if (min) dateInput.min = min;
+  }
+
+  function pctOf(part, whole) {
+    const p = Number(part);
+    const w = Number(whole);
+    if (!Number.isFinite(p) || !Number.isFinite(w) || w <= 0) return '';
+    const v = (p / w) * 100;
+    return `${v >= 10 ? Math.round(v) : v.toFixed(1)}%`;
+  }
+
+  function splitRow(label, value, total) {
+    const share = pctOf(value, total);
+    return `
+      <div class="tm-split-row">
+        <span class="tm-split-label">${label}</span>
+        <span class="tm-split-value">${formatNumber(value)}</span>
+        <span class="tm-split-pct">${share}</span>
+      </div>`;
+  }
+
+  function render(data, streamDay) {
+    const total = Number(data.total_streams) || 0;
+    if (!total) {
+      const earliest = data.range?.min_date
+        ? ` Earliest day on record is ${formatDate(toStreamDay(String(data.range.min_date).slice(0, 10)))}.`
+        : '';
+      resultEl.innerHTML = `<div class="tm-empty">No snapshot on or before ${esc(formatDate(streamDay))}.${esc(earliest)}</div>`;
+      return;
+    }
+
+    // The snapshot we actually landed on. If the scraper skipped the requested
+    // day, say so rather than quietly labelling older numbers with a newer date.
+    const asOfStream = data.as_of ? toStreamDay(String(data.as_of).slice(0, 10)) : null;
+    const stale = asOfStream && asOfStream !== streamDay;
+    // The very first snapshot has nothing to diff against, and the scraper was
+    // still discovering the catalogue that day — so neither the 0 gain nor the
+    // track count means what it would on any later day. Say so.
+    const firstDay = asOfStream && data.range?.min_date
+      && asOfStream === toStreamDay(String(data.range.min_date).slice(0, 10));
+
+    // Growth since that day, against the artist's live total.
+    const today = Number(currentArtistRawStats?.total_streams) || 0;
+    let sinceHtml = '';
+    if (today > total) {
+      const diff = today - total;
+      const days = Math.max(1, Math.round((parseLocalDate(latestStreamDay()) - parseLocalDate(streamDay)) / 86400000));
+      sinceHtml = `
+        <div class="tm-since">
+          <span class="gain-positive">+${formatNumber(diff)}</span>
+          <span class="tm-since-note">since then (${pctOf(diff, total)} growth over ${formatNumber(days)} day${days === 1 ? '' : 's'})</span>
+        </div>`;
+    }
+
+    const rows = (data.top_songs || []).map((s, i) => {
+      // Singles carry the track's own name as the album — printing both just
+      // repeats the title under itself.
+      const album = String(s.album_title || '');
+      const sub = album && album.toLowerCase() !== String(s.title || '').toLowerCase() ? album : '';
+      return `
+      <tr>
+        <td class="tm-rank">${i + 1}</td>
+        <td>
+          <div class="tm-song">
+            <span class="tm-song-title">${esc(s.title)}</span>
+            ${sub ? `<span class="tm-song-album">${esc(sub)}</span>` : ''}
+          </div>
+        </td>
+        <td class="tm-num">${formatNumber(s.cumulative)}</td>
+        <td class="tm-num tm-gain">${Number(s.daily_gain) > 0 ? '+' + formatNumber(s.daily_gain) : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    resultEl.innerHTML = `
+      <div class="tm-headline">
+        <div class="tm-headline-main">
+          <span class="tm-headline-label">Total streams on ${esc(formatDate(streamDay))}</span>
+          <span class="tm-headline-value">${formatNumber(total)}</span>
+          <span class="tm-headline-sub">${formatNumber(data.total_songs)} tracks${firstDay ? '' : ` · +${formatNumber(data.daily_gain)} that day`}</span>
+        </div>
+        ${sinceHtml}
+      </div>
+      ${stale ? `<div class="tm-note">No scrape that day — showing the last one before it (${esc(formatDate(asOfStream))}).</div>` : ''}
+      ${firstDay ? `<div class="tm-note">First day on record. There's no earlier snapshot to compare against, and the catalogue was still being discovered — later days are more complete.</div>` : ''}
+      <div class="tm-splits">
+        ${splitRow('Lead', data.lead_streams, total)}
+        ${splitRow('Solo', data.solo_streams, total)}
+        ${splitRow('Featured', data.feat_streams, total)}
+      </div>
+      <div class="table-wrapper tm-table-wrap">
+        <table class="modal-table tm-table">
+          <thead>
+            <tr><th>#</th><th>Song</th><th class="tm-num">Streams</th><th class="tm-num">That day</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  // streamDay === null means "whatever the newest snapshot is" — used on open,
+  // before we know the artist's range. `snapped` guards the one-shot re-clamp
+  // below so it can never bounce between two out-of-range days.
+  async function load(streamDay, snapped) {
+    if (!currentArtist) return;
+    const artist = currentArtist;
+    const mine = ++reqId;
+    resultEl.innerHTML = `<div class="tm-loading">Loading ${esc(streamDay ? formatDate(streamDay) : 'the latest day')}…</div>`;
+    try {
+      const headers = {};
+      if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+      const asked = streamDay ? toSnapshotDay(streamDay) : iso(new Date());
+      const res = await fetch(
+        `/api/streams-on?artist=${encodeURIComponent(artist)}&date=${asked}`,
+        { headers }
+      );
+      if (mine !== reqId || artist !== currentArtist) return; // superseded
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (mine !== reqId || artist !== currentArtist) return;
+      loadedRange = data.range || loadedRange;
+      applyBounds();
+      // This response may be the first time we know the artist's range — a
+      // preset clicked before it landed could have jumped past either end
+      // (e.g. "1y ago" for an artist we've only tracked since May). Snap back
+      // to the boundary and load that instead of showing an empty day.
+      if (streamDay && !snapped) {
+        const clamped = clampToRange(streamDay);
+        if (clamped !== streamDay) return load(clamped, true);
+      }
+      // On the "latest" load, the day is whatever came back.
+      const shownDay = streamDay
+        || (data.as_of ? toStreamDay(String(data.as_of).slice(0, 10)) : latestStreamDay());
+      dateInput.value = shownDay;
+      render(data, shownDay);
+    } catch (err) {
+      if (mine !== reqId) return;
+      console.error('Time machine error:', err);
+      resultEl.innerHTML = `<div class="tm-empty">Couldn't load that day. Try again.</div>`;
+    }
+  }
+
+  // The input updates immediately so the arrows feel instant, but the query
+  // waits — clicking through a week otherwise fires a full aggregate per click,
+  // and every one of those is Neon compute we don't need to spend.
+  let goTimer = null;
+  function go(streamDay) {
+    const clamped = clampToRange(streamDay);
+    dateInput.value = clamped;
+    clearTimeout(goTimer);
+    goTimer = setTimeout(() => load(clamped), 180);
+  }
+
+  function open() {
+    // A different artist means a different history, so the cached range and the
+    // previously shown day are both meaningless — start from their latest day.
+    if (lastArtist !== currentArtist) {
+      lastArtist = currentArtist;
+      loadedRange = null;
+      dateInput.value = '';
+      dateInput.removeAttribute('min');
+      resultEl.innerHTML = '';
+    }
+    applyBounds();
+    modal.classList.remove('hidden');
+    if (subtitle) {
+      subtitle.textContent = STREAM_DATE_OFFSET_DAYS
+        ? 'Streaming days — the totals Spotify was showing on that date.'
+        : 'Totals as recorded on that date.';
+    }
+    // No day chosen yet (first open, or a fresh artist) → ask for the newest.
+    if (dateInput.value) go(dateInput.value);
+    else load(null);
+  }
+
+  function close() {
+    clearTimeout(goTimer);
+    modal.classList.add('hidden');
+  }
+
+  openBtn.addEventListener('click', open);
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+  });
+
+  dateInput.addEventListener('change', () => { if (dateInput.value) go(dateInput.value); });
+  if (prevBtn) prevBtn.addEventListener('click', () => go(shiftDay(dateInput.value || latestStreamDay(), -1)));
+  if (nextBtn) nextBtn.addEventListener('click', () => go(shiftDay(dateInput.value || latestStreamDay(), 1)));
+  presetBtns.forEach((btn) => btn.addEventListener('click', () => {
+    go(shiftDay(latestStreamDay(), -Number(btn.dataset.tmAgo || 0)));
+  }));
+})();
