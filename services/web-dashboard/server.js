@@ -2736,14 +2736,20 @@ app.get('/api/admin/song-search', requireAdmin, async (req, res) => {
     // canonical head if the id is a merged alias) so a pasted/linked track from a
     // feedback report jumps straight to its editable row. Otherwise title search.
     const isId = SPOTIFY_ID_RE.test(q);
+    // Both branches bind the SAME $1. The title branch used to pass [null, q]
+    // against a query that only mentioned $2, and Postgres rejects a statement
+    // whose $1 appears nowhere ("could not determine data type of parameter
+    // $1") — so every title search 500'd while id lookups kept working.
     const r = await dbQuery(
       `SELECT s.id, s.title, s.primary_artist, a.title AS album,
               (SELECT MAX(stream_count) FROM stream_stats WHERE song_id = s.id) AS streams
        FROM songs s LEFT JOIN albums a ON a.id = s.album_id
        WHERE s.canonical_id IS NULL
-         AND (${isId ? 's.id = $1 OR s.id = (SELECT COALESCE(canonical_id, id) FROM songs WHERE id = $1)' : 's.title ILIKE $2'})
+         AND (${isId
+           ? 's.id = $1 OR s.id = (SELECT COALESCE(canonical_id, id) FROM songs WHERE id = $1)'
+           : "s.title ILIKE '%' || $1 || '%'"})
        ORDER BY streams DESC NULLS LAST LIMIT 40`,
-      isId ? [q] : [null, `%${q}%`]
+      [q]
     );
     // Mark hidden / album-hidden / pinned from the caches (no hard table dep).
     const hidden = new Set(hiddenSongsCache);
