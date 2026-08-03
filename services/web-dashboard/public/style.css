@@ -2816,17 +2816,24 @@ body.modal-open {
   .dashboard-header .artist-select-wrapper {
     margin-left: 0;
   }
-  /* One compact row: "last updated" chip on the left, action buttons on the
-     right — instead of the chip taking its own centered line. */
+  /* "last updated" chip on the left, action buttons on the right. This used to
+     be nowrap, which silently pushed the last buttons off-screen once there
+     were more than two of them — 390px of viewport was carrying 558px of
+     header, so Log Out simply wasn't reachable. Wrapping is the safety net;
+     the icon-only rule below is what actually makes it fit on one line. */
   .dashboard-header .user-actions {
     width: 100%;
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
     gap: 8px;
   }
+  /* Own line. Sharing a row with five controls means the wrap point depends on
+     how long today's date happens to be ("May 1" vs "September 30") — the row
+     would reflow from one line to two as the month changed. */
   .dashboard-header .user-actions .last-update-chip {
-    flex: 0 0 auto;
+    flex: 1 0 100%;
     margin-right: auto;
     font-size: 0.72rem;
   }
@@ -2836,6 +2843,14 @@ body.modal-open {
     white-space: nowrap;
     padding: 7px 14px;
     font-size: 0.82rem;
+  }
+  /* Share / Daily Card / Time Machine collapse to their icons. Three labelled
+     pills plus the two nav buttons cannot fit a phone, and these three are the
+     ones with a recognisable glyph. */
+  .dashboard-header .user-actions .btn-share span { display: none; }
+  .dashboard-header .user-actions .btn-share {
+    padding: 7px 10px;
+    gap: 0;
   }
 }
 
@@ -5218,13 +5233,6 @@ select.tc-input { cursor: pointer; }
   .tm-song-album { display: none; }
 }
 
-/* The header row is nowrap on mobile, so the Time Machine button collapses to
-   its icon there rather than stealing width from the artist switcher. */
-@media (max-width: 768px) {
-  #timemachine-btn span { display: none; }
-  #timemachine-btn { padding: 7px 11px; }
-}
-
 /* Time Machine: the day predates full-catalogue coverage, so per-song numbers
    are real but their sum is not the artist's total. */
 .tm-warn {
@@ -5238,3 +5246,11 @@ select.tc-input { cursor: pointer; }
   border: 1px solid rgba(253, 224, 71, 0.3);
 }
 .tm-warn strong { color: #fde68a; }
+
+/* Narrow phones: drop the arrow glyph from the artist switcher so the action
+   row stays two lines instead of three. The word carries the meaning; the
+   title attribute keeps the full label for anyone hovering. */
+@media (max-width: 400px) {
+  .dashboard-header .user-actions .bp-arrow { display: none; }
+  .dashboard-header .user-actions { gap: 6px; }
+}
