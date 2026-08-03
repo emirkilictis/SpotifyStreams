@@ -3423,6 +3423,14 @@ body.modal-open {
   padding: 18px 20px;
   border-radius: 16px;
   margin-bottom: 8px;
+  /* .glass sets backdrop-filter, which makes EVERY section its own stacking
+     context. That capped the search dropdown inside this one no matter how high
+     its own z-index went, so Achieved Milestones and Upcoming Milestones — both
+     later in the DOM — painted straight over the suggestions. Lifting the
+     section itself is what actually frees the dropdown. Stays well under the
+     sticky header (100) and the modals (1000). */
+  position: relative;
+  z-index: 20;
 }
 .target-calc .section-title { margin: 0 0 4px; }
 .target-calc-hint {
@@ -4176,7 +4184,16 @@ select.tc-input { cursor: pointer; }
   transition: all 0.2s ease;
 }
 
+/* Over 280 is a warning, not an error: the post is fine on X Premium, and the
+   Top 20 option is over it by design. Red is reserved for hard-exceeded, where
+   the post genuinely can't be sent. */
 .char-counter.exceeded {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.1);
+}
+
+.char-counter.hard-exceeded {
   color: var(--accent-red);
   background: rgba(239, 68, 68, 0.1);
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.1);

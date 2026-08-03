@@ -4452,13 +4452,20 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     if (!twitterPostModal.classList.contains('hidden')) updatePreview();
   };
 
+  // 280 is the free-tier limit; X Premium allows far more. A Top 20 list blows
+  // past 280 every time, so say WHY it's red instead of just flagging it — the
+  // post is still perfectly postable on a Premium account.
+  const X_FREE_LIMIT = 280;
+  const X_PREMIUM_LIMIT = 25000;
+
   function updateCharCounter(len) {
-    charCounter.textContent = `${len} / 280`;
-    if (len > 280) {
-      charCounter.classList.add('exceeded');
-    } else {
-      charCounter.classList.remove('exceeded');
-    }
+    const over = len > X_FREE_LIMIT;
+    charCounter.textContent = over
+      ? `${formatNumber(len)} / ${X_FREE_LIMIT} · needs X Premium`
+      : `${len} / ${X_FREE_LIMIT}`;
+    charCounter.classList.toggle('exceeded', over);
+    // Past Premium's own ceiling it isn't postable at all — that's a real error.
+    charCounter.classList.toggle('hard-exceeded', len > X_PREMIUM_LIMIT);
   }
 
   function openTwitterPostModal() {
