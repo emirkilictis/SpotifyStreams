@@ -3832,15 +3832,17 @@ function renderPickerRoster() {
     });
 
     if (filteredRoster.length === 0) {
-      grid.innerHTML = `<div class="picker-no-results">No artists found matching "${artistSearchQuery}"</div>`;
+      grid.innerHTML = `<div class="picker-no-results">No artists found matching "${escHtml(artistSearchQuery)}"</div>`;
     } else {
-      filteredRoster.forEach(a => {
+      filteredRoster.forEach((a, index) => {
         const locked = isArtistLocked(a.artist_id);
         const card = document.createElement('button');
         card.className = locked ? 'picker-card locked-card' : 'picker-card';
         card.dataset.artist = a.artist_id;
         card.dataset.realName = a.name;
         card.dataset.name = locked ? 'Locked Artist' : a.name;
+        const accent = /^#[0-9a-f]{6}$/i.test(a.accent || '') ? a.accent : '#1ed760';
+        card.style.setProperty('--picker-artist-accent', locked ? '#a855f7' : accent);
         // Without this the card is an unlabelled <button> — screen readers and
         // keyboard users get "button" and nothing else.
         card.setAttribute('aria-label', locked ? 'Locked artist' : a.name);
@@ -3857,16 +3859,22 @@ function renderPickerRoster() {
               <div class="picker-card-overlay"></div>
             </div>
             <div class="picker-card-info">
+              <span class="picker-card-accent" aria-hidden="true"></span>
               <h3>Locked Artist</h3>
             </div>
           `;
         } else {
+          // Only the first visible row is render-critical. With 40+ artists,
+          // eagerly downloading every avatar delays the picker for no benefit.
+          const loading = index < 6 ? 'eager' : 'lazy';
+          const fetchPriority = index < 6 ? 'high' : 'low';
           card.innerHTML = `
             <div class="picker-card-img-wrap">
-              <img src="${escHtml(a.image_url || '/images/default.jpg')}" alt="${escHtml(a.name)}" class="picker-card-img" loading="eager">
+              <img src="${escHtml(a.image_url || '/images/default.jpg')}" alt="${escHtml(a.name)}" class="picker-card-img" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async">
               <div class="picker-card-overlay"></div>
             </div>
             <div class="picker-card-info">
+              <span class="picker-card-accent" aria-hidden="true"></span>
               <h3>${escHtml(a.name)}</h3>
             </div>
           `;

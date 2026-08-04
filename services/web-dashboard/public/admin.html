@@ -159,6 +159,12 @@
 
     /* Artist management */
     .artist-form { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .artist-list-controls { align-items: center; margin-bottom: 14px; }
+    .artist-list-controls .search { min-width: 220px; }
+    .artist-result-count {
+      color: var(--faint); font-size: 0.76rem; white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
     .af-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
     .af-row .search { flex: 1; margin: 0; }
     .af-accent-row { align-items: center; }
@@ -626,6 +632,15 @@
         <button id="artists-refresh" class="tool-btn" title="Reload">⟳ Refresh</button>
         <button id="artists-scrape-all" class="tool-btn" style="margin-left: auto; border-color: rgba(30,215,96,0.3); color: var(--green);">⟳ Sync All Playcounts</button>
       </div>
+      <div class="toolbar artist-list-controls">
+        <input id="artists-search" class="search" type="search" placeholder="Search artists by name or Spotify ID…" autocomplete="off">
+        <select id="artists-state-filter" class="tool-btn" aria-label="Filter artists by status">
+          <option value="all">All artists</option>
+          <option value="active">Active only</option>
+          <option value="inactive">Inactive only</option>
+        </select>
+        <span id="artists-result-count" class="artist-result-count"></span>
+      </div>
       <form id="artist-form" class="artist-form hidden">
         <div class="af-row">
           <input id="af-id" class="search" placeholder="Spotify artist id (22 chars)" autocomplete="off">
@@ -989,10 +1004,15 @@
     const feedbackView = document.getElementById('feedback-view');
     const statusView = document.getElementById('status-view');
     const artistsListEl = document.getElementById('artists-list');
+    const artistsSearchEl = document.getElementById('artists-search');
+    const artistsStateFilterEl = document.getElementById('artists-state-filter');
+    const artistsResultCountEl = document.getElementById('artists-result-count');
     const artistForm = document.getElementById('artist-form');
     let artists = [];
     let artistsLoaded = false;
     let editingId = null;
+    let artistsSearchQuery = '';
+    let artistsStateFilter = 'all';
 
     const af = {
       id: document.getElementById('af-id'), name: document.getElementById('af-name'),
@@ -1563,13 +1583,13 @@
             </div>`;
           }).join('');
           return `
-            <div class="dup-artist open" data-artist="${esc(name)}">
-              <div class="dup-artist-head" data-toggle>
+            <div class="dup-artist" data-artist="${esc(name)}">
+              <div class="dup-artist-head" data-toggle role="button" tabindex="0" aria-expanded="false">
                 <span class="dup-artist-caret">▸</span>
                 <span class="dup-artist-name">${esc(name)}</span>
                 <span class="dup-artist-meta">${list.length} rule${list.length === 1 ? '' : 's'}${meta ? ' · ' + meta : ''}</span>
               </div>
-              <div class="dup-artist-body">${body}</div>
+              <div class="dup-artist-body" hidden>${body}</div>
             </div>`;
         }).join('');
       } catch { manualListEl.innerHTML = '<div class="empty">Could not load (migration 016 applied?).</div>'; }
@@ -1604,6 +1624,7 @@
         const opening = body.hasAttribute('hidden');
         if (opening) body.removeAttribute('hidden'); else body.setAttribute('hidden', '');
         art.classList.toggle('open', opening);
+        head.setAttribute('aria-expanded', String(opening));
         return;
       }
 
@@ -1634,6 +1655,7 @@
         const opening = body.hasAttribute('hidden');
         if (opening) body.removeAttribute('hidden'); else body.setAttribute('hidden', '');
         art.classList.toggle('open', opening);
+        head.setAttribute('aria-expanded', String(opening));
         return;
       }
       const btn = e.target.closest('button[data-remove-rule]');
@@ -1642,6 +1664,14 @@
       btn.disabled = true;
       await api('/api/admin/manual-merges/' + btn.dataset.removeRule, { method: 'DELETE' });
       await loadManualMerges();
+    });
+
+    manualListEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const head = e.target.closest('.dup-artist-head[data-toggle]');
+      if (!head) return;
+      e.preventDefault();
+      head.click();
     });
 
     // ---- Health / overview ----
@@ -1899,8 +1929,27 @@
     }
 
     function renderArtists() {
-      if (!artists.length) { artistsListEl.innerHTML = '<div class="empty">No artists yet.</div>'; return; }
-      artistsListEl.innerHTML = artists.map(a => {
+      if (!artists.length) {
+        artistsResultCountEl.textContent = '';
+        artistsListEl.innerHTML = '<div class="empty">No artists yet.</div>';
+        return;
+      }
+      const q = artistsSearchQuery.toLowerCase();
+      const visibleArtists = artists.filter(a => {
+        const matchesQuery = !q || a.name.toLowerCase().includes(q) || a.artist_id.toLowerCase().includes(q);
+        const matchesState = artistsStateFilter === 'all' ||
+          (artistsStateFilter === 'active' && a.active) ||
+          (artistsStateFilter === 'inactive' && !a.active);
+        return matchesQuery && matchesState;
+      });
+      artistsResultCountEl.textContent = visibleArtists.length === artists.length
+        ? `${artists.length} artists`
+        : `${visibleArtists.length} of ${artists.length}`;
+      if (!visibleArtists.length) {
+        artistsListEl.innerHTML = '<div class="empty">No artists match these filters.</div>';
+        return;
+      }
+      artistsListEl.innerHTML = visibleArtists.map(a => {
         const tags = [];
         if (a.album_only) tags.push('<span class="ar-tag album">album-only</span>');
         if (a.locked) tags.push('<span class="ar-tag locked" title="Hidden on the public site behind the access passcode. Edit → uncheck Locked to unlock.">🔒 locked</span>');
@@ -1974,6 +2023,14 @@
       finally { btn.disabled = false; btn.textContent = 'Purge catalog'; }
     });
     document.getElementById('artists-refresh').addEventListener('click', loadArtists);
+    artistsSearchEl.addEventListener('input', () => {
+      artistsSearchQuery = artistsSearchEl.value.trim();
+      renderArtists();
+    });
+    artistsStateFilterEl.addEventListener('change', () => {
+      artistsStateFilter = artistsStateFilterEl.value;
+      renderArtists();
+    });
 
     artistForm.addEventListener('submit', async (e) => {
       e.preventDefault();

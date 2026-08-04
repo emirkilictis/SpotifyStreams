@@ -2446,7 +2446,7 @@ body.modal-open {
 .picker-container {
   position: relative;
   z-index: 1;
-  max-width: 900px;
+  max-width: 1040px;
   width: 100%;
   animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -2580,11 +2580,12 @@ body.modal-open {
   border-radius: 20px;
 }
 
-/* Artist Cards Grid */
+/* Compact artist rows. The roster is now large enough that full portrait cards
+   turn the picker into a multi-screen photo wall on desktop. */
 .picker-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   margin-bottom: 40px;
   /* Hide the static fallback cards until applyRoster() rebuilds the grid from
      the live /api/artists roster, so the old order doesn't flash on load.
@@ -2602,29 +2603,46 @@ body.modal-open {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--card-border);
-  border-radius: 20px;
+  border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
   position: relative;
-  padding: 0;
+  padding: 10px 12px;
   font-family: inherit;
   color: inherit;
   outline: none;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+  min-height: 76px;
+}
+
+.picker-card::after {
+  content: '\203A';
+  color: var(--text-muted);
+  font-size: 1.45rem;
+  line-height: 1;
+  margin-left: 6px;
+  transition: transform 0.22s ease, color 0.22s ease;
 }
 
 .picker-card:hover {
-  transform: translateY(-8px) scale(1.02);
-  border-color: rgba(30, 215, 96, 0.4);
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--picker-artist-accent, var(--accent-green)) 55%, transparent);
   box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.5),
-    0 0 40px rgba(30, 215, 96, 0.12);
+    0 12px 28px rgba(0, 0, 0, 0.35),
+    0 0 24px color-mix(in srgb, var(--picker-artist-accent, var(--accent-green)) 12%, transparent);
+}
+
+.picker-card:hover::after {
+  color: var(--picker-artist-accent, var(--accent-green));
+  transform: translateX(2px);
 }
 
 .picker-card:active {
-  transform: translateY(-4px) scale(1.01);
+  transform: translateY(0);
 }
 
 .picker-card:focus-visible {
@@ -2634,8 +2652,10 @@ body.modal-open {
 
 .picker-card-img-wrap {
   position: relative;
-  width: 100%;
-  aspect-ratio: 1 / 1;
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  flex: 0 0 54px;
   overflow: hidden;
 }
 
@@ -2647,33 +2667,30 @@ body.modal-open {
 }
 
 .picker-card:hover .picker-card-img {
-  transform: scale(1.08);
+  transform: scale(1.05);
 }
 
 .picker-card-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to top,
-    rgba(8, 12, 20, 0.9) 0%,
-    rgba(8, 12, 20, 0.1) 50%,
-    transparent 100%
-  );
-  transition: opacity 0.4s ease;
-}
-
-.picker-card:hover .picker-card-overlay {
-  background: linear-gradient(
-    to top,
-    rgba(8, 12, 20, 0.95) 0%,
-    rgba(30, 215, 96, 0.05) 50%,
-    transparent 100%
-  );
+  display: none;
 }
 
 .picker-card-info {
-  padding: 16px 18px 20px;
-  text-align: center;
+  flex: 1;
+  min-width: 0;
+  padding: 0 4px 0 12px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.picker-card-accent {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--picker-artist-accent, var(--accent-green));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--picker-artist-accent, var(--accent-green)) 55%, transparent);
 }
 
 .picker-card-info h3 {
@@ -2683,10 +2700,13 @@ body.modal-open {
   color: var(--text-primary);
   letter-spacing: -0.2px;
   transition: color 0.3s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .picker-card:hover .picker-card-info h3 {
-  color: var(--accent-green);
+  color: var(--picker-artist-accent, var(--accent-green));
 }
 
 /* Picker Footer */
@@ -2728,6 +2748,12 @@ body.modal-open {
 }
 
 /* Artist Picker Responsive */
+@media (max-width: 900px) and (min-width: 601px) {
+  .picker-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 600px) {
   .picker-title {
     font-size: 2rem;
@@ -2748,6 +2774,35 @@ body.modal-open {
 
   .picker-card {
     border-radius: 14px;
+    padding: 0;
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .picker-card::after,
+  .picker-card-accent {
+    display: none;
+  }
+
+  .picker-card-img-wrap {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    border-radius: 0;
+    flex-basis: auto;
+  }
+
+  .picker-card-overlay {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to top,
+      rgba(8, 12, 20, 0.9) 0%,
+      rgba(8, 12, 20, 0.1) 50%,
+      transparent 100%
+    );
   }
 
   /* Name sits over the bottom of the image (gradient overlay keeps it legible),
@@ -2760,12 +2815,16 @@ body.modal-open {
     padding: 6px 5px 7px;
     z-index: 2;
     pointer-events: none;
+    display: block;
+    text-align: center;
   }
 
   .picker-card-info h3 {
     font-size: 0.72rem;
     line-height: 1.12;
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+    white-space: normal;
+    overflow: visible;
   }
 
   /* No lift on tap-only devices; keep it flat & compact. */
