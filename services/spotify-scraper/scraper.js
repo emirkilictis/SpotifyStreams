@@ -18,6 +18,20 @@ const { dedupCanonical } = require('./dedup');
 // early-exit paths (most hourly runs, since Spotify only rolls over once a day)
 // and after a full scrape, so a newly added artist doesn't have to wait for the
 // next day's data rollover before getting a photo.
+// Spotify serves one avatar at three sizes and encodes which one in the id
+// prefix, with the hash identical across all three. So a thumbnail already in
+// the DB can be upgraded to 640px by rewriting the prefix — no page load, no
+// network cost. This repairs the artists that were saved while fetchArtistAvatar
+// was picking the wrong source (see the comment there).
+const AVATAR_SMALL_PREFIXES = ['ab6761610000f178', 'ab67616100005174']; // 160, 320
+const AVATAR_LARGE_PREFIX = 'ab6761610000e5eb';                          // 640
+
+function upgradeAvatarUrl(url) {
+  if (!url || !url.includes('i.scdn.co')) return null;
+  const small = AVATAR_SMALL_PREFIXES.find(p => url.includes(p));
+  return small ? url.replace(small, AVATAR_LARGE_PREFIX) : null;
+}
+
 async function backfillMissingArtistPhotos(page, client) {
   try {
     const missing = await client.query(
@@ -31,6 +45,20 @@ async function backfillMissingArtistPhotos(page, client) {
       } else {
         console.warn(`[scraper] 📷 Could not find a profile photo for ${art.name} yet.`);
       }
+    }
+
+    // Self-healing pass for anyone still on a thumbnail. Costs one UPDATE and
+    // becomes a no-op once every row is on the large variant.
+    const stored = await client.query(
+      `SELECT artist_id, name, image_url FROM tracked_artists
+        WHERE image_url LIKE '%i.scdn.co%'
+          AND (image_url LIKE '%${AVATAR_SMALL_PREFIXES[0]}%' OR image_url LIKE '%${AVATAR_SMALL_PREFIXES[1]}%')`
+    );
+    for (const art of stored.rows) {
+      const better = upgradeAvatarUrl(art.image_url);
+      if (!better) continue;
+      await client.query('UPDATE tracked_artists SET image_url = $1 WHERE artist_id = $2', [better, art.artist_id]);
+      console.log(`[scraper] 📷 Upgraded ${art.name}'s photo to 640px.`);
     }
   } catch (avatarErr) {
     console.warn('[scraper] Artist photo backfill failed:', avatarErr.message);

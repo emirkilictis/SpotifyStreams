@@ -467,8 +467,13 @@ async function fetchArtistAvatar(page, artistId) {
       const au = body?.data?.artistUnion;
       const sources = au?.visuals?.avatarImage?.sources;
       if (au?.uri === targetUri && sources?.length && !avatar) {
-        // pick the largest source (last is usually the biggest)
-        avatar = sources[sources.length - 1].url || sources[0].url;
+        // Pick the widest EXPLICITLY. This used to take the last element on the
+        // assumption that the list was ascending; Spotify now sends them as
+        // [640, 160, 320], so "last" was the 320px thumbnail and every artist
+        // added since then got a soft, low-res photo.
+        const best = sources.reduce((a, b) =>
+          ((b.width || b.height || 0) > (a.width || a.height || 0) ? b : a));
+        avatar = best.url || sources[0].url;
       }
     } catch {}
   };
