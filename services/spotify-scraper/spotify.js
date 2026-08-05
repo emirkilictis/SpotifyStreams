@@ -128,7 +128,7 @@ async function fetchArtistAlbums(page, artistId) {
   };
   page.on('response', handler);
 
-  await page.goto(`https://open.spotify.com/artist/${artistId}`, {
+  const nav = await page.goto(`https://open.spotify.com/artist/${artistId}`, {
     waitUntil: 'networkidle2', timeout: 40000,
   });
   await dismissCookieBanner(page);
@@ -138,7 +138,19 @@ async function fetchArtistAlbums(page, artistId) {
   }
   page.off('response', handler);
 
-  if (!result) throw new Error(`Artist ${artistId} verisi yakalanamadı.`);
+  if (!result) {
+    // A wrong/typo'd ID (or an artist Spotify has removed) 404s at the HTTP level
+    // and never emits an artistUnion, so it looks identical to a network hiccup.
+    // Say which one it is — a 404 is permanent and wants the artist deactivated,
+    // a timeout is worth retrying next run.
+    const status = nav?.status?.() ?? 0;
+    if (status === 404) {
+      const err = new Error(`Artist ${artistId} Spotify'da yok (HTTP 404) — ID hatalı ya da sanatçı kaldırılmış.`);
+      err.artistNotFound = true;
+      throw err;
+    }
+    throw new Error(`Artist ${artistId} verisi yakalanamadı${status ? ` (HTTP ${status})` : ''}.`);
+  }
 
   // Side-channel: artist-level stats (monthly listeners, followers, world rank).
   // Read by discoverAllAlbumsPuppeteer; avoids changing this function's return type.

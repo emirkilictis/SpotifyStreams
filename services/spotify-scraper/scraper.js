@@ -777,6 +777,7 @@ async function run() {
       }
 
       const stats  = { tracksProcessed: 0, streamsUpdated: 0 };
+      const failedArtists = [];
 
       const artistFilterArg = process.argv.find(arg => arg.startsWith('--artists='));
       let artistsToRun = [];
@@ -859,6 +860,7 @@ async function run() {
         }
       }
 
+      let attempted = 0;
       for (let i = 0; i < pendingArtists.length; i++) {
         const artist = pendingArtists[i];
         // Soft time budget: don't START a new artist once we're past the budget.
@@ -870,10 +872,40 @@ async function run() {
           console.log(`[scraper] ⏱️ Time budget (${Math.round(SCRAPE_BUDGET_MS / 60000)}m) reached — deferring ${deferred.length} artist(s) to the next run: ${deferred.join(', ')}`);
           break;
         }
-        await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds, isForce, !!artist.album_only);
+        // One bad artist must not sink the whole run. A wrong ID (or an artist
+        // Spotify removed) used to throw straight out of the loop: every later
+        // artist was skipped, the photo backfill never ran, and the job went red
+        // every hour forever even though the other 43 artists were captured fine.
+        // Isolate the failure, keep going, and report it at the end.
+        attempted++;
+        try {
+          await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds, isForce, !!artist.album_only);
+        } catch (artistErr) {
+          failedArtists.push({
+            id: artist.id,
+            name: artist.name,
+            message: artistErr.message,
+            permanent: !!artistErr.artistNotFound,
+          });
+          console.error(`[scraper] ⚠️ ${artist.name} (${artist.id}) atlandı: ${artistErr.message}`);
+        }
       }
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
+
+      if (failedArtists.length) {
+        console.error(`[scraper] ⚠️ ${failedArtists.length}/${attempted} sanatçı başarısız:`);
+        for (const f of failedArtists) {
+          console.error(`  - ${f.name} (${f.id}): ${f.message}${f.permanent ? '  → tracked_artists.active = false yap' : ''}`);
+        }
+        // Fail the job only when NOTHING succeeded — that means a systemic problem
+        // (dead sp_dc cookie, Spotify blocking us), which is worth a red X. A run
+        // that captured most of the roster is a success with a warning; marking it
+        // red trains us to ignore the alert.
+        if (failedArtists.length === attempted) {
+          process.exitCode = 1;
+        }
+      }
 
       await backfillMissingArtistPhotos(page, client);
     } finally {
