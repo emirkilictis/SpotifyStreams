@@ -1655,11 +1655,20 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
             title ILIKE 'Schizophrenic%'
             OR title ILIKE 'Playing With Fire%'
           ))
-          OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND id IN (
-            '5CUnnqJBuAiR8F7AIEZFz2',  -- LOVE (Deluxe)
-            '5fygScHoj5CWBAuhT5OdJK',  -- Out of Time
-            '1J31HAtMOWrvSodhFZaDpU'   -- LOVE
-          ))
+          -- Vaelis: size rule instead of an id allowlist. The old hardcoded list
+          -- carried a wrong deluxe id (5CUnnq…, no such album in the DB), so LOVE
+          -- (Deluxe) never rendered, and every later release (Fantasy (Pack),
+          -- Rewind) needed a redeploy to appear. Requiring 3+ of her OWN lead
+          -- canonical songs keeps the single releases (Ice Cold, Now You Don't,
+          -- Love, Imagine If I Cared — 1 song each) out of the album grid while
+          -- new albums show up on their own.
+          OR ($1 = 'spotify:artist:3LHYvj5ZejV1NLqncEObSJ' AND (
+            SELECT COUNT(*) FROM songs vs
+            WHERE vs.album_id = albums.id
+              AND vs.primary_artist = $1
+              AND vs.canonical_id IS NULL
+              AND vs.is_featured IS NOT TRUE
+          ) >= 3)
           OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (
             title ILIKE '%fame monster%'
             OR title ILIKE '%mayhem%'
