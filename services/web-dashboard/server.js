@@ -3411,7 +3411,11 @@ app.get(['/', '/index.html'], requireAuth, (req, res) => {
 });
 
 // Admin panel (the page is static; the feedback API it calls is passcode-gated).
+// Its CSS/JS are inline, so there's no ?v= token to bust — force revalidation on
+// the document itself, otherwise iOS Safari can serve a pre-deploy copy out of the
+// back/forward cache and the panel looks like it never shipped.
 app.get('/admin', (req, res) => {
+  res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public/admin.html'));
 });
 
