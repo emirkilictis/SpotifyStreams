@@ -561,6 +561,29 @@ const ATD_ULTIMATE_COVER = 'https://i.scdn.co/image/ab67616d00001e02967b09b0309b
 const ATD_REMIX_SINGLE_IDS = ['2i2SkQ9IRn6q9E8RjhpOH3', '58YOjlNjfpWLFmHglWof4g'];
 const ATD_REMIX_SINGLE_IDS_SQL = ATD_REMIX_SINGLE_IDS.map(id => `'${id}'`).join(', ');
 
+// Dove Cameron's announced debut album "DC1" has no Spotify release yet, so its
+// songs only exist as standalone singles. Fold the era's singles — Too Much,
+// French Girls, Romeo, Whatever You Like, Hello My Old Lover — into one album
+// card so the era can be read as a whole (requested by a fan via the feedback
+// form). The "French Girls" single is the bucket because it already carries two
+// of the five tracks; the other three single cards vanish from the grid on their
+// own, because the bucket CASE moves their songs' display album here and the
+// album grid inner-joins on having at least one song. Display-only: no totals,
+// no canonical links, no album_id in the DB change. When DC1 actually ships,
+// Spotify will mint a REAL album id with its own track ids — at that point this
+// family should be retired, or the two will both show.
+const DC1_ALBUM_ID = '0zNVm3xZratOorJpLbglfN';
+const DC1_TITLE = 'DC1';
+// Era start = "Too Much", the first single. The album itself has no date yet.
+const DC1_RELEASE_DATE = '2025-02-21';
+const DC1_SINGLE_ALBUM_IDS = [
+  '0zNVm3xZratOorJpLbglfN', // French Girls (holds "Too Much" + "French Girls")
+  '257PqwE2yKKYxbLvqIkT3Y', // Romeo
+  '6Ws8yG1V1JszzzS0lwk8mn', // Whatever You Like
+  '576OBHrTMTv0uNbSrCZQHp', // Hello My Old Lover
+];
+const DC1_SINGLE_ALBUM_IDS_SQL = DC1_SINGLE_ALBUM_IDS.map(id => `'${id}'`).join(', ');
+
 // Alternate versions hidden from album tracklists AND album totals
 // (the songs stay in the catalog / overall artist totals).
 const HIDDEN_ALBUM_TRACK_IDS = [
@@ -1201,6 +1224,10 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess, async (req, res) =
 const MONTHLY_LISTENERS_PEAK_SEEDS = {
   // LISA — reported peak, predates our tracking, so no date.
   '5L1lO4eRHmJ7a0Q6csE5cT': { value: 28626697, date: null },
+  // Justin Timberlake — 57,620,604, and we have it in artist_stats (2026-06-17),
+  // so no seeded floor is needed: the zero seed just switches the display on and
+  // the tracked high-water mark supplies both the number and its real date.
+  '31TPClRtHm23RisEBtV3X7': { value: 0, date: null },
 };
 
 function peakMonthlyListeners(artistId, history) {
@@ -1405,6 +1432,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
             WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
             WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
+            WHEN a.id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
             ELSE s.album_id
           END,
           COALESCE(s.canonical_id, s.id)
@@ -1415,6 +1443,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
           WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
+          WHEN a.id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
           ELSE s.album_id
         END AS album_id,
         COALESCE(s.canonical_id, s.id) AS canonical_song_id
@@ -1442,7 +1471,9 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           WHEN id IN (${FSLS_ALBUM_IDS_SQL}) THEN 'FutureSex/LoveSounds (Deluxe Edition)'
           WHEN id IN (${TT20_ALBUM_IDS_SQL}) THEN 'The 20/20 Experience (Deluxe Version)'
           WHEN id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN 'eternal sunshine (Deluxe Edition)'
-          ELSE title 
+          -- The DC1 bucket keeps the French Girls single's id, so only its label changes.
+          WHEN id = '${DC1_ALBUM_ID}' THEN '${DC1_TITLE}'
+          ELSE title
         END AS album_title
         FROM albums
       ),
@@ -1534,6 +1565,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
             WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
             WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
+            WHEN a.id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
             ELSE s.album_id
           END,
           COALESCE(s.canonical_id, s.id)
@@ -1544,6 +1576,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN '5EYKrEDnKhhcNxGedaRQeK'
           WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
+          WHEN a.id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
           ELSE s.album_id
         END AS album_id,
         COALESCE(s.canonical_id, s.id) AS canonical_song_id,
@@ -1601,7 +1634,8 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
         CASE 
           WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'FutureSex/LoveSounds (Deluxe Edition)'
           WHEN id IN ('5EYKrEDnKhhcNxGedaRQeK', '6cbwstHlsAIIWurIIXXBPd', '2xqTa2dCR54yYHEcttiXyD', '7saicsozAZSsKEVQh4WAig', '5Csjy4XeA7KnizkhIvI7y2', '3L2iweH45rVdTBPldbY6dp') THEN 'eternal sunshine (Deluxe Edition)'
-          ELSE title 
+          WHEN id = '${DC1_ALBUM_ID}' THEN '${DC1_TITLE}'
+          ELSE title
         END AS album_title,
         CASE 
           WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '2006-09-11'::date
@@ -1610,7 +1644,8 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
           WHEN id = '2uMTmPEFafKfKeobvdx5EE' THEN '2014-08-25'::date
           WHEN id = '0JPItniR1C7tjd4ac2R1Vk' THEN '2016-05-20'::date
           WHEN id = '2VSBGJ8bUuNgmOYXHIQagM' THEN '2013-09-03'::date
-          ELSE release_date 
+          WHEN id = '${DC1_ALBUM_ID}' THEN '${DC1_RELEASE_DATE}'::date
+          ELSE release_date
         END AS release_date,
         CASE 
           WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473'
@@ -1812,10 +1847,16 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
             AND s.album_id IN ('${ATD_ULTIMATE_ID}', ${ATD_REMIX_SINGLE_IDS_SQL})
           )
           OR (
+            -- DC1: the announced debut album, assembled from its era singles.
+            $1 = '${DC1_ALBUM_ID}'
+            AND s.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL})
+          )
+          OR (
             $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
             AND $1 <> '5EYKrEDnKhhcNxGedaRQeK'
             AND $1 <> '0O82niJ0NpcptYRxogeEZu'
             AND $1 <> '${ATD_ULTIMATE_ID}'
+            AND $1 <> '${DC1_ALBUM_ID}'
             AND s.album_id = $1
           )
           -- Admin-pinned tracks (migration 019): show under the album they're pinned to.
@@ -1924,10 +1965,16 @@ app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
               AND s.album_id IN ('${ATD_ULTIMATE_ID}', ${ATD_REMIX_SINGLE_IDS_SQL})
             )
             OR (
+              -- DC1: same era-singles membership as the tracklist above.
+              $1 = '${DC1_ALBUM_ID}'
+              AND s.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL})
+            )
+            OR (
               $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
               AND $1 <> '0O82niJ0NpcptYRxogeEZu'
               AND $1 <> '5EYKrEDnKhhcNxGedaRQeK'
               AND $1 <> '${ATD_ULTIMATE_ID}'
+              AND $1 <> '${DC1_ALBUM_ID}'
               AND s.album_id = $1
             )
             -- Admin-pinned tracks (migration 019): count under their pinned album.
