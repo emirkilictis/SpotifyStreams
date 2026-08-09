@@ -114,6 +114,7 @@ const HIDDEN_TRACK_IDS = ['6233Z1W8t9Wn1f1gZqHhQ5']; // Suit & Tie - Radio Edit 
 // cache on startup + after every change. The static HIDDEN_TRACK_IDS above are
 // always merged in, so if the table is missing/empty behaviour is unchanged.
 let hiddenSongsCache = [];
+let hiddenSongsLoaded = false;
 function hiddenTrackIdsSql() {
   const ids = [...new Set([...HIDDEN_TRACK_IDS, ...hiddenSongsCache])];
   return ids.map(id => `'${id}'`).join(', ');
@@ -245,7 +246,19 @@ let activeArtistsCache = ARTIST_ROSTER_FALLBACK;
 // otherwise hiding/removing an artist dumps their whole catalogue into JT.
 let allArtistsCache = ARTIST_ROSTER_FALLBACK;
 
+// True once tracked_artists has actually answered at least once.
+//
+// While this is false the roster is ARTIST_ROSTER_FALLBACK, which is a 12-artist
+// SUBSET of the live roster (43 artists). JT's bucket is a catch-all, so every
+// artist missing from the fallback — Taylor, Nicki, Cardi, Dua, Britney, the SKZ
+// soloists, … — lands in JT's total: ~387B instead of ~18.7B. Serving a request
+// on the fallback roster is therefore a data-corruption bug, not a graceful
+// degradation, which is why the refreshers below never downgrade a roster that
+// once loaded and why requests wait for the first load (see whenRosterReady).
+let rosterLoadedFromDb = false;
+
 let extraArtistSongsCache = {};
+let extraArtistSongsLoaded = false;
 async function refreshExtraArtistSongsCache() {
   try {
     // Resolve each pin to its CANONICAL HEAD. Pins are stored as whatever track
@@ -264,8 +277,10 @@ async function refreshExtraArtistSongsCache() {
       temp[row.artist_id].push(row.song_id);
     }
     extraArtistSongsCache = temp;
+    extraArtistSongsLoaded = true;
   } catch (err) {
-    console.error('Failed to load extra_artist_songs from DB, using fallback:', err.message);
+    console.error('Failed to load extra_artist_songs from DB:', err.message);
+    if (extraArtistSongsLoaded) return; // keep the last good pins, don't drop to the hardcoded subset
     extraArtistSongsCache = {
       '4UIOuc84ExWojcUzFGtb8W': FELIX_EXTRA_TRACK_IDS,
       '1odvXbzhdzNajv6un9x5Mc': IN_EXTRA_TRACK_IDS,
@@ -295,6 +310,8 @@ function getExtraTrackIdsSql(artistId) {
 const SPOTIFY_ID_RE = /^[A-Za-z0-9]{22}$/;
 let albumTrackPinsCache = [];        // [{ song_id, album_id }]
 let albumHiddenTracksCache = [];     // [song_id, ...]
+let albumTrackPinsLoaded = false;
+let albumHiddenTracksLoaded = false;
 
 async function refreshAlbumTrackPinsCache() {
   try {
@@ -303,18 +320,20 @@ async function refreshAlbumTrackPinsCache() {
     albumTrackPinsCache = r.rows.filter(
       x => SPOTIFY_ID_RE.test(x.song_id) && SPOTIFY_ID_RE.test(x.album_id)
     );
+    albumTrackPinsLoaded = true;
   } catch (err) {
-    console.error('Failed to load album_track_pins, using empty:', err.message);
-    albumTrackPinsCache = [];
+    console.error('Failed to load album_track_pins:', err.message);
+    if (!albumTrackPinsLoaded) albumTrackPinsCache = [];
   }
 }
 async function refreshAlbumHiddenTracksCache() {
   try {
     const r = await dbQuery('SELECT song_id FROM album_hidden_tracks');
     albumHiddenTracksCache = r.rows.map(x => x.song_id).filter(id => SPOTIFY_ID_RE.test(id));
+    albumHiddenTracksLoaded = true;
   } catch (err) {
-    console.error('Failed to load album_hidden_tracks, using empty:', err.message);
-    albumHiddenTracksCache = [];
+    console.error('Failed to load album_hidden_tracks:', err.message);
+    if (!albumHiddenTracksLoaded) albumHiddenTracksCache = [];
   }
 }
 
@@ -356,16 +375,44 @@ function refreshRosterCaches() {
   return Promise.all([
     refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(),
     refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(),
+  ]).then((r) => {
+    // A refresh that never reached tracked_artists must not hold the 10-minute
+    // TTL: while the roster is still the fallback, the very next request should
+    // try again instead of waiting the timer out on wrong buckets.
+    if (!rosterLoadedFromDb) rosterCacheAt = 0;
+    return r;
+  });
+}
+
+// Single in-flight guard so a burst of requests triggers one reload, not one each.
+function startRosterRefresh() {
+  if (!rosterRefreshInFlight) {
+    rosterRefreshInFlight = refreshRosterCaches()
+      .catch(() => {})
+      .finally(() => { rosterRefreshInFlight = null; });
+  }
+  return rosterRefreshInFlight;
+}
+
+// Requests must never be answered off the fallback roster (JT's catch-all would
+// swallow every artist missing from it), so on a cold start — Render spun the
+// instance back up, Neon is still waking — the request WAITS for the first real
+// load instead of racing it. Capped so a genuinely dead database fails fast
+// rather than hanging every request for the full retry chain.
+const ROSTER_FIRST_LOAD_WAIT_MS = 15000;
+function whenRosterReady() {
+  if (rosterLoadedFromDb) return Promise.resolve();
+  return Promise.race([
+    startRosterRefresh(),
+    new Promise((r) => { setTimeout(r, ROSTER_FIRST_LOAD_WAIT_MS).unref?.(); }),
   ]);
 }
 
 // Fire-and-forget: never make a page wait on a cache that is merely stale.
 function touchRosterCaches() {
   const now = Date.now();
-  if (now - rosterCacheAt >= ROSTER_CACHE_TTL_MS && !rosterRefreshInFlight) {
-    rosterRefreshInFlight = refreshRosterCaches()
-      .catch(() => {})
-      .finally(() => { rosterRefreshInFlight = null; });
+  if (now - rosterCacheAt >= ROSTER_CACHE_TTL_MS) {
+    startRosterRefresh();
   }
   if (now - ogCacheAt >= OG_CACHE_TTL_MS) {
     ogCacheAt = now;
@@ -374,6 +421,9 @@ function touchRosterCaches() {
 }
 
 async function refreshOgStatsCache() {
+  // Computed off the roster, so on the fallback it would bake JT's catch-all
+  // total (~387B) into every link preview and hold it for the 30-minute TTL.
+  if (!rosterLoadedFromDb) { ogCacheAt = 0; return; }
   ogCacheAt = Date.now();
   try {
     const roster = activeArtistsCache;
@@ -662,11 +712,18 @@ async function refreshActiveArtistsCache() {
     if (r.rows.length) {
       allArtistsCache = r.rows;
       activeArtistsCache = r.rows.filter(a => a.active);
+      rosterLoadedFromDb = true;
       return;
     }
+    console.warn('[cache] tracked_artists returned no rows, keeping the current roster');
   } catch (err) {
-    console.warn('[cache] tracked_artists table unavailable, using fallback:', err.code || err.message);
+    console.warn('[cache] tracked_artists table unavailable:', err.code || err.message);
   }
+  // NEVER downgrade a roster that already loaded. A transient Neon error on a
+  // routine 10-minute reload used to overwrite the live 43-artist roster with
+  // the 12-artist fallback, which handed 31 catalogues to JT's catch-all until
+  // the next successful refresh (up to 10 minutes of JT showing ~387B).
+  if (rosterLoadedFromDb) return;
   activeArtistsCache = ARTIST_ROSTER_FALLBACK;
   allArtistsCache = ARTIST_ROSTER_FALLBACK;
 }
@@ -677,9 +734,12 @@ async function refreshHiddenSongsCache() {
   try {
     const r = await dbQuery(`SELECT song_id FROM hidden_songs`);
     hiddenSongsCache = r.rows.map(x => x.song_id);
+    hiddenSongsLoaded = true;
   } catch (err) {
     console.warn('[cache] hidden_songs table unavailable:', err.code || err.message);
-    hiddenSongsCache = [];
+    // Same rule as the roster: a failed reload keeps the last good list rather
+    // than silently un-hiding every admin-hidden song.
+    if (!hiddenSongsLoaded) hiddenSongsCache = [];
   }
 }
 
@@ -695,7 +755,28 @@ app.use(express.json());
 app.use(cookieParser('spotify-streams-secret-key'));
 // Refresh the roster/OG caches off the back of real traffic instead of a timer,
 // so an idle site lets the database suspend. See touchRosterCaches.
-app.use((req, res, next) => { touchRosterCaches(); next(); });
+//
+// Before that: if the roster has never loaded, wait for it. JT's bucket is a
+// catch-all over "no tracked artist claims this song", so answering off the
+// 12-artist fallback reports every other artist's streams as JT's (~387B). The
+// wait only ever happens on a cold start; once loaded this is a no-op.
+// Only /api/ waits — the page shell, CSS and images carry no numbers, so they
+// keep loading at full speed while the roster is still coming up.
+app.use(async (req, res, next) => { // JT_ARTIST_ID is declared further down; this runs per-request, after load
+  if (!rosterLoadedFromDb && req.path.startsWith('/api/')) {
+    await whenRosterReady();
+    // Still on the fallback: refuse to answer for JT rather than invent a total.
+    // Every artist-scoped endpoint defaults to JT when ?artist= is absent.
+    if (!rosterLoadedFromDb) {
+      const artist = typeof req.query.artist === 'string' ? req.query.artist : '';
+      if (!artist || artist.includes(JT_ARTIST_ID)) {
+        return res.status(503).json({ error: 'Artist roster unavailable, try again in a moment' });
+      }
+    }
+  }
+  if (req.path !== '/healthz') touchRosterCaches(); // keep-alive ping must not wake Neon
+  next();
+});
 
 // Auth check middleware.
 // The general site passcode has been removed — the dashboard is public.
@@ -3669,7 +3750,7 @@ app.get('*', requireAuth, (req, res) => {
 
 app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
-  await refreshRosterCaches();
+  await whenRosterReady();
   // OG preview stats depend on the roster cache above being populated first.
   refreshOgStatsCache();
 });
