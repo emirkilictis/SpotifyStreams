@@ -5284,6 +5284,48 @@ select.tc-input { cursor: pointer; }
 .tm-split-value { font-family: 'Outfit', sans-serif; font-weight: 700; margin-left: auto; }
 .tm-split-pct { font-size: 0.75rem; color: var(--text-muted); min-width: 38px; text-align: right; }
 
+/* Monthly listeners on the chosen day. Sits between the stream splits and the
+   song table as its own banded row — it's a different metric from a different
+   table, so it reads better boxed off than as a fourth split chip. */
+.tm-ml {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+}
+.tm-ml-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tm-ml-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tm-ml-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.tm-ml-sub,
+.tm-ml-since {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.tm-ml-since { flex-direction: column; align-items: flex-end; gap: 2px; }
+.tm-ml-note { font-size: 0.75rem; font-weight: 500; color: var(--text-muted); }
+
 .tm-table-wrap { max-height: 46vh; overflow-y: auto; }
 .tm-table th, .tm-table td { padding: 10px 12px; }
 .tm-table .tm-num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -5307,6 +5349,11 @@ select.tc-input { cursor: pointer; }
   .tm-since-note { text-align: left; }
   .tm-headline-value { font-size: 1.8rem; }
   .tm-song-album { display: none; }
+  /* Narrow enough that the "since then" column would wrap under the value and
+     sit right-aligned against nothing — stack the whole row left instead. */
+  .tm-ml { align-items: flex-start; }
+  .tm-ml-since { align-items: flex-start; }
+  .tm-ml-value { font-size: 1.3rem; }
 }
 
 /* Time Machine: the day predates full-catalogue coverage, so per-song numbers

@@ -5183,6 +5183,56 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       </div>`;
   }
 
+  const signed = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${formatNumber(Math.abs(n))}`;
+  const gainClass = (n) => (n > 0 ? 'gain-positive' : n < 0 ? 'gain-negative' : 'gain-neutral');
+
+  // Monthly listeners on the chosen day. This comes from artist_stats rather
+  // than the per-song snapshots, so it stands on its own: it renders even on a
+  // `partial` day where the stream totals are withheld, and it carries its own
+  // as_of date because the two tables can land on different days.
+  function monthlyListenersHtml(ml, streamDay) {
+    const value = Number(ml?.value);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    const asOfStream = ml.as_of ? toStreamDay(String(ml.as_of).slice(0, 10)) : streamDay;
+
+    let changeHtml = '';
+    const change = ml.change == null ? null : Number(ml.change);
+    if (change != null && Number.isFinite(change)) {
+      // Usually the previous day, but a skipped scrape widens the gap — say the
+      // span rather than calling a two-day move "that day". Unlike streams this
+      // isn't divided down to a daily rate: monthly listeners is a rolling
+      // 28-day figure, so a per-day slice of its movement would be made up.
+      const gap = (ml.prev_date && ml.as_of)
+        ? Math.round((parseLocalDate(ml.as_of) - parseLocalDate(ml.prev_date)) / 86400000)
+        : 1;
+      changeHtml = `
+        <span class="${gainClass(change)}">${signed(change)}</span>
+        <span class="tm-ml-note">${gap === 1 ? 'that day' : `over ${formatNumber(gap)} days`}</span>`;
+    }
+
+    // Same "and where is it now" framing the stream total gets above it.
+    let sinceHtml = '';
+    const latest = Number(ml.latest);
+    if (Number.isFinite(latest) && latest > 0 && ml.latest_date && ml.latest_date !== ml.as_of) {
+      const diff = latest - value;
+      sinceHtml = `
+        <div class="tm-ml-since">
+          <span class="${gainClass(diff)}">${signed(diff)}</span>
+          <span class="tm-ml-note">since then (${formatNumber(latest)} today)</span>
+        </div>`;
+    }
+
+    return `
+      <div class="tm-ml">
+        <div class="tm-ml-main">
+          <span class="tm-ml-label">Monthly listeners on ${esc(formatDate(asOfStream))}</span>
+          <span class="tm-ml-value">${formatNumber(value)}</span>
+          ${changeHtml ? `<span class="tm-ml-sub">${changeHtml}</span>` : ''}
+        </div>
+        ${sinceHtml}
+      </div>`;
+  }
+
   function render(data, streamDay) {
     const total = Number(data.total_streams) || 0;
     if (!total) {
@@ -5266,6 +5316,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
         ${splitRow('Solo', data.solo_streams, total)}
         ${splitRow('Featured', data.feat_streams, total)}
       </div>`}
+      ${monthlyListenersHtml(data.monthly_listeners, streamDay)}
       <div class="table-wrapper tm-table-wrap">
         <table class="modal-table tm-table">
           <thead>

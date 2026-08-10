@@ -1261,11 +1261,57 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess, async (req, res) =
            FROM rows ORDER BY cum_at DESC LIMIT ${STREAMS_ON_TOP_SONGS}
          ) t) AS top_songs
     `;
-    const [result, range] = await Promise.all([
+    // Monthly listeners for the same day. It lives in artist_stats, not in the
+    // per-song snapshots, so it lands on its own nearest-on-or-before date and
+    // survives a day where the catalogue coverage is partial. `upto` holds that
+    // day plus the one before it (for the change), `newest` the current value so
+    // the client can say how far it has moved since.
+    const mlQuery = `
+      WITH upto AS (
+        SELECT recorded_date, monthly_listeners
+        FROM artist_stats
+        WHERE artist_id = $1 AND monthly_listeners IS NOT NULL AND recorded_date <= $2::date
+        ORDER BY recorded_date DESC
+        LIMIT 2
+      ),
+      newest AS (
+        SELECT recorded_date, monthly_listeners
+        FROM artist_stats
+        WHERE artist_id = $1 AND monthly_listeners IS NOT NULL
+        ORDER BY recorded_date DESC
+        LIMIT 1
+      )
+      SELECT
+        (SELECT monthly_listeners   FROM upto ORDER BY recorded_date DESC LIMIT 1) AS value,
+        (SELECT recorded_date::text FROM upto ORDER BY recorded_date DESC LIMIT 1) AS as_of,
+        (SELECT monthly_listeners   FROM upto ORDER BY recorded_date ASC  LIMIT 1) AS prev_value,
+        (SELECT recorded_date::text FROM upto ORDER BY recorded_date ASC  LIMIT 1) AS prev_date,
+        (SELECT monthly_listeners   FROM newest) AS latest_value,
+        (SELECT recorded_date::text FROM newest) AS latest_date
+    `;
+    const artistId = artistUri.replace('spotify:artist:', '');
+    const [result, range, mlResult] = await Promise.all([
       dbQuery(query, [artistUri, date]),
       artistDateRange(artistUri).catch(() => ({ min_date: null, max_date: null })),
+      // Never let a missing monthly-listeners row take the whole day down with it.
+      dbQuery(mlQuery, [artistId, date]).catch(() => ({ rows: [] })),
     ]);
     const row = result.rows[0] || {};
+
+    // With only one row on or before the date, `upto`'s ASC and DESC picks are the
+    // same row — that's "no earlier snapshot", not a zero change.
+    const ml = mlResult.rows[0] || {};
+    const mlValue = ml.value == null ? null : Number(ml.value);
+    const mlPrev = (ml.prev_date && ml.prev_date !== ml.as_of && ml.prev_value != null)
+      ? Number(ml.prev_value) : null;
+    const monthlyListeners = mlValue == null ? null : {
+      value: mlValue,
+      as_of: ml.as_of || null,
+      change: mlPrev == null ? null : mlValue - mlPrev,
+      prev_date: mlPrev == null ? null : ml.prev_date,
+      latest: ml.latest_value == null ? null : Number(ml.latest_value),
+      latest_date: ml.latest_date || null,
+    };
     // Before this date the sums are missing whatever the backfill didn't cover,
     // so the client shows the per-song numbers but not an artist total.
     const completeFrom = historyCompleteFrom(artistUri);
@@ -1281,6 +1327,7 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess, async (req, res) =
       daily_gain: row.daily_gain || 0,
       total_songs: row.total_songs || 0,
       top_songs: row.top_songs || [],
+      monthly_listeners: monthlyListeners,
       range,
     });
   } catch (err) {
