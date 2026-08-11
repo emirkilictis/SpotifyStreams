@@ -2256,14 +2256,21 @@ function renderCatalogueCard() {
   }));
   const tracks = [...trackRows].sort(rank).slice(0, CARD_TOP_TRACKS);
 
-  // --- Versions: computed over the whole catalogue, not just the top tracks ---
-  const versionRows = allSongs.map((sg) => ({
-    label: cardVersionLabel(sg.title) || sg.title,
-    cum: Number(sg.cumulative || 0),
-    daily: Number(sg.daily_gain || 0),
-    prev: Number(sg.prev_daily_gain || 0),
-  }));
-  const allVersionGroups = cardVersionGroups(versionRows, rank);
+  // --- Versions. LISA only: her scene counts versions as their own thing,
+  // which is why her signature card carries a Rockstar(versions) line at all.
+  // The other artists' cards were never meant to have this, and on a catalogue
+  // like JT's — six SexyBack club mixes, twelve of "4 Minutes" — it swamps the
+  // card. Computed over the whole catalogue, not just the top tracks. ---
+  let allVersionGroups = [];
+  if (currentArtist === LISA_ARTIST_ID) {
+    const versionRows = allSongs.map((sg) => ({
+      label: cardVersionLabel(sg.title) || sg.title,
+      cum: Number(sg.cumulative || 0),
+      daily: Number(sg.daily_gain || 0),
+      prev: Number(sg.prev_daily_gain || 0),
+    }));
+    allVersionGroups = cardVersionGroups(versionRows, rank);
+  }
   const versionGroups = allVersionGroups.slice(0, CARD_MAX_VERSION_GROUPS);
 
   // --- Catalogue total: every tracked song, not the album sum. Albums overlap
