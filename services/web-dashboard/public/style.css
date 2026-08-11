@@ -4947,28 +4947,101 @@ select.tc-input { cursor: pointer; }
    preview), which is the thing people actually post. */
 .stats-card.theme-lisa { --sc-width: 860; }
 
-/* The default card: dark navy body, framed and banded in whatever accent that
-   artist's dashboard theme uses. app.js sets --sc-accent plus the three colours
-   that have to sit ON the accent band (see applyStatsCardAccent). */
+/* The default card. Quiet on purpose: fifty rows of five bordered columns and
+   solid accent bands every section made it exhausting to read. The grid is now
+   horizontal hairlines only, sections are a rule plus a small label instead of
+   a filled block, and the accent does one job — mark structure. app.js sets
+   --sc-accent / --sc-accent-rgb from the artist's dashboard theme. */
 .stats-card.theme-artist {
   --sc-accent: #1ed760;
   --sc-accent-rgb: 30, 215, 96;
-  --sc-page: radial-gradient(circle at 50% 0%, #13203a 0%, #080c14 100%);
-  --sc-band: rgba(var(--sc-accent-rgb), 0.09);
-  --sc-ink: #e8eef7;
-  --sc-row: #101a2b;
-  --sc-head-row: #16233a;
-  --sc-grid: #24344f;
-  --sc-frame: var(--sc-accent);
-  --sc-total-bg: var(--sc-accent);
-  --sc-total-ink: #052a13;
-  --sc-pos: #4ade80;
-  --sc-neg: #f87171;
-  --sc-flat: #94a3b8;
-  --sc-total-pos: #063d1b;
-  --sc-total-neg: #7f1d1d;
-  --sc-note: #64748b;
+  --sc-page: radial-gradient(circle at 50% -12%, #142138 0%, #090d15 62%);
+  --sc-band: transparent;
+  --sc-ink: #e6ecf5;
+  --sc-muted: #8b9ab0;
+  --sc-row: transparent;
+  --sc-head-row: transparent;
+  --sc-grid: rgba(255, 255, 255, 0.07);
+  --sc-frame: transparent;
+  --sc-total-bg: transparent;
+  --sc-total-ink: var(--sc-ink);
+  /* Desaturated against the old #4ade80 / #f87171: on a long list, saturated
+     deltas in every row are the loudest thing on the card. */
+  --sc-pos: #63d19b;
+  --sc-neg: #e08a8a;
+  --sc-flat: #7c8aa0;
+  --sc-total-pos: #63d19b;
+  --sc-total-neg: #e08a8a;
+  --sc-note: #5d6b80;
 }
+
+.theme-artist { padding: 26px 24px 20px; border-radius: 14px; }
+
+/* --- Header: photo, name, one line of context, three figures --- */
+.theme-artist .lc-head { gap: 20px; align-items: center; margin-bottom: 22px; }
+.theme-artist .lc-photo {
+  width: 112px; height: 112px; border-radius: 14px;
+  border: 1px solid rgba(var(--sc-accent-rgb), 0.35);
+}
+.theme-artist .lc-head-band { background: none; border: 0; padding: 0; }
+.theme-artist .lc-title { font-size: 1.85rem; font-weight: 600; letter-spacing: -0.5px; margin-bottom: 4px; }
+.theme-artist .lc-sub {
+  font-size: 0.75rem; color: var(--sc-muted);
+  letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 16px;
+}
+.theme-artist .lc-kpis { display: flex; gap: 30px; flex-wrap: wrap; }
+.theme-artist .lc-kpi span {
+  display: block; font-size: 0.63rem; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--sc-muted); margin-bottom: 3px;
+}
+.theme-artist .lc-kpi b {
+  display: block; font-size: 1.05rem; font-weight: 600;
+  color: var(--sc-accent); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+
+/* --- Table: hairlines under rows, no verticals, no frame --- */
+.theme-artist .lc-table { border: 0; font-size: 0.84rem; line-height: 1.3; }
+.theme-artist .lc-table th,
+.theme-artist .lc-table td {
+  border: 0;
+  border-bottom: 1px solid var(--sc-grid);
+  background: transparent;
+  padding: 6px 10px;
+}
+.theme-artist .lc-table thead th {
+  color: var(--sc-muted);
+  font-size: 0.63rem; font-weight: 500;
+  letter-spacing: 1.4px; text-transform: uppercase;
+  border-bottom: 1px solid rgba(var(--sc-accent-rgb), 0.4);
+  padding-bottom: 7px;
+}
+/* The percentage restates the change, so it trails it at a whisper rather than
+   claiming a column of its own. */
+.theme-artist .lc-pct { color: var(--sc-muted); font-size: 0.72rem; margin-left: 7px; }
+
+/* Section headers: a rule and a label, not a filled band. */
+.theme-artist .lc-table tr.lc-band td {
+  color: var(--sc-accent);
+  font-weight: 600; font-size: 0.66rem; letter-spacing: 2.2px;
+  text-align: left; padding: 22px 10px 6px;
+  border-bottom: 1px solid rgba(var(--sc-accent-rgb), 0.4);
+}
+/* Subtotals (per-song version totals) — weight and a warmer rule, no fill. */
+.theme-artist .lc-table tr.lc-group:not(.lc-band) td {
+  font-weight: 600;
+  border-bottom: 1px solid rgba(var(--sc-accent-rgb), 0.28);
+}
+.theme-artist .lc-table tr.lc-group:not(.lc-band) td.lc-song { color: var(--sc-accent); }
+/* One emphasis on the whole card: the catalogue total. */
+.theme-artist .lc-table tr.lc-final td {
+  background: rgba(var(--sc-accent-rgb), 0.10);
+  border-top: 1px solid rgba(var(--sc-accent-rgb), 0.45);
+  border-bottom: 0;
+  padding-top: 9px; padding-bottom: 9px;
+  font-size: 0.92rem;
+}
+.theme-artist .lc-table tr.lc-more td { color: var(--sc-muted); font-size: 0.72rem; font-style: italic; }
+.theme-artist .lc-note { margin-top: 12px; font-size: 0.63rem; }
 
 .lc-head {
   display: flex;
@@ -4985,8 +5058,6 @@ select.tc-input { cursor: pointer; }
   border-radius: 12px;
   border: 1px solid rgba(0, 0, 0, 0.25);
 }
-.theme-artist .lc-photo { border-color: rgba(var(--sc-accent-rgb), 0.45); }
-
 .lc-head-band {
   flex: 1 1 auto;
   min-width: 0;
@@ -4994,11 +5065,9 @@ select.tc-input { cursor: pointer; }
   padding: 12px 16px;
   font-family: 'Times New Roman', Georgia, serif;
 }
-.theme-artist .lc-head-band {
-  border: 1px solid rgba(var(--sc-accent-rgb), 0.3);
-  border-radius: 8px;
-  font-family: 'Outfit', Arial, Helvetica, sans-serif;
-}
+/* The catalogue card's own header (photo + name + KPIs) is styled with the rest
+   of .theme-artist above; only the serif face has to be undone here. */
+.theme-artist .lc-head-band { font-family: 'Outfit', Arial, Helvetica, sans-serif; }
 
 .lc-title {
   font-size: 1.5rem;
@@ -5050,14 +5119,18 @@ select.tc-input { cursor: pointer; }
 /* His titles are the longest on any card, so give that column the room and take
    it back off the two narrow delta columns. Left-aligned too: a centred title
    that ellipsises reads as damage, a left-aligned one reads as a list. */
-.theme-artist .lc-table col.lc-c-song { width: 42%; }
-.theme-artist .lc-table tbody td.lc-song { text-align: left; padding-left: 12px; }
-.theme-artist .lc-table tbody tr.lc-group td.lc-song { text-align: center; padding-left: 8px; }
-.theme-artist .lc-table tbody tr.lc-band td { text-align: center; }
-.theme-artist .lc-table col.lc-c-overall { width: 20%; }
+/* Four columns here (the percentage rides along with the change), so the title
+   gets the room that the fifth column used to take. Everything is left-aligned:
+   ragged-right numbers in a centred column never line up, and a centred title
+   that ellipsises reads as damage. */
+.theme-artist .lc-table col.lc-c-song { width: 44%; }
+.theme-artist .lc-table col.lc-c-overall { width: 19%; }
 .theme-artist .lc-table col.lc-c-daily { width: 15%; }
-.theme-artist .lc-table col.lc-c-delta { width: 13%; }
-.theme-artist .lc-table col.lc-c-pct { width: 10%; }
+.theme-artist .lc-table col.lc-c-delta { width: 22%; }
+.theme-artist .lc-table th,
+.theme-artist .lc-table td { text-align: right; }
+.theme-artist .lc-table th:first-child,
+.theme-artist .lc-table td.lc-song { text-align: left; }
 .lc-table col.lc-c-overall { width: 22%; }
 .lc-table col.lc-c-daily { width: 18%; }
 .lc-table col.lc-c-delta { width: 15%; }

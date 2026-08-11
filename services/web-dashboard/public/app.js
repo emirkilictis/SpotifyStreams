@@ -2122,6 +2122,10 @@ function dedupeAlbumEditions(rows) {
 // combined line for each. They are separate songs (see the remix rule: a remix
 // is its own record, not double counting), so this is a view, not a merge.
 const CARD_MAX_VERSION_GROUPS = 10;
+// A single song can carry a dozen club mixes ("4 Minutes" does), which buries
+// the section. Only the biggest few are listed; the subtotal underneath still
+// covers every version, which is what the ALL VERSIONS label promises.
+const CARD_MAX_VERSION_ROWS = 6;
 
 // The qualifier a version carries, either bracketed or after a dash. Nothing
 // else in the title is touched, so two genuinely different songs never collide.
@@ -2203,17 +2207,19 @@ function renderCatalogueCard() {
   const esc = (v) => String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+  // Four columns, not five: the change and its percentage are one idea, so they
+  // share a cell with the percentage set back. Fifty rows of five numeric
+  // columns is what made this card hard to read.
   const row = (label, r, cls) => {
     const d = lcDelta(r.daily - r.prev, r.prev);
     return `<tr${cls ? ` class="${cls}"` : ''}>
       <td class="lc-song" title="${esc(label)}">${esc(label)}</td>
       <td>${lcNum(r.cum)}</td>
       <td>${lcNum(r.daily)}</td>
-      <td class="${d.cls}">${d.txt}</td>
-      <td class="${d.cls}">${d.pct}</td>
+      <td class="${d.cls}">${d.txt}<span class="lc-pct">${d.pct}</span></td>
     </tr>`;
   };
-  const band = (label) => `<tr class="lc-group lc-band"><td class="lc-song" colspan="5">${esc(label)}</td></tr>`;
+  const band = (label) => `<tr class="lc-group lc-band"><td class="lc-song" colspan="4">${esc(label)}</td></tr>`;
 
   let recordedDate = null;
   for (const song of allSongs) {
@@ -2284,11 +2290,15 @@ function renderCatalogueCard() {
       ? `VERS · TOP ${versionGroups.length} OF ${allVersionGroups.length} · ${byLabel}`
       : `VERS (${versionGroups.length}) · ${byLabel}`);
     for (const g of versionGroups) {
-      for (const v of g.rows) html += row(v.label, v);
+      for (const v of g.rows.slice(0, CARD_MAX_VERSION_ROWS)) html += row(v.label, v);
+      const hidden = g.rows.length - CARD_MAX_VERSION_ROWS;
+      if (hidden > 0) {
+        html += `<tr class="lc-more"><td class="lc-song" colspan="4">+ ${hidden} more version${hidden > 1 ? 's' : ''}</td></tr>`;
+      }
       html += row(`${g.name} — ALL VERSIONS`, g.total, 'lc-group');
     }
   }
-  html += row('OVERALL', overall, 'lc-group');
+  html += row('OVERALL', overall, 'lc-group lc-final');
 
   const dateStr = recordedDate
     ? parseLocalDate(toStreamDay(recordedDate)).toLocaleDateString('en-GB').replace(/\//g, '.')
@@ -2298,20 +2308,21 @@ function renderCatalogueCard() {
     <div class="lc-head">
       <img class="lc-photo" src="${cardPhotoUrl()}" crossorigin="anonymous" alt="">
       <div class="lc-head-band">
-        <div class="lc-title">${esc(currentArtistName || 'Artist')} Streams On Spotify</div>
-        <div class="lc-date">${dateStr}</div>
-        <div class="lc-era">Total: ${lcNum(overall.cum)}</div>
-        <div class="lc-era">Daily: ${lcNum(overall.daily)}</div>
-        <div class="lc-era">Songs: ${lcNum(allSongs.length)} · Albums: ${lcNum(allAlbumRows.length)}</div>
+        <div class="lc-title">${esc(currentArtistName || 'Artist')}</div>
+        <div class="lc-sub">Spotify streams${dateStr ? ` · ${dateStr}` : ''}</div>
+        <div class="lc-kpis">
+          <div class="lc-kpi"><span>Total</span><b>${lcNum(overall.cum)}</b></div>
+          <div class="lc-kpi"><span>Daily</span><b>${lcNum(overall.daily)}</b></div>
+          <div class="lc-kpi"><span>Catalogue</span><b>${lcNum(allSongs.length)} songs · ${lcNum(allAlbumRows.length)} albums</b></div>
+        </div>
       </div>
     </div>
     <table class="lc-table">
       <colgroup>
-        <col class="lc-c-song"><col class="lc-c-overall"><col class="lc-c-daily">
-        <col class="lc-c-delta"><col class="lc-c-pct">
+        <col class="lc-c-song"><col class="lc-c-overall"><col class="lc-c-daily"><col class="lc-c-delta">
       </colgroup>
       <thead>
-        <tr><th>title</th><th>overall</th><th>Daily</th><th colspan="2">+/-</th></tr>
+        <tr><th>Title</th><th>Total</th><th>Daily</th><th>Change</th></tr>
       </thead>
       <tbody>${html}</tbody>
     </table>
@@ -2352,19 +2363,13 @@ function statsCardConfig(artistId) {
   return CATALOGUE_CARD_CONF;
 }
 
-// The catalogue card borrows the artist's accent. Bands are filled with it, so
-// pick the ink from its luminance — Stray Kids' near-white and JT's green both
-// need dark text, a deep indigo would not.
+// The catalogue card borrows the artist's accent. Nothing sits on a solid
+// accent fill any more — the accent is a rule, a label colour and a 10% wash —
+// so the accent alone is enough; the ink stays the card's own.
 function applyStatsCardAccent(el, artistId) {
   const accent = (ARTIST_THEMES[artistId] || LANDING_THEME).accent || '#1ed760';
-  const rgb = hexToRgbTriplet(accent);
-  const [r, g, b] = rgb.split(',').map((n) => Number(n.trim()));
-  const light = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.55;
   el.style.setProperty('--sc-accent', accent);
-  el.style.setProperty('--sc-accent-rgb', rgb);
-  el.style.setProperty('--sc-total-ink', light ? '#0b1220' : '#f8fafc');
-  el.style.setProperty('--sc-total-pos', light ? '#064e2a' : '#4ade80');
-  el.style.setProperty('--sc-total-neg', light ? '#7f1d1d' : '#fca5a5');
+  el.style.setProperty('--sc-accent-rgb', hexToRgbTriplet(accent));
 }
 
 // Called from applyArtistTheme, which every artist-switch path goes through
