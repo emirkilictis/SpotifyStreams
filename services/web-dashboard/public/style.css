@@ -4906,6 +4906,13 @@ select.tc-input { cursor: pointer; }
    ========================================================================== */
 .stats-card-shell { max-width: 96vw; }
 
+/* These cards are posters — albums, top tracks and the versions section make
+   them routinely taller than the window. The backdrop centres its child, which
+   clips the top of anything taller than the viewport, so this one scrolls from
+   the top instead. */
+#stats-card-modal { align-items: flex-start; overflow-y: auto; padding: 24px 0 32px; }
+#stats-card-modal .stats-card-shell { margin: 0 auto; }
+
 .stats-card {
   --sc-width: 900;
   --sc-page: #f5d67a;

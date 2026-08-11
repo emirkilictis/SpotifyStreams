@@ -2116,6 +2116,70 @@ function dedupeAlbumEditions(rows) {
   return rows.filter((a) => best.get(cardTitleKey(cleanAlbumTitle(a.label) || a.label)) === a);
 }
 
+// ===== Versions section =====
+// After the top tracks, the card lists the songs that exist in more than one
+// tracked form — remixes, sped-up edits, live cuts, solo re-records — with the
+// combined line for each. They are separate songs (see the remix rule: a remix
+// is its own record, not double counting), so this is a view, not a merge.
+const CARD_MAX_VERSION_GROUPS = 10;
+
+// The qualifier a version carries, either bracketed or after a dash. Nothing
+// else in the title is touched, so two genuinely different songs never collide.
+const CARD_VERSION_TAG_RE = /(remix|mix\b|instrumental|sped\s*up|slowed|extended|radio\s*edit|\bedit\b|live|acoustic|version|ver\.|solo|remaster|reprise|demo|a cappella|acapella|piano|orchestral)/i;
+
+// The label for a version row. statsCardLabel is no use here: cleanTrackTitle
+// strips exactly the suffixes that tell the versions apart (Radio Edit, Live,
+// Remastered), so two rows would read identically. Drop the credits and the
+// soundtrack tail, keep every version descriptor.
+function cardVersionLabel(title) {
+  return String(title || '')
+    .replace(/\s*[\(\[](?:feat|featuring|ft|with)\.?\s[^)\]]*[\)\]]/gi, '')
+    .replace(/\s*[\(\[]\s*from\s[^)\]]*[\)\]]/gi, '')
+    .replace(/\s*-\s*from\s+["“].*$/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// Base title: drop every bracketed group and any trailing " - <qualifier>",
+// leaving the song as it would be named without its version tag.
+function cardVersionBase(label) {
+  return String(label || '')
+    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, ' ')
+    .replace(/\s*[-–—]\s+[^-–—]*$/, ' ')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// True when the title says which version it is — a group needs at least one of
+// these, otherwise two same-named-but-unrelated tracks would show up as versions.
+function cardHasVersionTag(label) {
+  const m = String(label || '').match(/[\(\[]([^)\]]*)[\)\]]|[-–—]\s+(.*)$/);
+  if (!m) return false;
+  return CARD_VERSION_TAG_RE.test(m[1] || m[2] || '');
+}
+
+// Groups of two or more, biggest first by the card's current ranking.
+function cardVersionGroups(tracks, rank) {
+  const groups = new Map();
+  for (const t of tracks) {
+    const base = cardVersionBase(t.label);
+    if (!base) continue;
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(t);
+  }
+  const out = [];
+  for (const [, rows] of groups) {
+    if (rows.length < 2) continue;
+    if (!rows.some((r) => cardHasVersionTag(r.label))) continue;
+    const total = rows.reduce((acc, r) => {
+      acc.cum += r.cum; acc.daily += r.daily; acc.prev += r.prev; return acc;
+    }, { cum: 0, daily: 0, prev: 0 });
+    // The untagged cut, or failing that the biggest one, names the group.
+    const head = rows.find((r) => !cardHasVersionTag(r.label)) || [...rows].sort(rank)[0];
+    out.push({ name: head.label, rows: [...rows].sort(rank), total });
+  }
+  return out.sort((a, b) => rank(a.total, b.total));
+}
+
 // Which column orders the sortable cards. Governs both sections so the albums
 // and the tracks are always ranked by the same thing.
 let statsCardSort = 'total';   // 'total' | 'daily'
@@ -2132,7 +2196,7 @@ function renderCatalogueCard() {
   if (!statsCardEl) return;
   const songsReady = Array.isArray(allSongs) && allSongs.length > 0;
   if (!songsReady) {
-    statsCardEl.innerHTML = '<div class="lc-note" style="text-align:center;padding:28px 0;">Still loading his catalogue…</div>';
+    statsCardEl.innerHTML = '<div class="lc-note" style="text-align:center;padding:28px 0;">Still loading the catalogue…</div>';
     return;
   }
 
@@ -2178,15 +2242,23 @@ function renderCatalogueCard() {
   const albums = allAlbumRows.slice(0, CARD_MAX_ALBUMS);
 
   // --- Top tracks ---
-  const tracks = [...allSongs]
-    .map((sg) => ({
-      label: statsCardLabel(sg.title) || sg.title,
-      cum: Number(sg.cumulative || 0),
-      daily: Number(sg.daily_gain || 0),
-      prev: Number(sg.prev_daily_gain || 0),
-    }))
-    .sort(rank)
-    .slice(0, CARD_TOP_TRACKS);
+  const trackRows = allSongs.map((sg) => ({
+    label: statsCardLabel(sg.title) || sg.title,
+    cum: Number(sg.cumulative || 0),
+    daily: Number(sg.daily_gain || 0),
+    prev: Number(sg.prev_daily_gain || 0),
+  }));
+  const tracks = [...trackRows].sort(rank).slice(0, CARD_TOP_TRACKS);
+
+  // --- Versions: computed over the whole catalogue, not just the top tracks ---
+  const versionRows = allSongs.map((sg) => ({
+    label: cardVersionLabel(sg.title) || sg.title,
+    cum: Number(sg.cumulative || 0),
+    daily: Number(sg.daily_gain || 0),
+    prev: Number(sg.prev_daily_gain || 0),
+  }));
+  const allVersionGroups = cardVersionGroups(versionRows, rank);
+  const versionGroups = allVersionGroups.slice(0, CARD_MAX_VERSION_GROUPS);
 
   // --- Catalogue total: every tracked song, not the album sum. Albums overlap
   // (deluxe editions, compilations), so adding them up would double-count. ---
@@ -2207,6 +2279,15 @@ function renderCatalogueCard() {
   for (const a of albums) html += row(a.label, a);
   html += band(`TOP ${tracks.length} TRACKS · ${byLabel}`);
   for (const t of tracks) html += row(t.label, t);
+  if (versionGroups.length) {
+    html += band(allVersionGroups.length > versionGroups.length
+      ? `VERS · TOP ${versionGroups.length} OF ${allVersionGroups.length} · ${byLabel}`
+      : `VERS (${versionGroups.length}) · ${byLabel}`);
+    for (const g of versionGroups) {
+      for (const v of g.rows) html += row(v.label, v);
+      html += row(`${g.name} — ALL VERSIONS`, g.total, 'lc-group');
+    }
+  }
   html += row('OVERALL', overall, 'lc-group');
 
   const dateStr = recordedDate
@@ -2245,6 +2326,13 @@ const statsCardCloseBtn = document.getElementById('stats-card-close-btn');
 const statsCardDownloadBtn = document.getElementById('stats-card-download-btn');
 const statsCardSortWrap = document.getElementById('stats-card-sort-wrap');
 const statsCardSortSel = document.getElementById('stats-card-sort');
+const statsCardStyleWrap = document.getElementById('stats-card-style-wrap');
+const statsCardStyleSel = document.getElementById('stats-card-style');
+
+// Artists with a bespoke card can switch to the standard catalogue layout the
+// rest of the roster gets. Meaningless for everyone else, whose only card IS
+// the catalogue one — the picker stays hidden there.
+let statsCardStyle = 'signature';   // 'signature' | 'catalogue'
 
 // Every artist gets the catalogue card; a few have a bespoke one instead.
 // The config supplies the palette class, the flat colour html2canvas paints
@@ -2259,7 +2347,9 @@ const CATALOGUE_CARD_CONF = {
 function statsCardConfig(artistId) {
   const id = artistId === undefined ? currentArtist : artistId;
   if (!id) return null;               // on the picker there is nothing to draw
-  return STATS_CARD_OVERRIDES[id] || CATALOGUE_CARD_CONF;
+  const override = STATS_CARD_OVERRIDES[id];
+  if (override && statsCardStyle === 'signature') return override;
+  return CATALOGUE_CARD_CONF;
 }
 
 // The catalogue card borrows the artist's accent. Bands are filled with it, so
@@ -2407,18 +2497,29 @@ function fitStatsCard() {
   }
 }
 
-function openStatsCard() {
+// Paint the card in the current config's palette and re-run its renderer. Both
+// pickers go through here, so switching layout also swaps the theme.
+function drawStatsCard() {
   const conf = statsCardConfig(currentArtist);
-  if (!statsCardModal || !conf) return;
+  if (!conf || !statsCardEl) return;
   // Palette is per artist; drop whatever the previous one left behind.
   statsCardEl.className = 'stats-card ' + conf.theme;
   statsCardEl.removeAttribute('style');
   if (conf.accented) applyStatsCardAccent(statsCardEl, currentArtist);
   if (statsCardSortWrap) statsCardSortWrap.classList.toggle('hidden', !conf.sortable);
   if (statsCardSortSel) statsCardSortSel.value = statsCardSort;
-  statsCardModal.classList.remove('hidden');
+  if (statsCardStyleWrap) {
+    statsCardStyleWrap.classList.toggle('hidden', !STATS_CARD_OVERRIDES[currentArtist]);
+  }
+  if (statsCardStyleSel) statsCardStyleSel.value = statsCardStyle;
   conf.render();
   fitStatsCard();
+}
+
+function openStatsCard() {
+  if (!statsCardModal || !statsCardConfig(currentArtist)) return;
+  statsCardModal.classList.remove('hidden');
+  drawStatsCard();
 }
 
 window.addEventListener('resize', fitStatsCard);
@@ -2479,8 +2580,11 @@ async function downloadStatsCard() {
 
 if (statsCardSortSel) statsCardSortSel.addEventListener('change', () => {
   statsCardSort = statsCardSortSel.value === 'daily' ? 'daily' : 'total';
-  const conf = statsCardConfig(currentArtist);
-  if (conf) { conf.render(); fitStatsCard(); }
+  drawStatsCard();
+});
+if (statsCardStyleSel) statsCardStyleSel.addEventListener('change', () => {
+  statsCardStyle = statsCardStyleSel.value === 'catalogue' ? 'catalogue' : 'signature';
+  drawStatsCard();
 });
 if (statsCardBtn) statsCardBtn.addEventListener('click', openStatsCard);
 if (statsCardCloseBtn) statsCardCloseBtn.addEventListener('click', () => statsCardModal.classList.add('hidden'));

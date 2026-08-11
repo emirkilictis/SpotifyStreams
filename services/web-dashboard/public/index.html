@@ -610,6 +610,15 @@
   <div class="modal-backdrop hidden" id="stats-card-modal">
     <div class="daily-card-shell stats-card-shell">
       <div class="daily-card-actions">
+        <!-- Only shown for artists that have a bespoke card, so they can fall
+             back to the standard catalogue layout every other artist gets. -->
+        <label class="card-select hidden" id="stats-card-style-wrap">
+          <span>Card</span>
+          <select id="stats-card-style">
+            <option value="signature">Signature</option>
+            <option value="catalogue">Catalogue</option>
+          </select>
+        </label>
         <!-- Only shown for cards whose renderer supports ordering (see
              STATS_CARD_RENDERERS.sortable) — LISA's is fixed era order. -->
         <label class="card-select hidden" id="stats-card-sort-wrap">
