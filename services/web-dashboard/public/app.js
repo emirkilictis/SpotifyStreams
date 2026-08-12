@@ -2356,7 +2356,15 @@ let statsCardStyle = 'signature';   // 'signature' | 'catalogue'
 // The config supplies the palette class, the flat colour html2canvas paints
 // behind the card, and the renderer.
 const STATS_CARD_OVERRIDES = {
-  [LISA_ARTIST_ID]: { theme: 'theme-lisa', bg: '#f5d67a', render: renderLisaCard },
+  [LISA_ARTIST_ID]: {
+    theme: 'theme-lisa', bg: '#f5d67a', render: renderLisaCard,
+    // Her catalogue card is the same quiet layout as everyone else's, wearing
+    // her own skin: the gold page, the black rules and the serif head her
+    // signature card is known for (see .theme-lisa-cat). `accented: false`
+    // because that palette is fixed in CSS, not derived from her dashboard
+    // accent — gold-on-gold would vanish.
+    catalogue: { theme: 'theme-artist theme-lisa-cat', bg: '#f5d67a', accented: false },
+  },
 };
 const CATALOGUE_CARD_CONF = {
   theme: 'theme-artist', bg: '#080c14', render: renderCatalogueCard, sortable: true, accented: true,
@@ -2367,7 +2375,11 @@ function statsCardConfig(artistId) {
   if (!id) return null;               // on the picker there is nothing to draw
   const override = STATS_CARD_OVERRIDES[id];
   if (override && statsCardStyle === 'signature') return override;
-  return CATALOGUE_CARD_CONF;
+  // An artist can dress the catalogue card in their own palette without
+  // reimplementing it — everything not named in `catalogue` is the default.
+  return override && override.catalogue
+    ? { ...CATALOGUE_CARD_CONF, ...override.catalogue }
+    : CATALOGUE_CARD_CONF;
 }
 
 // The catalogue card borrows the artist's accent. Nothing sits on a solid

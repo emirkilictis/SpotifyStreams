@@ -4977,6 +4977,52 @@ select.tc-input { cursor: pointer; }
 
 .theme-artist { padding: 26px 24px 20px; border-radius: 14px; }
 
+/* LISA's catalogue card: the layout above, wearing her signature skin — gold
+   page, black rules, serif head, and the solid black total band her own card
+   ends on. The accent here is ink rather than her dashboard gold, which would
+   disappear against the page. */
+.stats-card.theme-artist.theme-lisa-cat {
+  --sc-accent: #171310;
+  --sc-accent-rgb: 23, 19, 16;
+  --sc-page: #f5d67a;
+  --sc-ink: #14110c;
+  --sc-muted: #7a6524;
+  --sc-grid: rgba(23, 19, 16, 0.16);
+  --sc-pos: #146b14;
+  --sc-neg: #b81f1f;
+  --sc-flat: #6b6047;
+  --sc-total-pos: #146b14;
+  --sc-total-neg: #b81f1f;
+  --sc-note: #7a6524;
+}
+/* The head is the part people recognise, so it keeps the serif and the cream
+   band; the table stays sans, exactly as on her signature card.
+   These carry a .stats-card prefix on purpose: the .theme-artist rules they
+   override are defined further down the file, so they need the extra class to
+   win on specificity rather than order. */
+.stats-card.theme-lisa-cat .lc-head-band {
+  font-family: 'Times New Roman', Georgia, serif;
+  background: #fce8b2;
+  border: 1px solid rgba(23, 19, 16, 0.22);
+  border-radius: 10px;
+  padding: 14px 18px;
+}
+.stats-card.theme-lisa-cat .lc-title { font-weight: 700; letter-spacing: 0; }
+.stats-card.theme-lisa-cat .lc-sub { letter-spacing: 1px; }
+.stats-card.theme-lisa-cat .lc-photo { border: 1px solid rgba(23, 19, 16, 0.3); }
+/* Her card closes on a solid black band — the one loud note, kept. */
+.stats-card.theme-lisa-cat .lc-table tr.lc-final td {
+  background: #14110c;
+  color: #fff;
+  border-top: 0;
+}
+/* Ties with the .theme-artist subtotal rule that paints this cell in the
+   accent — which here is the same ink as the band. One more class to win it. */
+.stats-card.theme-artist.theme-lisa-cat .lc-table tr.lc-final td.lc-song { color: #f5d67a; }
+.stats-card.theme-lisa-cat .lc-table tr.lc-final .lc-pos { color: #6ee7a0; }
+.stats-card.theme-lisa-cat .lc-table tr.lc-final .lc-neg { color: #fca5a5; }
+.stats-card.theme-lisa-cat .lc-table tr.lc-final .lc-pct { color: rgba(255, 255, 255, 0.6); }
+
 /* --- Header: photo, name, one line of context, three figures --- */
 .theme-artist .lc-head { gap: 20px; align-items: center; margin-bottom: 22px; }
 .theme-artist .lc-photo {
