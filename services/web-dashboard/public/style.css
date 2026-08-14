@@ -5086,7 +5086,11 @@ select.tc-input { cursor: pointer; }
   padding-top: 9px; padding-bottom: 9px;
   font-size: 0.92rem;
 }
-.theme-artist .lc-table tr.lc-more td { color: var(--sc-muted); font-size: 0.72rem; font-style: italic; }
+/* The versions breakdown is reference material behind the "(versions)" lines in
+   the track list, so it is set a size down and packed tighter. */
+.theme-artist .lc-table tr.lc-v td { font-size: 0.73rem; padding-top: 3px; padding-bottom: 3px; }
+.theme-artist .lc-table tr.lc-v .lc-pct { font-size: 0.66rem; }
+.theme-artist .lc-table tr.lc-more td { color: var(--sc-muted); font-size: 0.7rem; font-style: italic; }
 .theme-artist .lc-note { margin-top: 12px; font-size: 0.63rem; }
 
 .lc-head {

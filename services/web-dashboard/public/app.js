@@ -2129,7 +2129,12 @@ const CARD_MAX_VERSION_ROWS = 6;
 
 // The qualifier a version carries, either bracketed or after a dash. Nothing
 // else in the title is touched, so two genuinely different songs never collide.
-const CARD_VERSION_TAG_RE = /(remix|mix\b|instrumental|sped\s*up|slowed|extended|radio\s*edit|\bedit\b|live|acoustic|version|ver\.|solo|remaster|reprise|demo|a cappella|acapella|piano|orchestral)/i;
+//
+// "solo" and a bare "version" are deliberately NOT here. Her scene counts the
+// solo re-records as songs in their own right — Rapunzel (Kiki Solo Version)
+// and FXCK UP THE WORLD (Vixi Solo Version) are entries, not versions of the
+// featured cuts — which is also how the signature card lists them.
+const CARD_VERSION_TAG_RE = /(remix|\bmix\b|instrumental|sped\s*up|speed\s*up|slowed|extended|radio\s*(edit|version)|\bedit\b|\blive\b|acoustic|remaster|reprise|demo|a\s?cappella|piano|orchestral)/i;
 
 // The label for a version row. statsCardLabel is no use here: cleanTrackTitle
 // strips exactly the suffixes that tell the versions apart (Radio Edit, Live,
@@ -2153,33 +2158,65 @@ function cardVersionBase(label) {
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-// True when the title says which version it is — a group needs at least one of
-// these, otherwise two same-named-but-unrelated tracks would show up as versions.
+// True when the title says which version it is. Every bracketed group counts,
+// not just the first: "Moonlit Floor (Kiss Me) - Santa Baby Remix" opens with a
+// bracket that is part of the song's name, and the tag comes after it.
 function cardHasVersionTag(label) {
-  const m = String(label || '').match(/[\(\[]([^)\]]*)[\)\]]|[-–—]\s+(.*)$/);
-  if (!m) return false;
-  return CARD_VERSION_TAG_RE.test(m[1] || m[2] || '');
+  const s = String(label || '');
+  const parts = [];
+  const brackets = /[\(\[]([^)\]]*)[\)\]]/g;
+  let m;
+  while ((m = brackets.exec(s)) !== null) parts.push(m[1]);
+  const dash = s.match(/[-–—]\s+(.*)$/);
+  if (dash) parts.push(dash[1]);
+  return parts.some((p) => CARD_VERSION_TAG_RE.test(p));
 }
 
-// Groups of two or more, biggest first by the card's current ranking.
+// How a combined line is named: "Rockstar (versions)". A song that already ends
+// in a bracket loses it rather than carrying two — "Moonlit Floor (versions)",
+// which is how the signature card writes it too.
+const cardVersionsLabel = (name) =>
+  `${String(name || '').replace(/\s*[\(\[][^)\]]*[\)\]]\s*$/, '').trim()} (versions)`;
+
+// The song a version belongs to, as it should read: the version label with its
+// tag taken off. Only used when a song is present through its versions alone.
+function cardVersionParentLabel(label) {
+  return String(label || '')
+    .replace(/\s*[-–—]\s+[^-–—]*$/, '')
+    .replace(/\s*[\(\[][^)\]]*[\)\]]\s*$/, '')
+    .trim();
+}
+
+// Splits a catalogue into songs and versions-of-songs. A row whose title
+// carries a version tag is a version of whatever shares its base title;
+// everything else is a song, including the solo re-records.
+//
+// Each group carries the combined figures for its versions ONLY — the original
+// is a song and stands on its own line, exactly as on the posters this
+// reproduces: "Rockstar", and separately "Rockstar (versions)".
 function cardVersionGroups(tracks, rank) {
   const groups = new Map();
   for (const t of tracks) {
-    const base = cardVersionBase(t.label);
+    const base = cardVersionBase(t.vlabel);
     if (!base) continue;
-    if (!groups.has(base)) groups.set(base, []);
-    groups.get(base).push(t);
+    if (!groups.has(base)) groups.set(base, { songs: [], versions: [] });
+    const g = groups.get(base);
+    (cardHasVersionTag(t.vlabel) ? g.versions : g.songs).push(t);
   }
   const out = [];
-  for (const [, rows] of groups) {
-    if (rows.length < 2) continue;
-    if (!rows.some((r) => cardHasVersionTag(r.label))) continue;
-    const total = rows.reduce((acc, r) => {
+  for (const [, g] of groups) {
+    if (!g.versions.length) continue;
+    const total = g.versions.reduce((acc, r) => {
       acc.cum += r.cum; acc.daily += r.daily; acc.prev += r.prev; return acc;
     }, { cum: 0, daily: 0, prev: 0 });
-    // The untagged cut, or failing that the biggest one, names the group.
-    const head = rows.find((r) => !cardHasVersionTag(r.label)) || [...rows].sort(rank)[0];
-    out.push({ name: head.label, rows: [...rows].sort(rank), total });
+    const versions = [...g.versions].sort(rank);
+    // Named after the song itself; if we only carry its versions, after them.
+    const parent = [...g.songs].sort(rank)[0];
+    out.push({
+      name: parent ? parent.label : cardVersionParentLabel(versions[0].vlabel),
+      versions,
+      total,
+    });
   }
   return out.sort((a, b) => rank(a.total, b.total));
 }
@@ -2247,31 +2284,38 @@ function renderCatalogueCard() {
   const allAlbumRows = dedupeAlbumEditions(dedupedInput).sort(rank);
   const albums = allAlbumRows.slice(0, CARD_MAX_ALBUMS);
 
-  // --- Top tracks ---
+  // --- Tracks. Two labels per song: the display one, and a version-accurate
+  // one (cleanTrackTitle strips the very suffixes that identify a version). ---
   const trackRows = allSongs.map((sg) => ({
     label: statsCardLabel(sg.title) || sg.title,
+    vlabel: cardVersionLabel(sg.title) || sg.title,
     cum: Number(sg.cumulative || 0),
     daily: Number(sg.daily_gain || 0),
     prev: Number(sg.prev_daily_gain || 0),
   }));
-  const tracks = [...trackRows].sort(rank).slice(0, CARD_TOP_TRACKS);
 
   // --- Versions. LISA only: her scene counts versions as their own thing,
   // which is why her signature card carries a Rockstar(versions) line at all.
   // The other artists' cards were never meant to have this, and on a catalogue
   // like JT's — six SexyBack club mixes, twelve of "4 Minutes" — it swamps the
   // card. Computed over the whole catalogue, not just the top tracks. ---
-  let allVersionGroups = [];
-  if (currentArtist === LISA_ARTIST_ID) {
-    const versionRows = allSongs.map((sg) => ({
-      label: cardVersionLabel(sg.title) || sg.title,
-      cum: Number(sg.cumulative || 0),
-      daily: Number(sg.daily_gain || 0),
-      prev: Number(sg.prev_daily_gain || 0),
-    }));
-    allVersionGroups = cardVersionGroups(versionRows, rank);
-  }
+  const allVersionGroups = currentArtist === LISA_ARTIST_ID
+    ? cardVersionGroups(trackRows, rank)
+    : [];
   const versionGroups = allVersionGroups.slice(0, CARD_MAX_VERSION_GROUPS);
+
+  // Where versions are counted, they leave the track list and come back as one
+  // "<Song> (versions)" line carrying their combined figures — which is how
+  // these posters read: the song on its own line, its versions on the next.
+  const versionRowSet = new Set();
+  for (const g of allVersionGroups) for (const v of g.versions) versionRowSet.add(v);
+  const trackPool = allVersionGroups.length
+    ? [
+      ...trackRows.filter((t) => !versionRowSet.has(t)),
+      ...allVersionGroups.map((g) => ({ label: cardVersionsLabel(g.name), ...g.total })),
+    ]
+    : trackRows;
+  const tracks = [...trackPool].sort(rank).slice(0, CARD_TOP_TRACKS);
 
   // --- Catalogue total: every tracked song, not the album sum. Albums overlap
   // (deluxe editions, compilations), so adding them up would double-count. ---
@@ -2290,19 +2334,25 @@ function renderCatalogueCard() {
     : `ALBUMS (${albums.length}) · ${byLabel}`;
   let html = band(albumBand);
   for (const a of albums) html += row(a.label, a);
-  html += band(`TOP ${tracks.length} TRACKS · ${byLabel}`);
+  // Folding versions away can leave fewer than the cap, and "TOP 25" of 25 is a
+  // strange thing to say.
+  html += band(tracks.length < trackPool.length
+    ? `TOP ${tracks.length} TRACKS · ${byLabel}`
+    : `TRACKS (${tracks.length}) · ${byLabel}`);
   for (const t of tracks) html += row(t.label, t);
+  // The breakdown behind those combined lines. Set in smaller type: it is
+  // reference, not the headline, and at full size it took over the card.
   if (versionGroups.length) {
     html += band(allVersionGroups.length > versionGroups.length
-      ? `VERS · TOP ${versionGroups.length} OF ${allVersionGroups.length} · ${byLabel}`
-      : `VERS (${versionGroups.length}) · ${byLabel}`);
+      ? `VERSIONS · TOP ${versionGroups.length} OF ${allVersionGroups.length} · ${byLabel}`
+      : `VERSIONS (${versionGroups.length}) · ${byLabel}`);
     for (const g of versionGroups) {
-      for (const v of g.rows.slice(0, CARD_MAX_VERSION_ROWS)) html += row(v.label, v);
-      const hidden = g.rows.length - CARD_MAX_VERSION_ROWS;
+      for (const v of g.versions.slice(0, CARD_MAX_VERSION_ROWS)) html += row(v.vlabel, v, 'lc-v');
+      const hidden = g.versions.length - CARD_MAX_VERSION_ROWS;
       if (hidden > 0) {
         html += `<tr class="lc-more"><td class="lc-song" colspan="4">+ ${hidden} more version${hidden > 1 ? 's' : ''}</td></tr>`;
       }
-      html += row(`${g.name} — ALL VERSIONS`, g.total, 'lc-group');
+      html += row(cardVersionsLabel(g.name), g.total, 'lc-v lc-group');
     }
   }
   html += row('OVERALL', overall, 'lc-group lc-final');
