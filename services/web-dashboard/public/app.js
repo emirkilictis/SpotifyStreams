@@ -3750,6 +3750,7 @@ const LANDING_THEME = {
 function applyArtistTheme(artistId) {
   // Header extras that are artist-specific ride along with the theme switch.
   syncStatsCardButton(artistId);
+  if (typeof syncNotifyButton === 'function') syncNotifyButton();
   const theme = ARTIST_THEMES[artistId] || LANDING_THEME;
   document.documentElement.style.setProperty('--accent-green', theme.accent);
   document.documentElement.style.setProperty('--accent-green-rgb', hexToRgbTriplet(theme.accent));
@@ -5599,3 +5600,136 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     go(shiftDay(latestStreamDay(), -Number(btn.dataset.tmAgo || 0)));
   }));
 })();
+
+// ===== Push notifications =====
+// One permission prompt, then per-artist follows: the bell in the header turns
+// this artist's daily-rollover notification on or off. The subscription itself
+// belongs to the browser, so the follow list is stored server-side against its
+// push endpoint — that way it survives a reload and reads correctly if the same
+// browser opens a different artist.
+//
+// iOS only delivers push to a site added to the home screen, so on an
+// uninstalled iPhone the button explains that instead of failing silently.
+const notifyBtn = document.getElementById('notify-btn');
+const notifyBtnLabel = document.getElementById('notify-btn-label');
+
+let pushConfig = null;          // { enabled, publicKey }
+let pushFollowing = null;       // Set of artist ids this browser follows
+let pushSubscription = null;    // the browser's PushSubscription, once we have one
+
+const pushSupported = () =>
+  'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+// iOS/iPadOS Safari: push exists only in an installed (standalone) web app.
+const iosNeedsInstall = () => {
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.navigator.standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches;
+  return ios && !standalone;
+};
+
+// VAPID keys travel as base64url; the subscribe call wants raw bytes.
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function pushInit() {
+  if (!notifyBtn) return;
+  if (!pushSupported()) return;                 // button stays hidden
+  try {
+    const r = await fetch('/api/push/config');
+    pushConfig = await r.json();
+  } catch (e) {
+    return;
+  }
+  if (!pushConfig || !pushConfig.enabled) return;
+
+  notifyBtn.classList.remove('hidden');
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    pushSubscription = await reg.pushManager.getSubscription();
+    if (pushSubscription) {
+      const res = await fetch(`/api/push/follows?endpoint=${encodeURIComponent(pushSubscription.endpoint)}`);
+      const data = await res.json();
+      pushFollowing = new Set(data.following || []);
+    } else {
+      pushFollowing = new Set();
+    }
+  } catch (e) {
+    console.warn('Push init failed:', e);
+    pushFollowing = new Set();
+  }
+  syncNotifyButton();
+}
+
+function syncNotifyButton() {
+  if (!notifyBtn || !pushConfig || !pushConfig.enabled) return;
+  // On the artist picker there is no artist to follow.
+  if (!currentArtist) { notifyBtn.classList.add('hidden'); return; }
+  notifyBtn.classList.remove('hidden');
+  const on = pushFollowing && pushFollowing.has(currentArtist);
+  notifyBtn.classList.toggle('notify-on', !!on);
+  if (notifyBtnLabel) notifyBtnLabel.textContent = on ? 'Notifying' : 'Notify me';
+  notifyBtn.title = on
+    ? `You'll get a notification when ${currentArtistName || 'this artist'}'s daily numbers land — click to stop`
+    : `Get notified when ${currentArtistName || 'this artist'}'s daily numbers land`;
+}
+
+// Persist the whole follow list on every change: the server replaces what it
+// has for this endpoint, so the browser is always the source of truth and a
+// half-applied change can't leave a stale follow behind.
+async function pushSaveFollows() {
+  if (!pushSubscription) return;
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription: pushSubscription.toJSON(),
+      artists: [...pushFollowing],
+    }),
+  });
+}
+
+async function toggleNotify() {
+  if (!pushConfig || !pushConfig.enabled || !currentArtist) return;
+  if (iosNeedsInstall()) {
+    alert('On iPhone and iPad, notifications need the site added to your home screen first: tap Share → Add to Home Screen, then open it from there.');
+    return;
+  }
+  notifyBtn.disabled = true;
+  try {
+    if (!pushSubscription) {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        alert(permission === 'denied'
+          ? 'Notifications are blocked for this site. Turn them back on in your browser settings to follow an artist.'
+          : 'Notifications were not enabled.');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      pushSubscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(pushConfig.publicKey),
+      });
+      pushFollowing = pushFollowing || new Set();
+    }
+
+    if (pushFollowing.has(currentArtist)) pushFollowing.delete(currentArtist);
+    else pushFollowing.add(currentArtist);
+
+    await pushSaveFollows();
+    syncNotifyButton();
+  } catch (e) {
+    console.error('Notification toggle failed:', e);
+    alert('Could not change your notification setting. Please try again.');
+  } finally {
+    notifyBtn.disabled = false;
+  }
+}
+
+if (notifyBtn) notifyBtn.addEventListener('click', toggleNotify);
+pushInit();

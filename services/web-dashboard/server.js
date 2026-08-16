@@ -7,6 +7,10 @@ const compression = require('compression');
 const { Pool } = require('pg');
 const { groupSameStreamDuplicates } = require('./lib/dups');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+// AFTER dotenv on purpose: lib/push reads the VAPID keys at require time, so
+// importing it with the other modules above would always see them missing and
+// disable itself.
+const { pushEnabled, VAPID_PUBLIC, pendingAnnouncements, sendToFollowers } = require('./lib/push');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,6 +78,9 @@ const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || 'pairofwings';
 // when the lengths differ (timingSafeEqual requires equal-length buffers).
 const _passHash = (s) => crypto.createHash('sha256').update(String(s)).digest();
 const _adminHash = _passHash(ADMIN_PASSCODE);
+// Same constant-time rule for any other shared secret (the push dispatcher's).
+const secretsMatch = (a, b) =>
+  Boolean(a) && Boolean(b) && crypto.timingSafeEqual(_passHash(a), _passHash(b));
 const SECADMIN_PASSCODE = process.env.SECADMIN_PASSCODE || 'pineapple';
 const _secHash = _passHash(SECADMIN_PASSCODE);
 
@@ -3573,6 +3580,120 @@ function assetVersion() {
     return Date.now().toString(36);
   }
 }
+// ===========================================================================
+// Web push notifications
+//
+// A browser subscribes once (one permission prompt) and then follows artists
+// individually, so a LISA fan is not woken up by Justin Timberlake's numbers.
+// The announcement itself is the daily rollover — see lib/push.js.
+// ===========================================================================
+app.get('/api/push/config', (req, res) => {
+  res.json({ enabled: pushEnabled, publicKey: pushEnabled ? VAPID_PUBLIC : null });
+});
+
+// Store (or refresh) a subscription and replace its follow list in one call —
+// the client holds the whole list, so this is idempotent and survives a browser
+// re-subscribing with the same endpoint.
+app.post('/api/push/subscribe', async (req, res) => {
+  if (!pushEnabled) return res.status(503).json({ error: 'Push notifications are not configured.' });
+  const sub = req.body && req.body.subscription;
+  const artists = Array.isArray(req.body && req.body.artists) ? req.body.artists : [];
+  if (!sub || typeof sub.endpoint !== 'string' || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    return res.status(400).json({ error: 'A push subscription is required.' });
+  }
+  // Endpoints are URLs issued by the browser vendor's push service; anything
+  // else is a client bug or someone poking at the API.
+  if (!/^https:\/\//.test(sub.endpoint) || sub.endpoint.length > 1000) {
+    return res.status(400).json({ error: 'Invalid subscription endpoint.' });
+  }
+  const ids = [...new Set(artists.filter((a) => typeof a === 'string' && /^[A-Za-z0-9]{10,40}$/.test(a)))].slice(0, 100);
+  try {
+    await dbQuery(
+      `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, last_seen)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (endpoint) DO UPDATE
+         SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, last_seen = NOW()`,
+      [sub.endpoint, sub.keys.p256dh, sub.keys.auth, String(req.headers['user-agent'] || '').slice(0, 300)]
+    );
+    await dbQuery(`DELETE FROM push_artist_follows WHERE endpoint = $1`, [sub.endpoint]);
+    if (ids.length) {
+      await dbQuery(
+        `INSERT INTO push_artist_follows (endpoint, artist_id)
+         SELECT $1, UNNEST($2::text[]) ON CONFLICT DO NOTHING`,
+        [sub.endpoint, ids]
+      );
+    }
+    res.json({ ok: true, following: ids });
+  } catch (err) {
+    console.error('[push] subscribe failed:', err.message);
+    res.status(500).json({ error: 'Could not save your subscription.' });
+  }
+});
+
+// What this browser currently follows, so the bell reads right after a reload
+// or on a second device.
+app.get('/api/push/follows', async (req, res) => {
+  const endpoint = String(req.query.endpoint || '');
+  if (!endpoint) return res.json({ following: [] });
+  try {
+    const r = await dbQuery(`SELECT artist_id FROM push_artist_follows WHERE endpoint = $1`, [endpoint]);
+    res.json({ following: r.rows.map((x) => x.artist_id) });
+  } catch (err) {
+    res.json({ following: [] });
+  }
+});
+
+app.post('/api/push/unsubscribe', async (req, res) => {
+  const endpoint = String((req.body && req.body.endpoint) || '');
+  if (!endpoint) return res.status(400).json({ error: 'endpoint is required' });
+  try {
+    await dbQuery(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [endpoint]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[push] unsubscribe failed:', err.message);
+    res.status(500).json({ error: 'Could not remove your subscription.' });
+  }
+});
+
+// The dispatcher. Called by the scrape workflow when a run finishes, and open
+// to the admin panel; the ledger in push_sent_days is what makes calling it
+// twice harmless. Authorised by a shared secret so it cannot be used to spam.
+app.post('/api/push/dispatch', async (req, res) => {
+  if (!pushEnabled) return res.status(503).json({ error: 'Push notifications are not configured.' });
+  const secret = process.env.PUSH_DISPATCH_SECRET || '';
+  const given = req.headers['x-dispatch-secret'] || (req.body && req.body.secret) || '';
+  const adminKey = req.headers['x-admin-passcode'] || req.query.key;
+  const isAdmin = Boolean(getAdminRole(adminKey));
+  if (!isAdmin) {
+    if (!secretsMatch(String(given), secret)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  }
+  try {
+    const pending = await pendingAnnouncements(
+      dbQuery,
+      artistBucketMatchSQL('s', 'a'),
+      hiddenTrackIdsSql()
+    );
+    const sent = [];
+    for (const ann of pending) {
+      const result = await sendToFollowers(dbQuery, ann);
+      // Ledger first-wins: if two dispatchers race, the loser's INSERT does
+      // nothing and its sends are the only duplicate risk, bounded to one run.
+      await dbQuery(
+        `INSERT INTO push_sent_days (artist_id, stream_date, recipients)
+         VALUES ($1, $2::date, $3) ON CONFLICT DO NOTHING`,
+        [ann.artistId, ann.streamDate, result.delivered]
+      );
+      sent.push({ artist: ann.name, date: ann.streamDate, dailyGain: ann.dailyGain, ...result });
+    }
+    res.json({ ok: true, announced: sent.length, sent });
+  } catch (err) {
+    console.error('[push] dispatch failed:', err.message);
+    res.status(500).json({ error: 'Dispatch failed.' });
+  }
+});
+
 app.get(['/', '/index.html'], requireAuth, (req, res) => {
   const v = assetVersion();
   let html = fs.readFileSync(path.join(__dirname, 'public/index.html'), 'utf8');

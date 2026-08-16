@@ -5507,3 +5507,16 @@ select.tc-input { cursor: pointer; }
   .dashboard-header .user-actions .bp-arrow { display: none; }
   .dashboard-header .user-actions { gap: 6px; }
 }
+
+/* ── Notification bell ─────────────────────────────────────────────────────
+   Sits with the other header actions and reads as a toggle: off is a plain
+   secondary button, on is filled with the artist's accent so a glance at the
+   header tells you whether you're following. */
+#notify-btn.notify-on {
+  background: var(--accent-green, #1ed760);
+  border-color: var(--accent-green, #1ed760);
+  color: #06120a;
+  font-weight: 600;
+}
+#notify-btn.notify-on svg { stroke-width: 2.6; }
+#notify-btn:disabled { opacity: 0.6; cursor: progress; }

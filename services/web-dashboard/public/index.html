@@ -9,6 +9,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <!-- Installable, which is also what makes push work on iOS: Safari only
+       delivers notifications to a site added to the home screen. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/images/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Streams">
+  <meta name="theme-color" content="#080c14">
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body class="dashboard-body">
@@ -208,6 +215,12 @@
         <button id="stats-card-btn" class="btn-secondary btn-share hidden" title="Daily streams card">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>
           <span>Daily Card</span>
+        </button>
+        <!-- Per-artist push follow. Hidden unless the browser supports push and
+             the server has VAPID keys; app.js decides. -->
+        <button id="notify-btn" class="btn-secondary btn-share hidden" type="button" title="Get notified when this artist's daily numbers land">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          <span id="notify-btn-label">Notify me</span>
         </button>
         <button id="timemachine-btn" class="btn-secondary btn-share" title="Streams on a past date">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15.5 14"></polyline></svg>

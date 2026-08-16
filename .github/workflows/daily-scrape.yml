@@ -90,6 +90,30 @@ jobs:
           if [ -n "$SCRAPE_ARTISTS" ]; then ARGS="--artists=$SCRAPE_ARTISTS --force"; fi
           node reconcile-kworb.js $ARGS
 
+      # Yeni gunun sayilari yakalandiysa takipcilere web push gonder. Endpoint
+      # idempotent (push_sent_days ledger'i) — her saat cagrilmasi zararsiz,
+      # sadece HENUZ duyurulmamis bir gun varsa bildirim cikar. Sanatcinin
+      # sarkilarinin %90'i o gune yazilmadan da duyurmaz, yani yarim kalan bir
+      # run gunun toplamini eksik bildirmez.
+      #
+      # Hicbir sekilde run'i dusurmez: veri zaten yazildi, bildirim sadece bir
+      # ikram — ve bir sonraki saatlik run zaten tekrar dener.
+      - name: Notify followers (web push)
+        if: always()
+        continue-on-error: true
+        env:
+          DISPATCH_SECRET: ${{ secrets.PUSH_DISPATCH_SECRET }}
+          DASHBOARD_URL: ${{ vars.DASHBOARD_URL || 'https://spotify-streams-dashboard.onrender.com' }}
+        run: |
+          if [ -z "$DISPATCH_SECRET" ]; then
+            echo "PUSH_DISPATCH_SECRET yok — bildirim adimi atlandi."
+            exit 0
+          fi
+          curl -sS -m 120 -X POST "$DASHBOARD_URL/api/push/dispatch" \
+            -H "x-dispatch-secret: $DISPATCH_SECRET" \
+            -H "Content-Type: application/json" \
+            -w "\nHTTP %{http_code}\n" || echo "dispatch cagrisi basarisiz (yok sayildi)"
+
       - name: Notify on failure
         if: failure()
         run: |
