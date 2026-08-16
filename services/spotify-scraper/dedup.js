@@ -31,6 +31,13 @@ const EXACT_MATCH_DURATION_TOLERANCE_MS = 12000;
 // hem drift'i rahat kapsar hem de gerçek re-recording'leri (%10+) ayırır.
 const LINKED_COUNT_TOLERANCE = 0.005;
 
+// The drift pass (Pass 3) uses its own, far tighter tolerance. 0.5% is the right
+// number when a matching TITLE already argues the two are one recording; Pass 3
+// has no such argument, so it must not accept anything but genuine
+// scrape-timing drift. Celine's linked copy sat 0.032% apart; two independent
+// recordings whose curves happen to cross land inside 0.05% for at most a day.
+const DRIFT_PASS_TOLERANCE = 0.0005;
+
 // Default frozen eşiği: bir kopyanın last snapshot'ı global max'ten 1+ tam gün
 // gerideyse donmuş sayılır (delisted/hidden/standart edition gibi linked-ama-
 // scrape-edilmeyen kopyalar). 1 gün, Spotify'ın bir günlük gecikmesini tolere
@@ -186,6 +193,26 @@ const TITLE_STOPWORDS = new Set([
 // True if two titles share a meaningful word (≥4 chars, not a stopword). Pairs
 // the exact-count signal with a sanity check so two unrelated songs that happen
 // to collide on a play count are still never glued together.
+// The song's own name: every bracketed group dropped, then only the part before
+// the first " - " suffix kept. "My Heart Will Go On - Love Theme from Titanic"
+// and "My Heart Will Go On (Dialogue Mix) - includes Titanic film dialogue" both
+// reduce to "my heart will go on".
+//
+// This is the guard the DRIFT pass needs and the exact pass does not. A shared
+// significant word is enough when two counts match to the single stream, but at
+// a 0.5% tolerance it lets two different songs off the same soundtrack collide:
+// "Bound To You - Burlesque Original Motion Picture Soundtrack" and "Express -
+// Burlesque …" share four words and landed 0.06% apart. Their names do not
+// match, so the base test throws them out.
+function baseTitleKey(title) {
+  return String(title || '').toLowerCase()
+    .replace(/\s*[\(\[][^)\]]*[\)\]]/g, ' ')
+    .split(/\s+[-\u2013\u2014]\s+/)[0]
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function shareSignificantToken(a, b) {
   const toks = (t) => new Set(
     normalizeTitle(t).split(' ').filter(w => w.length >= 4 && !TITLE_STOPWORDS.has(w))
@@ -273,16 +300,25 @@ async function dedupCanonical(client) {
     console.warn('[dedup] manual_merges tablosu yok/okunamadı:', e.code || e.message);
   }
 
-  // Every id touched by a manual rule (as alias OR canonical). Pass 2 must leave
-  // these alone: the rules are applied last and set their own direction, so if
-  // Pass 2 merged the pair the other way first, the two would end up pointing at
-  // each other (a canonical_id cycle) — both then drop out of the dashboard,
-  // since neither is a NULL-canonical representative anymore.
-  const manualIds = new Set([
+  // Ids claimed by a manual rule as the ALIAS side, plus explicit splits. Pass 2
+  // must not touch these: the rules are applied last and set their own
+  // direction, so if Pass 2 merged such a row the other way first, the two would
+  // end up pointing at each other (a canonical_id cycle) — both then drop out of
+  // the dashboard, since neither is a NULL-canonical representative anymore.
+  const manualAliasIds = new Set([
     ...Object.keys(manualMerge),
-    ...Object.values(manualMerge),
     ...manualSplit,
   ]);
+  // The TARGETS of manual rules are a different case, and treating them like the
+  // aliases was a bug worth spelling out: one hand-merge used to freeze that
+  // recording out of automatic merging forever, so every later copy Spotify
+  // published had to be merged by hand too. Celine's "My Heart Will Go On" ran
+  // to thirteen copies at the identical play count and still sat as two separate
+  // heads, double-counting 724,698,403 streams on her total.
+  //
+  // A manual target may therefore ABSORB copies — it just may never be absorbed
+  // itself, which is the half that would close a cycle.
+  const manualCanonicalIds = new Set(Object.values(manualMerge));
 
 function shouldKeepSeparate(title) {
   const lower = title.toLowerCase();
@@ -406,7 +442,7 @@ function shouldKeepSeparate(title) {
   // a coincidental count). FORCE_CANONICAL + manual rules below still override.
   const exactGroups = new Map(); // `${bucket}|${streams}` -> rows
   for (const r of rows) {
-    if (isAlias.has(r.id) || NEVER_MERGE.has(r.id) || manualIds.has(r.id)) continue;
+    if (isAlias.has(r.id) || NEVER_MERGE.has(r.id) || manualAliasIds.has(r.id)) continue;
     const s = Number(r.max_streams) || 0;
     if (s < EXACT_MERGE_FLOOR) continue;
     const key = `${bucketOfWith(namedArtists, r.primary_artist)}|${s}`;
@@ -418,6 +454,11 @@ function shouldKeepSeparate(title) {
   for (const group of exactGroups.values()) {
     if (group.length < 2) continue;
     group.sort((a, b) => {
+      // A manual target always wins the canonical slot: the admin already said
+      // which copy this recording lives on, and merging the other way would
+      // fight the rule that gets applied at the end of this run.
+      const ma = manualCanonicalIds.has(a.id) ? 1 : 0, mb = manualCanonicalIds.has(b.id) ? 1 : 0;
+      if (ma !== mb) return mb - ma;
       const sa = scoreCanonical(a), sb = scoreCanonical(b);
       if (sa !== sb) return sb - sa;
       // Tiebreak: keep the "plain" title (no remix/instrumental/… tag) as the
@@ -429,6 +470,8 @@ function shouldKeepSeparate(title) {
     const canonical = group[0];
     for (let i = 1; i < group.length; i++) {
       const m = group[i];
+      // Never demote a manual target (that is the half that closes a cycle).
+      if (manualCanonicalIds.has(m.id)) continue;
       if (!shareSignificantToken(canonical.title, m.title)) continue;
       // Re-point m AND anything already merged under m, so no 2-level chains form.
       for (const id of [m.id, ...(aliasesOf.get(m.id) || [])]) {
@@ -439,6 +482,83 @@ function shouldKeepSeparate(title) {
     }
   }
   aliasCount += exactCount;
+
+  // ===== Pass 3: drift-tolerant linked-copy merge =====
+  // Two copies of one recording do not always read the same integer. They are
+  // scraped minutes apart, from different albums, so the counts drift a little:
+  // Celine's "(Dialogue Mix)" copy sat 229,942 streams (0.03%) below the head it
+  // belonged to, which the exact pass cannot see and the title pass never
+  // compared because the titles normalise differently.
+  //
+  // Same signal, same tolerance the title pass already trusts for linked copies
+  // (LINKED_COUNT_TOLERANCE), with two extra guards because equality is no
+  // longer doing the proving: the song NAMES must match (baseTitleKey), and the
+  // version tags must agree — a sped-up cut whose count happens to drift near
+  // its original stays its own song, which is the whole remixes-are-real rule.
+  //
+  // And one more, learned from thinking about what this pass could get wrong:
+  // an original and its own re-recording ("Better Than Revenge" vs "… (Taylor's
+  // Version)") share a base name, run to nearly the same length, and carry no
+  // word from the variant list — the ONLY thing keeping them apart is the count
+  // gap, and a re-recording's curve crosses the original's sooner or later. So
+  // the match has to hold on the PREVIOUS snapshot day as well: linked copies
+  // track each other every single day, two curves merely crossing do not.
+  const driftHeads = new Map(); // bucket -> rows
+  for (const r of rows) {
+    if (isAlias.has(r.id) || NEVER_MERGE.has(r.id) || manualAliasIds.has(r.id)) continue;
+    if ((Number(r.max_streams) || 0) < EXACT_MERGE_FLOOR) continue;
+    const b = bucketOfWith(namedArtists, r.primary_artist);
+    if (!driftHeads.has(b)) driftHeads.set(b, []);
+    driftHeads.get(b).push(r);
+  }
+  // Second-newest snapshot per candidate, for the previous-day check above.
+  const driftIds = [...driftHeads.values()].flat().map((r) => r.id);
+  const prevDay = new Map();
+  if (driftIds.length) {
+    const { rows: prevRows } = await client.query(
+      `SELECT song_id, stream_count FROM (
+         SELECT song_id, stream_count,
+                ROW_NUMBER() OVER (PARTITION BY song_id ORDER BY recorded_date DESC) AS rn
+         FROM stream_stats WHERE song_id = ANY($1)
+       ) z WHERE rn = 2`,
+      [driftIds]
+    );
+    for (const r of prevRows) prevDay.set(r.song_id, Number(r.stream_count));
+  }
+
+  let driftCount = 0;
+  for (const list of driftHeads.values()) {
+    list.sort((a, b) => Number(b.max_streams) - Number(a.max_streams));
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i];
+      if (isAlias.has(a.id)) continue;
+      const av = Number(a.max_streams);
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j];
+        const bv = Number(b.max_streams);
+        if (av - bv > av * DRIFT_PASS_TOLERANCE) break;   // sorted: nothing closer follows
+        if (isAlias.has(b.id) || manualCanonicalIds.has(b.id)) continue;
+        if (Math.abs(a.duration_ms - b.duration_ms) > EXACT_MATCH_DURATION_TOLERANCE_MS) continue;
+        const key = baseTitleKey(a.title);
+        if (!key || key !== baseTitleKey(b.title)) continue;
+        if (shouldKeepSeparate(a.title) !== shouldKeepSeparate(b.title)) continue;
+        const at = a.title.toLowerCase(), bt = b.title.toLowerCase();
+        if (['live', 'instrumental', 'remix', 'acoustic', 'performance', 'sped', 'slowed']
+          .some((w) => at.includes(w) !== bt.includes(w))) continue;
+        // Yesterday has to agree. A copy we have only one snapshot for is
+        // exempt — that is a newly discovered linked copy, the common case.
+        const pa = prevDay.get(a.id), pb = prevDay.get(b.id);
+        if (pa != null && pb != null && Math.abs(pa - pb) > Math.max(pa, pb) * DRIFT_PASS_TOLERANCE) continue;
+        for (const id of [b.id, ...(aliasesOf.get(b.id) || [])]) {
+          await client.query(`UPDATE songs SET canonical_id = $1 WHERE id = $2`, [a.id, id]);
+          isAlias.add(id);
+          driftCount++;
+        }
+      }
+    }
+  }
+  aliasCount += driftCount;
+  if (driftCount) console.log(`[dedup] drift-tolerant pass merged ${driftCount} copy/copies`);
 
   // Apply forced canonical overrides
   for (const [trackId, canonId] of Object.entries(FORCE_CANONICAL)) {
