@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 const { Pool } = require('pg');
 const { groupSameStreamDuplicates } = require('./lib/dups');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
@@ -562,6 +563,73 @@ function artistBucketMatchSQL(s, a) {
   )`;
 }
 
+// ---------------------------------------------------------------------------
+// The per-song figures every listing needs — latest snapshot, the day before
+// it, the 7-day average and the raw change — as CTEs, computed in ONE pass.
+//
+// They used to come from daily_streams_canonical / canonical_streams, one scan
+// each. Those are VIEWS over the whole stream_stats table: every read rebuilt
+// the running max and the day-over-day gains for every artist we track, then
+// threw away all but the rows for the artist actually being viewed. /api/songs
+// did that four times, /api/albums three; each scan cost well over a second and
+// grows with the table.
+//
+// So: resolve which canonical songs this endpoint is about FIRST, and derive
+// everything from a single pass over just their rows. The arithmetic is copied
+// from the view definitions on purpose — `cumulative` is the running max (a
+// playcount can never fall), `daily_gain` divides by the day gap so an
+// irregular snapshot cadence spreads across the days it covers, `real_change`
+// reads the RAW counts so a genuine drop still reads negative.
+//
+// `songFilter` is SQL selecting this endpoint's songs; it may reference `s`
+// (songs) and `a` (albums), which are joined here the same way.
+function artistLatestAggCTE(songFilter) {
+  return `
+      agg_scope AS (
+        SELECT DISTINCT COALESCE(s.canonical_id, s.id) AS canonical_id
+        FROM songs s
+        LEFT JOIN albums a ON s.album_id = a.id
+        WHERE ${songFilter}
+      ),
+      agg_cs AS (
+        SELECT COALESCE(s2.canonical_id, s2.id) AS canonical_id,
+               ss.recorded_date,
+               MAX(ss.stream_count) AS stream_count
+        FROM stream_stats ss
+        JOIN songs s2 ON s2.id = ss.song_id
+        WHERE COALESCE(s2.canonical_id, s2.id) IN (SELECT canonical_id FROM agg_scope)
+        GROUP BY 1, 2
+      ),
+      agg_runmax AS (
+        SELECT canonical_id, recorded_date, stream_count,
+               MAX(stream_count) OVER (
+                 PARTITION BY canonical_id ORDER BY recorded_date
+                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+               ) AS cumulative
+        FROM agg_cs
+      ),
+      agg_gains AS (
+        SELECT canonical_id, recorded_date, cumulative,
+               (cumulative - LAG(cumulative) OVER w)
+                 / NULLIF(recorded_date - LAG(recorded_date) OVER w, 0) AS daily_gain,
+               (stream_count - LAG(stream_count) OVER w)::bigint AS real_change,
+               ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
+        FROM agg_runmax
+        WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
+      ),
+      agg AS (
+        SELECT canonical_id,
+               MAX(recorded_date) FILTER (WHERE rn = 1) AS recorded_date,
+               MAX(cumulative)    FILTER (WHERE rn = 1) AS cumulative,
+               MAX(daily_gain)    FILTER (WHERE rn = 1) AS daily_gain,
+               MAX(daily_gain)    FILTER (WHERE rn = 2) AS prev_daily_gain,
+               ROUND(AVG(daily_gain) FILTER (WHERE rn <= 7))::bigint AS daily_avg_7d,
+               MAX(real_change)   FILTER (WHERE rn = 1) AS real_change
+        FROM agg_gains
+        GROUP BY canonical_id
+      )`;
+}
+
 // Dynamically generate the album exclusion clauses for albums query based on active artists.
 function artistAlbumMatchSQL(s) {
   // Same rule as artistBucketMatchSQL: JT excludes every tracked artist.
@@ -751,6 +819,11 @@ process.on('uncaughtException', (err) => {
   console.error('[fatal-guard] Uncaught exception:', err);
 });
 
+// gzip. The song list is the biggest thing this site sends (130KB+ of JSON for
+// a large catalogue) and it compresses to about a fifth of that, which is the
+// difference between instant and a visible wait on a phone connection.
+app.use(compression());
+
 app.use(express.json());
 app.use(cookieParser('spotify-streams-secret-key'));
 // Refresh the roster/OG caches off the back of real traffic instead of a timer,
@@ -861,7 +934,11 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
+    // Every per-song figure below comes from one pass over this artist's rows;
+    // see artistLatestAggCTE for why that matters.
     const query = `
+      WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})`)}
       SELECT
         s.id,
         s.title,
@@ -902,56 +979,19 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
         -- 7-day trailing average daily gain — smooths Spotify's weekly cadence
         -- (weekend spikes / Monday drops) so ETA estimates aren't whipsawed by
         -- which single day the latest snapshot happens to land on.
-        COALESCE(avg7.daily_avg_7d, 0)::bigint AS daily_avg_7d,
+        COALESCE(dsc.daily_avg_7d, 0)::bigint AS daily_avg_7d,
         -- Raw (un-clamped) latest-day change. daily_gain above uses the
         -- running-max view so it can NEVER go negative; this one reads the
         -- raw canonical_streams so a genuine playcount DROP (deleted/pulled
         -- streams, bad snapshot) surfaces as a negative. Frontend only shows
         -- it when it's actually negative.
-        COALESCE(rawd.real_change, 0)::bigint AS real_daily_change,
+        COALESCE(dsc.real_change, 0)::bigint AS real_daily_change,
         -- The day before the latest snapshot, so a card can show a day-over-day
         -- delta without refetching each song's history one request at a time.
-        COALESCE(prev.daily_gain, 0)::bigint AS prev_daily_gain
+        COALESCE(dsc.prev_daily_gain, 0)::bigint AS prev_daily_gain
       FROM songs s
       LEFT JOIN albums a ON s.album_id = a.id
-      LEFT JOIN (
-        SELECT DISTINCT ON (canonical_id)
-          canonical_id,
-          recorded_date,
-          cumulative,
-          daily_gain
-        FROM daily_streams_canonical
-        ORDER BY canonical_id, recorded_date DESC
-      ) dsc ON s.id = dsc.canonical_id
-      LEFT JOIN LATERAL (
-        SELECT daily_gain
-        FROM daily_streams_canonical pv
-        WHERE pv.canonical_id = s.id
-          AND pv.recorded_date < dsc.recorded_date
-        ORDER BY pv.recorded_date DESC
-        LIMIT 1
-      ) prev ON true
-      LEFT JOIN (
-        SELECT canonical_id, ROUND(AVG(daily_gain))::bigint AS daily_avg_7d
-        FROM (
-          SELECT canonical_id, daily_gain,
-                 ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
-          FROM daily_streams_canonical
-        ) z WHERE rn <= 7
-        GROUP BY canonical_id
-      ) avg7 ON s.id = avg7.canonical_id
-      LEFT JOIN (
-        SELECT canonical_id, real_change FROM (
-          SELECT song_id AS canonical_id,
-                 (stream_count - LAG(stream_count) OVER (
-                   PARTITION BY song_id ORDER BY recorded_date
-                 ))::bigint AS real_change,
-                 ROW_NUMBER() OVER (
-                   PARTITION BY song_id ORDER BY recorded_date DESC
-                 ) AS rn
-          FROM canonical_streams
-        ) z WHERE rn = 1
-      ) rawd ON s.id = rawd.canonical_id
+      LEFT JOIN agg dsc ON s.id = dsc.canonical_id
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()})
       ORDER BY cumulative DESC;
@@ -990,7 +1030,12 @@ app.get('/api/trending', requireAuth, validateArtistAccess, async (req, res) => 
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
     const query = `
-      WITH anchor AS (SELECT MAX(recorded_date) AS d FROM daily_streams_canonical),
+      WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})`)},
+      -- The newest snapshot anywhere, which is what the windows below are
+      -- measured back from. Read off stream_stats rather than the canonical
+      -- view: same date, without rebuilding every artist's history to find it.
+      anchor AS (SELECT MAX(recorded_date) AS d FROM stream_stats),
       win AS (
         SELECT
           dsc.canonical_id,
@@ -1005,7 +1050,7 @@ app.get('/api/trending', requireAuth, validateArtistAccess, async (req, res) => 
             WHERE dsc.recorded_date <= (SELECT d FROM anchor) - INTERVAL '4 days'
               AND dsc.recorded_date >  (SELECT d FROM anchor) - INTERVAL '25 days') AS base_n,
           MAX(dsc.cumulative) AS cumulative
-        FROM daily_streams_canonical dsc
+        FROM agg_gains dsc
         WHERE dsc.recorded_date > (SELECT d FROM anchor) - INTERVAL '25 days'
         GROUP BY dsc.canonical_id
       ),
@@ -1065,7 +1110,11 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
+    // Both the headline sums and the 7-day average come off one pass over this
+    // artist's rows — see artistLatestAggCTE.
     const query = `
+      WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})`)}
       SELECT 
         COALESCE(SUM(dsc.cumulative), 0)::bigint AS total_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_streams,
@@ -1082,28 +1131,16 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
         (
           SELECT COALESCE(ROUND(AVG(pd.day_gain)), 0)::bigint
           FROM (
-            SELECT d2.recorded_date, SUM(d2.daily_gain) AS day_gain
-            FROM daily_streams_canonical d2
-            JOIN songs s2 ON s2.id = d2.canonical_id
-            JOIN albums a2 ON s2.album_id = a2.id
-            WHERE s2.canonical_id IS NULL AND ${artistBucketMatchSQL('s2', 'a2')}
-              AND s2.id NOT IN (${hiddenTrackIdsSql()})
-            GROUP BY d2.recorded_date
-            ORDER BY d2.recorded_date DESC
+            SELECT recorded_date, SUM(daily_gain) AS day_gain
+            FROM agg_gains
+            GROUP BY recorded_date
+            ORDER BY recorded_date DESC
             LIMIT 7
           ) pd
         ) AS daily_avg_7d,
         COUNT(*)::int AS total_songs,
         MAX(dsc.recorded_date) AS last_update
-      FROM (
-        SELECT DISTINCT ON (canonical_id)
-          canonical_id,
-          cumulative,
-          daily_gain,
-          recorded_date
-        FROM daily_streams_canonical
-        ORDER BY canonical_id, recorded_date DESC
-      ) dsc
+      FROM agg dsc
       JOIN songs s ON s.id = dsc.canonical_id
       JOIN albums a ON s.album_id = a.id
       -- s.canonical_id IS NULL: count ONLY true canonical heads. The view keys on
@@ -1514,7 +1551,9 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
     // wrongly claim "reached 1B today" when it actually happened during the gap. We skip those.
     const MILESTONE_MAX_GAP_DAYS = 2;
     const query = `
-      WITH thresholds(m) AS (
+      WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})`)},
+      thresholds(m) AS (
         VALUES (1000), (5000), (10000), (25000), (50000), (100000), (250000), (500000),
                (1000000), (2500000), (5000000), (10000000), (25000000), (50000000),
                (100000000), (200000000), (300000000), (400000000), (500000000),
@@ -1530,11 +1569,7 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
           dsc.cumulative,
           LAG(dsc.cumulative) OVER (PARTITION BY dsc.canonical_id ORDER BY dsc.recorded_date) AS prev_cum,
           LAG(dsc.recorded_date) OVER (PARTITION BY dsc.canonical_id ORDER BY dsc.recorded_date) AS prev_date
-        FROM daily_streams_canonical dsc
-        JOIN songs s ON s.id = dsc.canonical_id
-        JOIN albums a ON s.album_id = a.id
-        WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
-        AND s.id NOT IN (${hiddenTrackIdsSql()})
+        FROM agg_gains dsc
       ),
       song_crossings AS (
         SELECT
@@ -1605,13 +1640,29 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
         END AS album_title
         FROM albums
       ),
+      -- The albums bucket is not the songs bucket (an artist can be pinned onto
+      -- tracks they don't lead, and a couple of artists are scoped by album
+      -- title), so this side gets its own single pass rather than reusing
+      -- agg_gains. Running max per song, same rule as the canonical view.
+      album_song_series AS (
+        SELECT COALESCE(s2.canonical_id, s2.id) AS canonical_id,
+               ss.recorded_date,
+               MAX(MAX(ss.stream_count)) OVER (
+                 PARTITION BY COALESCE(s2.canonical_id, s2.id) ORDER BY ss.recorded_date
+                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+               ) AS cumulative
+        FROM stream_stats ss
+        JOIN songs s2 ON s2.id = ss.song_id
+        WHERE COALESCE(s2.canonical_id, s2.id) IN (SELECT canonical_song_id FROM album_songs_mapped)
+        GROUP BY 1, 2
+      ),
       album_daily_raw AS (
         SELECT
           asm.album_id,
           adt.album_title,
           dsc.recorded_date,
           SUM(COALESCE(dsc.cumulative, 0))::bigint AS raw_cumulative
-        FROM daily_streams_canonical dsc
+        FROM album_song_series dsc
         JOIN album_songs_mapped asm ON dsc.canonical_id = asm.canonical_song_id
         JOIN album_display_titles adt ON asm.album_id = adt.album_id
         GROUP BY asm.album_id, adt.album_title, dsc.recorded_date
@@ -1670,7 +1721,10 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
       SELECT * FROM song_crossings
       UNION ALL
       SELECT * FROM album_crossings
-      ORDER BY reached_date DESC, milestone DESC;
+      -- type/title/id only break ties: a song and an album crossing the same
+      -- threshold on the same day used to come back in whatever order the plan
+      -- happened to produce, so the list reshuffled between identical requests.
+      ORDER BY reached_date DESC, milestone DESC, type, title, song_id;
     `;
     const result = await dbQuery(query, [artistUri]);
     res.json(result.rows);
@@ -1685,7 +1739,10 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
     const query = `
-      WITH album_canonical_songs AS (
+      WITH ${artistLatestAggCTE(`${artistAlbumMatchSQL('s')}
+          AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
+          AND ${FSLS_REMIX_EXCLUSION_SQL}`)},
+      album_canonical_songs AS (
         SELECT DISTINCT ON (
           CASE
             ${pinnedAlbumCaseSql()}
@@ -1710,38 +1767,14 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
         COALESCE(s.canonical_id, s.id) AS canonical_song_id,
         COALESCE(dsc.cumulative, 0) AS cumulative,
         COALESCE(dsc.daily_gain, 0) AS daily_gain,
-        COALESCE(prev.daily_gain, 0) AS prev_daily_gain,
-        COALESCE(avg7.daily_avg_7d, 0) AS daily_avg_7d
+        COALESCE(dsc.prev_daily_gain, 0) AS prev_daily_gain,
+        COALESCE(dsc.daily_avg_7d, 0) AS daily_avg_7d
         FROM songs s
         JOIN albums a ON s.album_id = a.id
-        LEFT JOIN (
-          SELECT DISTINCT ON (canonical_id)
-            canonical_id,
-            cumulative,
-            daily_gain,
-            recorded_date
-          FROM daily_streams_canonical
-          ORDER BY canonical_id, recorded_date DESC
-        ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
-        -- Day before the latest snapshot, summed per album below so a card can
-        -- show an album's day-over-day delta without extra round trips.
-        LEFT JOIN LATERAL (
-          SELECT daily_gain
-          FROM daily_streams_canonical pv
-          WHERE pv.canonical_id = COALESCE(s.canonical_id, s.id)
-            AND pv.recorded_date < dsc.recorded_date
-          ORDER BY pv.recorded_date DESC
-          LIMIT 1
-        ) prev ON true
-        LEFT JOIN (
-          SELECT canonical_id, ROUND(AVG(daily_gain))::bigint AS daily_avg_7d
-          FROM (
-            SELECT canonical_id, daily_gain,
-                   ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
-            FROM daily_streams_canonical
-          ) z WHERE rn <= 7
-          GROUP BY canonical_id
-        ) avg7 ON COALESCE(s.canonical_id, s.id) = avg7.canonical_id
+        -- One pass for the latest snapshot, the day before it (so a card can
+        -- show a day-over-day delta without extra round trips) and the 7-day
+        -- average. See artistLatestAggCTE.
+        LEFT JOIN agg dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
         WHERE ${artistAlbumMatchSQL('s')}
         AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
         AND ${FSLS_REMIX_EXCLUSION_SQL}

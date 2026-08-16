@@ -11,6 +11,7 @@
     "test": "node --test test/*.test.js && node test_security.js"
   },
   "dependencies": {
+    "compression": "^1.8.1",
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
