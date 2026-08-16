@@ -242,6 +242,24 @@ function scoreCanonical(song) {
   return score;
 }
 
+// One UPDATE for thousands of rows instead of one per row. Dedup used to issue a
+// separate round trip per alias — 3,800+ of them, each ~46ms to a hosted
+// Postgres, which is most of the ten minutes the step took and it grew with the
+// catalogue. The passes decide everything in memory anyway; this just writes
+// their verdict in one go.
+async function applyCanonicalAssignments(client, assign) {
+  if (!assign.size) return 0;
+  const ids = [...assign.keys()];
+  const canons = ids.map((id) => assign.get(id));
+  const r = await client.query(
+    `UPDATE songs s SET canonical_id = v.canon
+     FROM (SELECT UNNEST($1::text[]) AS id, UNNEST($2::text[]) AS canon) v
+     WHERE s.id = v.id AND s.canonical_id IS DISTINCT FROM v.canon`,
+    [ids, canons]
+  );
+  return r.rowCount;
+}
+
 async function dedupCanonical(client) {
   console.log('[dedup] Canonical eşleştirme başlıyor...');
 
@@ -280,6 +298,10 @@ async function dedupCanonical(client) {
   // aliases and re-point a merged canonical's own aliases (never build a chain).
   const isAlias  = new Set();   // ids merged under some canonical
   const aliasesOf = new Map();  // canonicalId -> [aliasId, …]
+  // aliasId -> canonicalId, collected by all three passes and written once. A
+  // later pass overwriting an earlier one's verdict for the same id is the same
+  // last-write-wins the per-row UPDATEs gave.
+  const assign = new Map();
 
   // Önce tüm canonical_id'leri sıfırla
   const reset = await client.query(`UPDATE songs SET canonical_id = NULL WHERE canonical_id IS NOT NULL`);
@@ -417,10 +439,7 @@ function shouldKeepSeparate(title) {
       const canonical = cluster[0];
       canonicalCount++;
       for (let i = 1; i < cluster.length; i++) {
-        await client.query(
-          `UPDATE songs SET canonical_id = $1 WHERE id = $2`,
-          [canonical.id, cluster[i].id]
-        );
+        assign.set(cluster[i].id, canonical.id);
         aliasCount++;
         isAlias.add(cluster[i].id);
         if (!aliasesOf.has(canonical.id)) aliasesOf.set(canonical.id, []);
@@ -475,7 +494,7 @@ function shouldKeepSeparate(title) {
       if (!shareSignificantToken(canonical.title, m.title)) continue;
       // Re-point m AND anything already merged under m, so no 2-level chains form.
       for (const id of [m.id, ...(aliasesOf.get(m.id) || [])]) {
-        await client.query(`UPDATE songs SET canonical_id = $1 WHERE id = $2`, [canonical.id, id]);
+        assign.set(id, canonical.id);
         isAlias.add(id);
         exactCount++;
       }
@@ -550,7 +569,7 @@ function shouldKeepSeparate(title) {
         const pa = prevDay.get(a.id), pb = prevDay.get(b.id);
         if (pa != null && pb != null && Math.abs(pa - pb) > Math.max(pa, pb) * DRIFT_PASS_TOLERANCE) continue;
         for (const id of [b.id, ...(aliasesOf.get(b.id) || [])]) {
-          await client.query(`UPDATE songs SET canonical_id = $1 WHERE id = $2`, [a.id, id]);
+          assign.set(id, a.id);
           isAlias.add(id);
           driftCount++;
         }
@@ -560,23 +579,17 @@ function shouldKeepSeparate(title) {
   aliasCount += driftCount;
   if (driftCount) console.log(`[dedup] drift-tolerant pass merged ${driftCount} copy/copies`);
 
+  // Everything the three passes decided, in one statement.
+  await applyCanonicalAssignments(client, assign);
+
   // Apply forced canonical overrides
-  for (const [trackId, canonId] of Object.entries(FORCE_CANONICAL)) {
-    await client.query(
-      `UPDATE songs SET canonical_id = $1 WHERE id = $2 AND canonical_id IS DISTINCT FROM $1`,
-      [canonId, trackId]
-    );
-  }
+  await applyCanonicalAssignments(client, new Map(Object.entries(FORCE_CANONICAL)));
+
   // Apply admin manual merge rules last (override the deduper + FORCE_CANONICAL).
-  let manualCount = 0;
-  for (const [trackId, canonId] of Object.entries(manualMerge)) {
-    if (trackId === canonId) continue;
-    const r = await client.query(
-      `UPDATE songs SET canonical_id = $1 WHERE id = $2 AND canonical_id IS DISTINCT FROM $1`,
-      [canonId, trackId]
-    );
-    manualCount += r.rowCount;
-  }
+  const manualPairs = new Map(
+    Object.entries(manualMerge).filter(([trackId, canonId]) => trackId !== canonId)
+  );
+  const manualCount = await applyCanonicalAssignments(client, manualPairs);
 
   // Flatten canonical chains so every alias points STRAIGHT at a root, AND break
   // any canonical_id cycle (A→B→…→A). A manual rule or FORCE_CANONICAL can re-root
@@ -613,16 +626,22 @@ function shouldKeepSeparate(title) {
       }
       return cur;                                 // canonical_id IS NULL → real root
     };
+    const detach = [];
+    const repoint = new Map();
     for (const [id, canon] of canonOf) {
       const root = resolve(id);
       if (root === id) {                          // chosen cycle head → become a root
-        await client.query(`UPDATE songs SET canonical_id = NULL WHERE id = $1`, [id]);
+        detach.push(id);
         cyclesBroken++;
       } else if (root !== canon) {                // chain/cycle member → straight to root
-        await client.query(`UPDATE songs SET canonical_id = $1 WHERE id = $2`, [root, id]);
+        repoint.set(id, root);
         flattened++;
       }
     }
+    if (detach.length) {
+      await client.query(`UPDATE songs SET canonical_id = NULL WHERE id = ANY($1::text[])`, [detach]);
+    }
+    await applyCanonicalAssignments(client, repoint);
   } catch (e) {
     console.warn('[dedup] chain-flatten step failed:', e.code || e.message);
   }
