@@ -11,3 +11,19 @@ services:
         value: 10000
       - key: DATABASE_URL
         sync: false # You will enter your Neon PostgreSQL URL when deploying
+      # Web push. Without these the notification feature reports itself
+      # unavailable and the bell never appears — the site runs exactly as it did
+      # before it existed. Generate a pair with `npx web-push generate-vapid-keys`
+      # (a pair already sits in the repo-root .env) and paste the SAME values
+      # here: subscriptions are bound to the public key, so changing it later
+      # silently breaks everyone who already subscribed.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false # mailto: address push services can contact you on
+      # Shared secret the scrape workflow presents to /api/push/dispatch. Must
+      # match the PUSH_DISPATCH_SECRET repository secret on GitHub.
+      - key: PUSH_DISPATCH_SECRET
+        sync: false
