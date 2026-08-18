@@ -205,6 +205,149 @@ async function upsertSongsBatch(client, songs) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Playcount DÜŞÜŞLERİ.
+//
+// The stale-skip above is a good rule for the wrong reason to stay blind: it
+// throws away the one number that would tell us Spotify pulled streams. So the
+// skipped reading is logged here first. Logging is not correcting — a single
+// low reading is far more likely to be a half-loaded page than a real removal,
+// so nothing moves until the same drop shows up again on another day.
+// ---------------------------------------------------------------------------
+
+// Confirmations needed before a lower playcount is believed. Two DIFFERENT
+// scrape days, not two readings: a broken page tends to break for a whole run.
+const DROP_CONFIRM_DAYS = 2;
+// A "drop" this large is not Spotify tidying up, it's a bad read (wrong track,
+// truncated response). Refuse to act on it and leave it in the log to be seen.
+const DROP_SANITY_MAX_RATIO = 0.25;
+
+async function recordStreamDrops(client, drops, observedDate) {
+  if (!drops || !drops.length) return 0;
+  const values = [];
+  const params = [];
+  let p = 0;
+  for (const d of drops) {
+    values.push(`($${++p}, $${++p}::date, $${++p}, $${++p})`);
+    params.push(d.songId, observedDate, d.streamCount, d.stored);
+  }
+  await client.query(
+    `INSERT INTO stream_observations (song_id, observed_date, stream_count, stored_count)
+     VALUES ${values.join(', ')}
+     ON CONFLICT (song_id, observed_date) DO UPDATE
+       SET stream_count = EXCLUDED.stream_count,
+           stored_count = EXCLUDED.stored_count,
+           recorded_at  = NOW()`,
+    params
+  );
+  return drops.length;
+}
+
+/**
+ * Turn confirmed drops into corrected history.
+ *
+ * A song's displayed total is the newest row, and every view takes a running
+ * MAX over the rows before it — so writing a lower number changes nothing while
+ * the old peak still sits in the history. The correction therefore SHAVES: every
+ * row above the new count comes down to it (LEAST), across the whole canonical
+ * family, because canonical_streams takes MAX across the aliases of one
+ * recording and a single untouched alias would hold the old peak up on its own.
+ *
+ * Shaving flattens the last few days rather than rewriting years of history:
+ * only the days that had already climbed past the new count are affected, and
+ * their gains become 0 — which is what actually happened, Spotify took those
+ * days back. An offset column would preserve them, but every aggregate in the
+ * dashboard would then have to know about it.
+ *
+ * Today's row is written for every member of the family, so the "already
+ * captured today" resume check sees the artist as complete. Without it the
+ * dropped tracks leave the artist one row short and every hourly run re-scrapes
+ * them, all day, forever.
+ *
+ * minConfirmations exists for the one-off repair path, where the reading was
+ * taken by hand against Spotify rather than by two scrapes.
+ */
+async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DAYS, lookbackDays = 14 } = {}) {
+  const today = await todayIstanbul(client);
+  // Latest observation per canonical family, plus how many separate days that
+  // family has been seen low. Grouping by the head is what lets ten aliases of
+  // one recording count as one piece of evidence each.
+  const candidates = await client.query(
+    `WITH obs AS (
+       SELECT o.*, COALESCE(s.canonical_id, s.id) AS head
+       FROM stream_observations o
+       JOIN songs s ON s.id = o.song_id
+       WHERE o.observed_date > ($1::date - $2::int)
+     ),
+     agg AS (
+       SELECT head,
+              COUNT(DISTINCT observed_date) AS days_seen,
+              MAX(observed_date)            AS last_seen
+       FROM obs GROUP BY head
+     ),
+     latest AS (
+       SELECT o.head, MAX(o.stream_count) AS new_count
+       FROM obs o JOIN agg a ON a.head = o.head AND a.last_seen = o.observed_date
+       GROUP BY o.head
+     ),
+     held AS (
+       -- What the family currently reads as: the peak any of its rows still holds.
+       SELECT COALESCE(s.canonical_id, s.id) AS head, MAX(ss.stream_count) AS old_count
+       FROM stream_stats ss JOIN songs s ON s.id = ss.song_id
+       GROUP BY COALESCE(s.canonical_id, s.id)
+     )
+     SELECT a.head, a.days_seen, l.new_count::bigint, h.old_count::bigint
+     FROM agg a
+     JOIN latest l ON l.head = a.head
+     JOIN held   h ON h.head = a.head
+     WHERE a.days_seen >= $3 AND l.new_count < h.old_count
+     ORDER BY (h.old_count - l.new_count) DESC`,
+    [today, lookbackDays, minConfirmations]
+  );
+
+  const applied = [];
+  for (const row of candidates.rows) {
+    const oldCount = Number(row.old_count);
+    const newCount = Number(row.new_count);
+    const drop = oldCount - newCount;
+    if (!(drop > 0)) continue;
+    if (drop / oldCount > DROP_SANITY_MAX_RATIO) {
+      console.warn(`[drops] ${row.head}: ${drop} (${((drop / oldCount) * 100).toFixed(1)}%) düşüş fazla büyük — bozuk okuma sayıldı, dokunulmadı.`);
+      continue;
+    }
+
+    const fam = await client.query(
+      `SELECT id FROM songs WHERE COALESCE(canonical_id, id) = $1`, [row.head]
+    );
+    const ids = fam.rows.map(r => r.id);
+    if (!ids.length) continue;
+
+    const clamped = await client.query(
+      `UPDATE stream_stats SET stream_count = $2
+       WHERE song_id = ANY($1) AND stream_count > $2`,
+      [ids, newCount]
+    );
+    // Today's row for the whole family, at the corrected value.
+    const valueRows = ids.map((_, i) => `($${i + 1}, $${ids.length + 1}, $${ids.length + 2}::date, NOW())`).join(', ');
+    await client.query(
+      `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
+       VALUES ${valueRows}
+       ON CONFLICT (song_id, recorded_date) DO UPDATE
+         SET stream_count = EXCLUDED.stream_count, recorded_at = NOW()`,
+      [...ids, newCount, today]
+    );
+    await client.query(
+      `INSERT INTO stream_drop_corrections
+         (head_id, applied_on, old_count, new_count, songs_touched, rows_clamped)
+       VALUES ($1, $2::date, $3, $4, $5, $6)`,
+      [row.head, today, oldCount, newCount, ids.length, clamped.rowCount]
+    );
+    console.log(`[drops] ${row.head}: ${oldCount} → ${newCount} (−${drop}), ${ids.length} sürüm, ${clamped.rowCount} satır tıraşlandı.`);
+    applied.push({ head: row.head, oldCount, newCount, drop, songs: ids.length, rows: clamped.rowCount });
+  }
+  return applied;
+}
+
 /**
  * Batched stream-stat upsert. Preserves the exact stale-skip rule of
  * upsertStreamStat (only write when Spotify's count actually increased) but in
@@ -254,10 +397,12 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
 
   const values = [];
   const params = [];
+  const drops = [];                              // Spotify came back LOWER than we hold
   let p = 0;
   for (const [songId, streamCount] of byId) {
     const prior     = last.get(songId);          // any earlier snapshot for this song?
     const hasPrior  = !!prior;
+    if (hasPrior && streamCount < prior.count) drops.push({ songId, streamCount, stored: prior.count });
     if (hasPrior && streamCount <= prior.count) continue; // stale → skip (same rule)
     // First-EVER snapshot of a brand-new ARTIST → stamp YESTERDAY, not today, so a
     // new artist scraped before Spotify's daily rollover gets a baseline instead of
@@ -271,6 +416,7 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
     values.push(`($${++p}, $${++p}, $${++p}::date)`);
     params.push(songId, streamCount, targetDate);
   }
+  await recordStreamDrops(client, drops, today);
   if (!values.length) return 0;
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
@@ -302,4 +448,4 @@ async function closePool() {
   if (pool) await pool.end();
 }
 
-module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, closePool };
+module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, recordStreamDrops, reconcileStreamDrops, closePool };

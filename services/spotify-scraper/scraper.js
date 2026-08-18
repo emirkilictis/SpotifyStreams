@@ -10,7 +10,7 @@ require('dotenv').config({ path: '../../.env' });
 
 const { launchBrowser, fetchAlbumTracks, fetchArtistAvatar } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
-const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, closePool } = require('./db');
+const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, reconcileStreamDrops, closePool } = require('./db');
 const { dedupCanonical } = require('./dedup');
 
 // Auto-backfill any active artist still missing a profile photo (e.g. a freshly
@@ -956,6 +956,17 @@ async function run() {
       }
 
       await backfillMissingArtistPhotos(page, client);
+
+      // Spotify sometimes takes streams back (Britney "Gimme More", 2026-08-18,
+      // −3.13M). The writer's stale-skip refuses to record a lower count, so a
+      // removal used to leave the track frozen at its old number and the artist
+      // total permanently inflated. Confirmed drops are corrected here, after
+      // the catalogue is in, before dedup rebuilds the canonical mapping.
+      try {
+        await reconcileStreamDrops(client);
+      } catch (dropErr) {
+        console.error('[scraper] Drop reconciliation failed (skipped):', dropErr.message);
+      }
     } finally {
       try {
         console.log('[scraper] Running database deduplication step (transactional)...');
