@@ -4779,6 +4779,13 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   const bAlbArtist = document.getElementById('cmp-b-alb-artist');
   const aAlbList = document.getElementById('cmp-a-album-list');
   const bAlbList = document.getElementById('cmp-b-album-list');
+  const pickersSongs   = document.getElementById('cmp-pickers-songs');
+  const aSongArtist = document.getElementById('cmp-a-song-artist');
+  const bSongArtist = document.getElementById('cmp-b-song-artist');
+  const aSongList = document.getElementById('cmp-a-song-list');
+  const bSongList = document.getElementById('cmp-b-song-list');
+  const aSongSearch = document.getElementById('cmp-a-song-search');
+  const bSongSearch = document.getElementById('cmp-b-song-search');
 
   // The scraper ingests singles & remix bundles as their own "albums", which
   // floods the picker. Only surface entries with a real album's worth of tracks.
@@ -4788,8 +4795,15 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   let canDownload = false;
   let selAlbumA = '';   // chosen album id, left side
   let selAlbumB = '';   // chosen album id, right side
+  let selSongA = '';    // chosen track id, left side
+  let selSongB = '';    // chosen track id, right side
   const artistDataCache = new Map(); // id -> { totalStreams, songs, daily, ml, followers }
   const albumsCache = new Map();     // artistId -> [albums]
+  const songsCache = new Map();      // artistId -> [songs], streams-desc from the API
+
+  // A catch-all artist can carry hundreds of tracks; painting them all makes the
+  // picker crawl. Show the biggest ones and let the search box reach the rest.
+  const SONG_LIST_LIMIT = 60;
 
   const cesc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -4988,6 +5002,15 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     return arr;
   }
 
+  async function fetchSongs(id) {
+    if (songsCache.has(id)) return songsCache.get(id);
+    const res = await fetch(`/api/songs?artist=${id}`, { headers: headers() });
+    const list = await res.json().catch(() => []);
+    const arr = Array.isArray(list) ? list : [];
+    songsCache.set(id, arr);
+    return arr;
+  }
+
   function setEmpty(msg) {
     cardEl.innerHTML = `<div class="cc-empty">${cesc(msg)}</div>`;
     setDownloadable(false);
@@ -5180,8 +5203,122 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     setDownloadable(true);
   }
 
+  // ---------- SONG comparison ----------
+  function pickSong(list, id) { return (list || []).find(x => x.id === id); }
+
+  // One side's track picker. The list is already streams-desc from /api/songs,
+  // so the untyped view is "this artist's biggest tracks".
+  async function renderSongList(listEl, artistId, side, filter) {
+    if (!artistId) { listEl.innerHTML = `<div class="cmp-album-empty">Pick an artist first.</div>`; return; }
+    listEl.innerHTML = `<div class="cmp-album-empty">Loading…</div>`;
+    let list = [];
+    try { list = await fetchSongs(artistId); } catch {}
+    const f = (filter || '').trim().toLowerCase();
+    const matched = f
+      ? list.filter(s => String(s.title || '').toLowerCase().includes(f)
+                      || String(s.album_title || '').toLowerCase().includes(f))
+      : list;
+    if (!matched.length) {
+      listEl.innerHTML = `<div class="cmp-album-empty">${f ? 'No track matches that search.' : 'No tracks tracked for this artist.'}</div>`;
+      return;
+    }
+    const shown = matched.slice(0, SONG_LIST_LIMIT);
+    const selId = side === 'a' ? selSongA : selSongB;
+    listEl.innerHTML = shown.map(s => `
+      <button type="button" class="cmp-alb-row ${s.id === selId ? 'selected' : ''}" data-id="${cesc(s.id)}">
+        <img class="cmp-alb-thumb" src="${cesc(proxied(s.album_cover_url))}" alt="" loading="lazy">
+        <span class="cmp-alb-meta">
+          <span class="cmp-alb-title">${cesc(s.title)}</span>
+          <span class="cmp-alb-year">${formatShortNumber(s.cumulative)} streams</span>
+        </span>
+      </button>`).join('') +
+      (matched.length > shown.length
+        ? `<div class="cmp-album-empty">+${formatNumber(matched.length - shown.length)} more — search to narrow.</div>`
+        : '');
+  }
+
+  function onSongPick(listEl, side, e) {
+    const row = e.target.closest('.cmp-alb-row');
+    if (!row) return;
+    if (side === 'a') selSongA = row.dataset.id; else selSongB = row.dataset.id;
+    listEl.querySelectorAll('.cmp-alb-row').forEach(r => r.classList.toggle('selected', r === row));
+    render();
+  }
+
+  async function renderSongs() {
+    const artA = aSongArtist.value, artB = bSongArtist.value;
+    if (!artA || !artB || !selSongA || !selSongB) { setEmpty('Pick a song on each side.'); return; }
+    cardEl.innerHTML = `<div class="cc-empty">Loading…</div>`;
+    setDownloadable(false);
+    let listA, listB;
+    try {
+      [listA, listB] = await Promise.all([fetchSongs(artA), fetchSongs(artB)]);
+    } catch { setEmpty('Could not load songs. Try again.'); return; }
+    const sA = pickSong(listA, selSongA), sB = pickSong(listB, selSongB);
+    if (!sA || !sB) { setEmpty('Could not find one of the songs.'); return; }
+    if (sA.id === sB.id) { setEmpty('Pick two different songs.'); return; }
+
+    const tA = Number(sA.cumulative) || 0, tB = Number(sB.cumulative) || 0;
+    const dlA = Number(sA.daily_gain) || 0, dlB = Number(sB.daily_gain) || 0;
+
+    // Same JT anti-drag guard as the album mode, one level down: his track can
+    // never be shown losing to another artist's. JT vs JT is his own catalogue,
+    // so it's allowed; and the momentum exception stands — trailing on total but
+    // leading on daily is a flattering matchup, so it renders.
+    const jtVsJt = artA === JT_ID && artB === JT_ID;
+    if (!jtVsJt) {
+      if (artA === JT_ID && tB > tA && dlA <= dlB) {
+        cardEl.innerHTML = shieldHTML(`${artistName(artA)}'s "${sA.title}"`, `"${sB.title}"`);
+        setDownloadable(false); return;
+      }
+      if (artB === JT_ID && tA > tB && dlB <= dlA) {
+        cardEl.innerHTML = shieldHTML(`${artistName(artB)}'s "${sB.title}"`, `"${sA.title}"`);
+        setDownloadable(false); return;
+      }
+    }
+
+    const aWin = tA > tB, bWin = tB > tA;
+    // A single's "album" is the track's own name — printing it under the title
+    // just repeats it, so fall back to the artist on that side.
+    const subOf = (s, art) => {
+      const alb = String(s.album_title || '');
+      return alb && alb.toLowerCase() !== String(s.title || '').toLowerCase()
+        ? `${artistName(art)} · ${alb}` : artistName(art);
+    };
+
+    cardEl.innerHTML = `
+      <div class="cc-head">Song Comparison</div>
+      <div class="cc-vs-row">
+        <div class="cc-side">
+          <img class="cc-avatar cc-square" src="${cesc(proxied(sA.album_cover_url))}" alt="">
+          <div class="cc-name">${cesc(sA.title)}</div>
+          <div class="cc-subname">${cesc(subOf(sA, artA))}</div>
+          <div class="cc-bignum ${aWin ? 'win' : ''}">${formatShortNumber(tA)}</div>
+          <div class="cc-bigsub">Total Streams</div>
+        </div>
+        <div class="cc-vs">VS</div>
+        <div class="cc-side">
+          <img class="cc-avatar cc-square" src="${cesc(proxied(sB.album_cover_url))}" alt="">
+          <div class="cc-name">${cesc(sB.title)}</div>
+          <div class="cc-subname">${cesc(subOf(sB, artB))}</div>
+          <div class="cc-bignum ${bWin ? 'win' : ''}">${formatShortNumber(tB)}</div>
+          <div class="cc-bigsub">Total Streams</div>
+        </div>
+      </div>
+      <div class="cc-metrics">
+        ${metricRow('Daily Streams', dlA, dlB)}
+        ${metricRow('7-Day Average', sA.daily_avg_7d, sB.daily_avg_7d)}
+        ${metricRow('Released', yearOf(sA.release_date), yearOf(sB.release_date), (v) => cesc(v), false)}
+        ${metricRow('Length', sA.duration_ms, sB.duration_ms, (v) => formatDuration(Number(v)), false)}
+      </div>
+      <div class="cc-foot">Spotify Streams — Fan Dashboard</div>
+    `;
+    setDownloadable(true);
+  }
+
   function render() {
     if (mode === 'artists') renderArtists();
+    else if (mode === 'songs') renderSongs();
     else renderAlbums();
   }
 
@@ -5239,14 +5376,23 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   // ---------- Wiring ----------
   function openOverlay() {
-    [aArtist, bArtist, aAlbArtist, bAlbArtist].forEach(enhanceArtistSelect);
+    [aArtist, bArtist, aAlbArtist, bAlbArtist, aSongArtist, bSongArtist].forEach(enhanceArtistSelect);
     fillArtistSelect(aArtist, 'Select artist', true);
     fillArtistSelect(bArtist, 'Select artist', true);
     fillArtistSelect(aAlbArtist, 'Select artist', false);
     fillArtistSelect(bAlbArtist, 'Select artist', false);
+    // Album-only artists stay in here too: their individual tracks are tracked
+    // in full, so a per-song total is complete even when their catalogue isn't.
+    fillArtistSelect(aSongArtist, 'Select artist', false);
+    fillArtistSelect(bSongArtist, 'Select artist', false);
     selAlbumA = ''; selAlbumB = '';
+    selSongA = ''; selSongB = '';
+    if (aSongSearch) aSongSearch.value = '';
+    if (bSongSearch) bSongSearch.value = '';
     if (!aAlbArtist.value) aAlbList.innerHTML = `<div class="cmp-album-empty">Pick an artist first.</div>`;
     if (!bAlbArtist.value) bAlbList.innerHTML = `<div class="cmp-album-empty">Pick an artist first.</div>`;
+    if (!aSongArtist.value) aSongList.innerHTML = `<div class="cmp-album-empty">Pick an artist first.</div>`;
+    if (!bSongArtist.value) bSongList.innerHTML = `<div class="cmp-album-empty">Pick an artist first.</div>`;
     setEmpty('Pick two to start.');
     overlay.classList.remove('hidden');
   }
@@ -5261,6 +5407,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     modeBtns.forEach(b => b.classList.toggle('active', b === btn));
     pickersArtists.classList.toggle('hidden', mode !== 'artists');
     pickersAlbums.classList.toggle('hidden', mode !== 'albums');
+    pickersSongs.classList.toggle('hidden', mode !== 'songs');
     const note = document.getElementById('cmp-artists-note');
     if (note) note.classList.toggle('hidden', mode !== 'artists');
     setEmpty('Pick two to start.');
@@ -5272,6 +5419,23 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   bAlbArtist.addEventListener('change', async () => { selAlbumB = ''; await renderAlbumList(bAlbList, bAlbArtist.value, 'b'); render(); });
   aAlbList.addEventListener('click', (e) => onAlbumPick(aAlbList, 'a', e));
   bAlbList.addEventListener('click', (e) => onAlbumPick(bAlbList, 'b', e));
+
+  aSongArtist.addEventListener('change', async () => {
+    selSongA = ''; aSongSearch.value = '';
+    await renderSongList(aSongList, aSongArtist.value, 'a', '');
+    render();
+  });
+  bSongArtist.addEventListener('change', async () => {
+    selSongB = ''; bSongSearch.value = '';
+    await renderSongList(bSongList, bSongArtist.value, 'b', '');
+    render();
+  });
+  // The song list is already in memory after the first fetch, so filtering on
+  // every keystroke costs nothing but a re-paint.
+  aSongSearch.addEventListener('input', () => renderSongList(aSongList, aSongArtist.value, 'a', aSongSearch.value));
+  bSongSearch.addEventListener('input', () => renderSongList(bSongList, bSongArtist.value, 'b', bSongSearch.value));
+  aSongList.addEventListener('click', (e) => onSongPick(aSongList, 'a', e));
+  bSongList.addEventListener('click', (e) => onSongPick(bSongList, 'b', e));
   dlBtn.addEventListener('click', downloadCard);
 })();
 
@@ -5303,6 +5467,14 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   let reqId = 0;
   let loadedRange = null;
   let lastArtist = null;
+
+  // Per-song drill-down: the day view we came from (so Back costs nothing), the
+  // song currently opened, and a cache of the histories already fetched.
+  let lastData = null;
+  let lastDay = null;
+  let detail = null;
+  let detailReq = 0;
+  const historyCache = new Map();   // song id -> full history, oldest first
 
   const pad = (n) => String(n).padStart(2, '0');
   const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -5413,6 +5585,10 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   }
 
   function render(data, streamDay) {
+    // Kept so the per-song drill-down can come back without refetching the day.
+    lastData = data;
+    lastDay = streamDay;
+    detail = null;
     const total = Number(data.total_streams) || 0;
     if (!total) {
       const earliest = data.range?.min_date
@@ -5451,7 +5627,9 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       const album = String(s.album_title || '');
       const sub = album && album.toLowerCase() !== String(s.title || '').toLowerCase() ? album : '';
       return `
-      <tr>
+      <tr class="tm-row" data-song-id="${esc(s.id)}" data-song-title="${esc(s.title)}"
+          data-song-album="${esc(sub)}" data-as-of="${esc(String(s.as_of || '').slice(0, 10))}"
+          title="Day-by-day history up to this day">
         <td class="tm-rank">${i + 1}</td>
         <td>
           <div class="tm-song">
@@ -5505,6 +5683,174 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
         </table>
       </div>`;
   }
+
+  // -------------------------------------------------------------------------
+  // Per-song drill-down: click a row in the day table and this song's own
+  // day-by-day history unrolls BACKWARDS from the day you're standing on.
+  // Days after that date are deliberately cut off — the Time Machine is a view
+  // of the past from that date, so showing later days would break the illusion
+  // (and duplicate the song modal, which already covers "up to today").
+  // -------------------------------------------------------------------------
+  const HISTORY_RANGES = [
+    { key: '14', label: '14 days' },
+    { key: '30', label: '30 days' },
+    { key: '90', label: '90 days' },
+    { key: '365', label: '1 year' },
+    { key: 'all', label: 'All' },
+  ];
+
+  function detailHead(d, sub) {
+    return `
+      <div class="tm-detail-head">
+        <button type="button" class="tm-back" data-tm-back>‹ Back</button>
+        <div class="tm-detail-titles">
+          <span class="tm-detail-title">${esc(d.title)}</span>
+          ${sub ? `<span class="tm-detail-sub">${sub}</span>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function dsum(label, value, note, cls) {
+    return `
+      <div class="tm-dsum">
+        <span class="tm-dsum-label">${label}</span>
+        <span class="tm-dsum-value ${cls || ''}">${value}</span>
+        ${note ? `<span class="tm-dsum-note">${note}</span>` : ''}
+      </div>`;
+  }
+
+  function renderDetail() {
+    const d = detail;
+    if (!d) return;
+    const anchorStream = toStreamDay(d.anchor);
+    const dayOf = (r) => String(r.recorded_date).slice(0, 10);
+    // Snapshot days are plain YYYY-MM-DD, so a string compare is a date compare.
+    const upto = (d.rows || []).filter((r) => dayOf(r) <= d.anchor);
+    const head = detailHead(d, `${d.album ? esc(d.album) + ' · ' : ''}up to ${esc(formatDate(anchorStream))}`);
+    if (!upto.length) {
+      resultEl.innerHTML = head +
+        `<div class="tm-empty">No history for this song on or before ${esc(formatDate(anchorStream))}.</div>`;
+      return;
+    }
+
+    // Cut the window by DATE, not by row count: a stretch of skipped scrapes
+    // would otherwise make "30 days" reach back three months. Every row shown
+    // is a day INSIDE the window, and the row just before it (`base`) is the
+    // total to measure the window's growth from — so the listed gains and the
+    // "gained in view" figure describe the same stretch of days.
+    let start = 0;
+    if (d.range !== 'all') {
+      const cutoff = shiftDay(d.anchor, -Number(d.range));
+      const i = upto.findIndex((r) => dayOf(r) > cutoff);
+      start = i < 0 ? Math.max(0, upto.length - 1) : i;
+    }
+    if (start >= upto.length - 1) start = Math.max(0, upto.length - 1);
+    const base = start > 0 ? upto[start - 1] : null;
+    const win = upto.slice(start);
+
+    const last = win[win.length - 1];
+    const from = base || win[0];
+    const spanDays = Math.max(
+      1,
+      Math.round((parseLocalDate(dayOf(last)) - parseLocalDate(dayOf(from))) / 86400000)
+    );
+    // Exact, because it's read off the two cumulative totals rather than summed
+    // from per-day rates that were themselves divided across gaps.
+    const gainedInWindow = Math.max(0, (Number(last.cumulative) || 0) - (Number(from.cumulative) || 0));
+    const perDay = gainedInWindow > 0 ? Math.round(gainedInWindow / spanDays) : null;
+
+    const gains = win.map((r) => Number(r.daily_gain) || 0);
+    const maxGain = Math.max(...gains, 0);
+    const best = win.reduce((b, r) => ((Number(r.daily_gain) || 0) > (Number(b?.daily_gain) || 0) ? r : b), null);
+
+    const rangeBtns = HISTORY_RANGES.map((r) => `
+      <button type="button" class="tm-preset ${r.key === d.range ? 'active' : ''}" data-tm-hrange="${r.key}">${r.label}</button>`
+    ).join('');
+
+    const idx = new Map(upto.map((r, i) => [r, i]));
+    const listRows = win.slice().reverse().map((r) => {   // newest first: it reads backwards
+      const i = idx.get(r);
+      const prev = i > 0 ? upto[i - 1] : null;
+      const day = dayOf(r);
+      const gain = Number(r.daily_gain) || 0;
+      const span = prev
+        ? Math.max(1, Math.round((parseLocalDate(day) - parseLocalDate(dayOf(prev))) / 86400000))
+        : 1;
+      const width = maxGain > 0 && gain > 0 ? Math.max(2, (gain / maxGain) * 100) : 0;
+      return `
+        <div class="tm-hrow ${day === d.anchor ? 'is-anchor' : ''}">
+          <span class="tm-hdate">${esc(formatChartDate(toStreamDay(day)))}</span>
+          <span class="tm-hbar"><span class="tm-hbar-fill" style="width:${width.toFixed(1)}%"></span></span>
+          <span class="tm-hgain">${prev ? '+' + formatNumber(gain) : '—'}</span>
+          <span class="tm-hspan">${span > 1 ? `/day · ${span}d gap` : ''}</span>
+          <span class="tm-hcum">${formatNumber(r.cumulative)}</span>
+        </div>`;
+    }).join('');
+
+    resultEl.innerHTML = `
+      ${head}
+      <div class="tm-detail-summary">
+        ${dsum(`Total on ${esc(formatDate(anchorStream))}`, formatNumber(last.cumulative), 'streams')}
+        ${dsum('That day', (Number(last.daily_gain) || 0) > 0 ? '+' + formatNumber(last.daily_gain) : '—', '', 'gain-positive')}
+        ${dsum('Gained in view', '+' + formatNumber(gainedInWindow), `over ${formatNumber(spanDays)} day${spanDays === 1 ? '' : 's'}`, 'gain-positive')}
+        ${perDay != null ? dsum('Average', '+' + formatNumber(perDay), 'per day') : ''}
+        ${best && (Number(best.daily_gain) || 0) > 0
+          ? dsum('Best day', '+' + formatNumber(best.daily_gain), esc(formatChartDate(toStreamDay(dayOf(best)))), 'gain-positive')
+          : ''}
+      </div>
+      <div class="tm-detail-ranges">${rangeBtns}</div>
+      <div class="tm-hlist">${listRows}</div>`;
+  }
+
+  async function openDetail(songId, title, album, asOf) {
+    if (!songId) return;
+    const mine = ++detailReq;
+    // asOf is the snapshot this song actually landed on for the chosen day; fall
+    // back to the requested day when a row somehow arrives without one.
+    detail = {
+      songId,
+      title,
+      album,
+      anchor: asOf || toSnapshotDay(lastDay || latestStreamDay()),
+      range: '30',
+      rows: historyCache.get(songId) || null,
+    };
+    if (detail.rows) { renderDetail(); return; }
+
+    resultEl.innerHTML = detailHead(detail, '') + `<div class="tm-loading">Loading this song's history…</div>`;
+    try {
+      const h = {};
+      if (jcPasscode) h['X-JC-Passcode'] = jcPasscode;
+      const res = await fetch(`/api/songs/${encodeURIComponent(songId)}/history`, { headers: h });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const rows = await res.json();
+      if (mine !== detailReq) return;                 // superseded by another click / a new day
+      const list = Array.isArray(rows) ? rows : [];
+      historyCache.set(songId, list);
+      detail.rows = list;
+      renderDetail();
+    } catch (err) {
+      if (mine !== detailReq) return;
+      console.error('Time machine song history error:', err);
+      resultEl.innerHTML = detailHead(detail, '') +
+        `<div class="tm-empty">Couldn't load this song's history. Try again.</div>`;
+    }
+  }
+
+  function backToDay() {
+    detailReq++;                                       // drop any in-flight history
+    detail = null;
+    if (lastData) render(lastData, lastDay);
+    else load(lastDay);
+  }
+
+  resultEl.addEventListener('click', (e) => {
+    if (e.target.closest('[data-tm-back]')) { backToDay(); return; }
+    const rangeBtn = e.target.closest('[data-tm-hrange]');
+    if (rangeBtn && detail) { detail.range = rangeBtn.dataset.tmHrange; renderDetail(); return; }
+    const row = e.target.closest('.tm-row');
+    if (row) openDetail(row.dataset.songId, row.dataset.songTitle, row.dataset.songAlbum, row.dataset.asOf);
+  });
 
   // streamDay === null means "whatever the newest snapshot is" — used on open,
   // before we know the artist's range. `snapped` guards the one-shot re-clamp
@@ -5590,7 +5936,10 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   if (closeBtn) closeBtn.addEventListener('click', close);
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+    if (e.key !== 'Escape' || modal.classList.contains('hidden')) return;
+    // Inside a song's history, Escape steps back to the day first — closing the
+    // whole modal from two levels down loses the day you'd navigated to.
+    if (detail) backToDay(); else close();
   });
 
   dateInput.addEventListener('change', () => { if (dateInput.value) go(dateInput.value); });

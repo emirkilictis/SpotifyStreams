@@ -4392,6 +4392,25 @@ select.tc-input { cursor: pointer; }
   color: var(--text-secondary);
   letter-spacing: 0.05em;
 }
+/* Song mode: a filter box above the track list. Artists with a big catalogue
+   only paint their top tracks, so this is how you reach the rest. */
+.cmp-song-search {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.84rem;
+}
+.cmp-song-search::placeholder { color: var(--text-muted); }
+.cmp-song-search:focus {
+  outline: none;
+  border-color: var(--accent-green);
+  background: rgba(255, 255, 255, 0.07);
+}
+
 /* Album mode has tall cover-art lists — center the VS chip against them. */
 .compare-pickers--albums { align-items: stretch; }
 .compare-pickers--albums .cmp-vs-chip { margin-top: 0; }
@@ -5484,6 +5503,127 @@ select.tc-input { cursor: pointer; }
   .tm-ml { align-items: flex-start; }
   .tm-ml-since { align-items: flex-start; }
   .tm-ml-value { font-size: 1.3rem; }
+}
+
+/* Time Machine — per-song drill-down (click a row in the day table). Reads
+   backwards from the chosen day: newest row first, bar length relative to the
+   biggest day in view. */
+.tm-row { cursor: pointer; transition: var(--transition-smooth); }
+.tm-row:hover { background: rgba(255, 255, 255, 0.05); }
+.tm-row td:first-child { position: relative; }
+
+.tm-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.tm-back {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+.tm-back:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.1); }
+.tm-detail-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tm-detail-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.tm-detail-sub { font-size: 0.76rem; color: var(--text-muted); }
+
+.tm-detail-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.tm-dsum {
+  flex: 1 1 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+}
+.tm-dsum-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tm-dsum-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.tm-dsum-note { font-size: 0.7rem; color: var(--text-muted); }
+
+.tm-detail-ranges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.tm-detail-ranges .tm-preset.active {
+  color: var(--text-primary);
+  border-color: var(--accent-green);
+  background: rgba(30, 215, 96, 0.12);
+}
+
+.tm-hlist { max-height: 44vh; overflow-y: auto; }
+.tm-hrow {
+  display: grid;
+  grid-template-columns: 86px minmax(60px, 1fr) 96px 84px 110px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.tm-hrow:nth-child(odd) { background: rgba(255, 255, 255, 0.02); }
+.tm-hrow.is-anchor {
+  background: rgba(30, 215, 96, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(30, 215, 96, 0.25);
+}
+.tm-hdate { color: var(--text-secondary); }
+.tm-hbar {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+.tm-hbar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--gain-green);
+  opacity: 0.75;
+}
+.tm-hgain { text-align: right; font-weight: 700; color: var(--gain-green); }
+.tm-hspan { font-size: 0.7rem; color: var(--text-muted); }
+.tm-hcum { text-align: right; color: var(--text-secondary); }
+
+@media (max-width: 600px) {
+  /* The bar and the gap note are the first things to go — the date, the gain
+     and the running total are what the row is actually for. */
+  .tm-hrow { grid-template-columns: 74px 1fr 96px; gap: 8px; font-size: 0.78rem; }
+  .tm-hbar, .tm-hspan { display: none; }
+  /* Two chips per row, except the headline total — five stacked full-width
+     boxes would push the day list off the screen entirely. */
+  .tm-dsum { flex: 1 1 calc(50% - 5px); padding: 8px 10px; }
+  .tm-dsum:first-child { flex-basis: 100%; }
+  .tm-dsum-value { font-size: 1rem; }
+  .tm-detail-title { font-size: 1rem; }
 }
 
 /* Time Machine: the day predates full-catalogue coverage, so per-song numbers

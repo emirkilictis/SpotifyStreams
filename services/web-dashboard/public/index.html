@@ -837,6 +837,7 @@
       <div class="compare-mode-toggle">
         <button class="cmp-mode-btn active" type="button" data-cmpmode="artists">Artists</button>
         <button class="cmp-mode-btn" type="button" data-cmpmode="albums">Albums</button>
+        <button class="cmp-mode-btn" type="button" data-cmpmode="songs">Songs</button>
       </div>
 
       <!-- Artists pickers -->
@@ -865,6 +866,23 @@
           <label class="cmp-pick-label">Right</label>
           <select id="cmp-b-alb-artist" class="artist-select-dropdown cmp-select"></select>
           <div id="cmp-b-album-list" class="cmp-album-list"><div class="cmp-album-empty">Pick an artist first.</div></div>
+        </div>
+      </div>
+
+      <!-- Songs pickers: pick an artist, search, then click a track -->
+      <div class="compare-pickers compare-pickers--albums hidden" id="cmp-pickers-songs">
+        <div class="cmp-side">
+          <label class="cmp-pick-label">Left</label>
+          <select id="cmp-a-song-artist" class="artist-select-dropdown cmp-select"></select>
+          <input type="text" id="cmp-a-song-search" class="cmp-song-search" placeholder="Search song…" autocomplete="off" spellcheck="false">
+          <div id="cmp-a-song-list" class="cmp-album-list"><div class="cmp-album-empty">Pick an artist first.</div></div>
+        </div>
+        <span class="cmp-vs-chip">VS</span>
+        <div class="cmp-side">
+          <label class="cmp-pick-label">Right</label>
+          <select id="cmp-b-song-artist" class="artist-select-dropdown cmp-select"></select>
+          <input type="text" id="cmp-b-song-search" class="cmp-song-search" placeholder="Search song…" autocomplete="off" spellcheck="false">
+          <div id="cmp-b-song-list" class="cmp-album-list"><div class="cmp-album-empty">Pick an artist first.</div></div>
         </div>
       </div>
 

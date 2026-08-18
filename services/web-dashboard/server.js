@@ -2071,8 +2071,12 @@ app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
       }
     }
 
+    // ::text, not the raw pg DATE. node-postgres turns a DATE into a JS Date at
+    // the SERVER's local midnight, which JSON-serialises to the previous day's
+    // timestamp anywhere east of UTC — the chart axis and the Time Machine's
+    // per-song history would then be off by one whenever the host isn't on UTC.
     const query = `
-      SELECT recorded_date, cumulative, daily_gain
+      SELECT recorded_date::text AS recorded_date, cumulative, daily_gain
       FROM daily_streams_canonical
       WHERE canonical_id = $1
       ORDER BY recorded_date ASC;
