@@ -690,6 +690,51 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
 // Using CURRENT_DATE there made the idempotency/resume/canary-bailout logic evaluate the
 // wrong day vs. the rows actually being written, letting a pre-rollover run record a
 // new-day snapshot that just duplicated yesterday — collapsing every daily gain to 0.
+// Same verdict as artistHasTodaysData, for the WHOLE roster in one pass.
+//
+// The per-artist version ran once per artist — 46 counting scans over
+// stream_stats on every hourly run, including the ~23 runs a day that turn out
+// to have nothing to do. That was the scraper's biggest share of Neon compute.
+// The date expression and the today>0 && today>=prev rule are copied verbatim:
+// this is the gate that decides whether a run writes a new day, so it must give
+// the same answer, only cheaper.
+async function artistsWithTodaysData(client, artistUris) {
+  if (!artistUris.length) return new Set();
+  const res = await client.query(
+    `WITH bounds AS (
+       SELECT ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date AS today
+     ),
+     mine AS (
+       SELECT s.primary_artist AS artist, ss.recorded_date
+       FROM stream_stats ss
+       JOIN songs s ON s.id = ss.song_id
+       WHERE s.primary_artist = ANY($1::text[])
+     ),
+     prev AS (
+       SELECT m.artist, MAX(m.recorded_date) AS prev_date
+       FROM mine m CROSS JOIN bounds b
+       WHERE m.recorded_date < b.today
+       GROUP BY m.artist
+     )
+     SELECT
+       m.artist,
+       COUNT(*) FILTER (WHERE m.recorded_date = b.today)     AS today_cnt,
+       COUNT(*) FILTER (WHERE m.recorded_date = p.prev_date) AS prev_cnt
+     FROM mine m
+     CROSS JOIN bounds b
+     LEFT JOIN prev p ON p.artist = m.artist
+     GROUP BY m.artist`,
+    [artistUris]
+  );
+  const done = new Set();
+  for (const row of res.rows) {
+    const today = parseInt(row.today_cnt ?? 0, 10);
+    const prev = parseInt(row.prev_cnt ?? 0, 10);
+    if (today > 0 && today >= prev) done.add(row.artist);
+  }
+  return done;
+}
+
 async function artistHasTodaysData(client, artistUri) {
   const res = await client.query(
     `SELECT
@@ -827,8 +872,11 @@ async function run() {
       let pendingArtists = artistsToRun;
       if (!isForce) {
         pendingArtists = [];
+        const captured = await artistsWithTodaysData(
+          client, artistsToRun.map(a => `spotify:artist:${a.id}`)
+        );
         for (const artist of artistsToRun) {
-          if (await artistHasTodaysData(client, `spotify:artist:${artist.id}`)) {
+          if (captured.has(`spotify:artist:${artist.id}`)) {
             console.log(`[scraper] ${artist.name}: already captured today, skipping.`);
           } else {
             pendingArtists.push(artist);

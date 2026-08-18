@@ -929,6 +929,119 @@ const validateArtistAccess = (req, res, next) => {
   next();
 };
 
+// ---------------------------------------------------------------------------
+// Read-through response cache.
+//
+// Neon bills for the time the compute is AWAKE, not per query — every request
+// that reaches the database holds it up for another autosuspend window. The
+// data behind these endpoints only moves when a scrape lands (once a day), so
+// the second visitor of the hour has no business waking the database at all.
+// Serving them from memory is what actually lets the compute sleep.
+//
+// The cache sits in the middleware chain, in FRONT of each handler: on a hit it
+// answers and the handler never runs. On a miss it patches res.json to capture
+// whatever the handler produces. Only 200s are stored, so an error or a 403 is
+// never handed to the next caller.
+//
+// Render's free instance restarts cold, which empties this — that costs one
+// slow first request, never wrong data.
+// ---------------------------------------------------------------------------
+const responseCache = new Map();       // key -> { at, value, pending, settle, fail }
+const RESPONSE_CACHE_MAX = 400;
+const CACHE_TTL_LIVE_MS = 5 * 60 * 1000;    // moves only when a scrape lands
+const CACHE_TTL_ROSTER_MS = 10 * 60 * 1000; // moves only when the admin edits it
+const CACHE_TTL_PAST_MS = 6 * 60 * 60 * 1000; // a finished day never changes again
+
+function cacheSweep() {
+  if (responseCache.size <= RESPONSE_CACHE_MAX) return;
+  // Everything here is recomputable, so the oldest entries just go.
+  const byAge = [...responseCache.entries()].sort((a, b) => a[1].at - b[1].at);
+  for (let i = 0; i < byAge.length - RESPONSE_CACHE_MAX; i++) responseCache.delete(byAge[i][0]);
+}
+
+// Called when fresh numbers land (a scrape finished, an admin wrote something):
+// the next reader recomputes instead of waiting out a TTL on stale totals.
+function invalidateResponseCache() {
+  responseCache.clear();
+}
+
+function cacheFor(ttl, keyFn) {
+  return function responseCacheMiddleware(req, res, next) {
+    const key = keyFn(req);
+    if (!key) return next();
+    const ttlMs = typeof ttl === 'function' ? ttl(req) : ttl;
+
+    const hit = responseCache.get(key);
+    if (hit) {
+      if (hit.value !== undefined && Date.now() - hit.at < ttlMs) {
+        res.set('X-Cache', 'HIT');
+        return res.json(hit.value);
+      }
+      // Someone is already asking the database this exact question — wait for
+      // their answer rather than opening a second connection for the same one.
+      if (hit.pending) {
+        return hit.pending.then(
+          (value) => { res.set('X-Cache', 'WAIT'); res.json(value); },
+          () => { responseCache.delete(key); next(); }
+        );
+      }
+    }
+
+    const entry = { at: Date.now(), value: undefined, pending: null, settle: null, fail: null };
+    entry.pending = new Promise((resolve, reject) => { entry.settle = resolve; entry.fail = reject; });
+    entry.pending.catch(() => {});   // waiters handle it; this just silences Node
+    responseCache.set(key, entry);
+    cacheSweep();
+
+    const origJson = res.json.bind(res);
+    let settled = false;
+    res.json = (payload) => {
+      if (!settled) {
+        settled = true;
+        if (res.statusCode === 200) {
+          entry.value = payload;
+          entry.at = Date.now();
+          entry.pending = null;
+          entry.settle(payload);
+        } else {
+          responseCache.delete(key);
+          entry.fail(new Error(`status ${res.statusCode}`));
+        }
+      }
+      return origJson(payload);
+    };
+    // A dropped connection must not leave the key parked on a promise nobody
+    // will ever settle — the next caller would hang behind it.
+    res.on('close', () => {
+      if (settled) return;
+      settled = true;
+      responseCache.delete(key);
+      entry.fail(new Error('client gone'));
+    });
+    next();
+  };
+}
+
+// Artist-scoped endpoints answer the same thing for everyone who gets past
+// validateArtistAccess, so the artist alone identifies the response.
+const artistKey = (prefix) => (req) =>
+  `${prefix}:${String(req.query.artist || '31TPClRtHm23RisEBtV3X7').replace('spotify:artist:', '')}`;
+
+// The per-id routes check the lock INSIDE the handler, so the caller's standing
+// is part of the identity — without it one passcode holder's 200 would be
+// handed straight to the next visitor without one.
+const idKey = (prefix) => (req) =>
+  `${prefix}:${req.params.id}:${isJcAllowed(req.headers['x-jc-passcode']) ? 'jc' : 'pub'}`;
+
+// Any admin write can move what a reader sees — a merge, a hidden track, a
+// roster edit, a deleted snapshot day. Rather than remembering to clear the
+// cache in each handler, clear it on the way out of every successful admin POST.
+app.use('/api/admin', (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  res.on('finish', () => { if (res.statusCode < 400) invalidateResponseCache(); });
+  next();
+});
+
 app.post('/api/verify-jc', requireAuth, (req, res) => {
   const { passcode } = req.body;
   if (isJcAllowed(passcode)) {
@@ -937,7 +1050,8 @@ app.post('/api/verify-jc', requireAuth, (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid passcode!' });
 });
 
-app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
+app.get('/api/songs', requireAuth, validateArtistAccess,
+  cacheFor(CACHE_TTL_LIVE_MS, artistKey('songs')), async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
@@ -1032,7 +1146,8 @@ app.get('/api/songs', requireAuth, validateArtistAccess, async (req, res) => {
 const TREND_LIFT = Number(process.env.TREND_LIFT || 1.2);            // recent must be >= 20% over the song's own baseline, on top of the artist's own lift
 const TREND_MIN_BASE = Number(process.env.TREND_MIN_BASE || 25000);      // baseline must be a real >=25k/day song (kills tiny→tiny % spikes)
 const TREND_MIN_RECENT = Number(process.env.TREND_MIN_RECENT || 50000);    // recent must be a real >=50k/day surge
-app.get('/api/trending', requireAuth, validateArtistAccess, async (req, res) => {
+app.get('/api/trending', requireAuth, validateArtistAccess,
+  cacheFor(CACHE_TTL_LIVE_MS, artistKey('trending')), async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
@@ -1113,7 +1228,8 @@ app.get('/api/trending', requireAuth, validateArtistAccess, async (req, res) => 
   }
 });
 
-app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
+app.get('/api/stats', requireAuth, validateArtistAccess,
+  cacheFor(CACHE_TTL_LIVE_MS, artistKey('stats')), async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
@@ -1229,7 +1345,17 @@ async function artistDateRange(artistUri) {
   return range;
 }
 
-app.get('/api/streams-on', requireAuth, validateArtistAccess, async (req, res) => {
+// A past day's answer is frozen history — only the newest day or two can still
+// be rewritten by an incoming scrape, so those get the short TTL.
+const streamsOnTtl = (req) => {
+  const date = String(req.query.date || '');
+  const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  return date && date < twoDaysAgo ? CACHE_TTL_PAST_MS : CACHE_TTL_LIVE_MS;
+};
+
+app.get('/api/streams-on', requireAuth, validateArtistAccess,
+  cacheFor(streamsOnTtl, (req) => `streams-on:${String(req.query.artist || '31TPClRtHm23RisEBtV3X7').replace('spotify:artist:', '')}:${String(req.query.date || '').slice(0, 10)}`),
+  async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   const date = String(req.query.date || '').slice(0, 10);
@@ -1467,7 +1593,8 @@ function peakMonthlyListeners(artistId, history) {
   return best.value > 0 ? best : null;
 }
 
-app.get('/api/artist-stats', requireAuth, validateArtistAccess, async (req, res) => {
+app.get('/api/artist-stats', requireAuth, validateArtistAccess,
+  cacheFor(CACHE_TTL_LIVE_MS, artistKey('artist-stats')), async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistId = artistParam.replace('spotify:artist:', '');
   try {
@@ -1541,7 +1668,17 @@ app.get('/api/scraper-status', requireAuth, async (req, res) => {
         console.error('Scraper status error:', err.message);
         return { status: 'idle', started_at: null, updated_at: null, artists: [] };
       })
-      .then((payload) => { scraperStatusCache = payload; scraperStatusAt = Date.now(); return payload; })
+      .then((payload) => {
+        // A scrape that just finished means every cached total is a day out of
+        // date. Drop them now so the first reader after it sees the new numbers
+        // instead of waiting out the TTL.
+        if (scraperStatusCache && scraperStatusCache.status === 'scraping' && payload.status !== 'scraping') {
+          invalidateResponseCache();
+        }
+        scraperStatusCache = payload;
+        scraperStatusAt = Date.now();
+        return payload;
+      })
       .finally(() => { scraperStatusInFlight = null; });
     return res.json(await scraperStatusInFlight);
   } catch (err) {
@@ -1599,7 +1736,8 @@ async function buildScraperStatus() {
 }
 
 
-app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req, res) => {
+app.get('/api/milestones-reached', requireAuth, validateArtistAccess,
+  cacheFor(CACHE_TTL_LIVE_MS, artistKey('milestones')), async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
@@ -1794,7 +1932,8 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess, async (req
   }
 });
 
-app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
+app.get('/api/albums', requireAuth, validateArtistAccess,
+  cacheFor(CACHE_TTL_LIVE_MS, artistKey('albums')), async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
@@ -1993,7 +2132,8 @@ app.get('/api/albums', requireAuth, validateArtistAccess, async (req, res) => {
   }
 });
 
-app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
+app.get('/api/albums/:id/songs', requireAuth,
+  cacheFor(CACHE_TTL_LIVE_MS, idKey('album-songs')), async (req, res) => {
   try {
     // Check whether the album belongs to a currently-locked artist (DB-driven).
     const albumCheck = await dbQuery(
@@ -2108,7 +2248,8 @@ app.get('/api/albums/:id/songs', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
+app.get('/api/songs/:id/history', requireAuth,
+  cacheFor(CACHE_TTL_LIVE_MS, idKey('song-history')), async (req, res) => {
   try {
     const songCheck = await dbQuery(
       `SELECT primary_artist FROM songs WHERE id = $1`,
@@ -2142,7 +2283,8 @@ app.get('/api/songs/:id/history', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/albums/:id/history', requireAuth, async (req, res) => {
+app.get('/api/albums/:id/history', requireAuth,
+  cacheFor(CACHE_TTL_LIVE_MS, idKey('album-history')), async (req, res) => {
   try {
     const albumCheck = await dbQuery(
       `SELECT DISTINCT s.primary_artist 
@@ -2408,7 +2550,7 @@ app.delete('/api/feedback/:id', requireAdmin, async (req, res) => {
 // Public: the active roster for the picker / dropdown / themes. Falls back to the
 // hardcoded ARTIST_ROSTER_FALLBACK if the table is missing/empty, so the site
 // works identically whether or not migration 013 has been applied yet.
-app.get('/api/artists', async (req, res) => {
+app.get('/api/artists', cacheFor(CACHE_TTL_ROSTER_MS, () => 'artists'), async (req, res) => {
   try {
     const r = await dbQuery(
       `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked
