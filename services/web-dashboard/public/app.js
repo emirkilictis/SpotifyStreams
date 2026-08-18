@@ -2810,6 +2810,22 @@ async function downloadSongCard() {
 }
 
 if (openSongCardBtn) openSongCardBtn.addEventListener('click', openSongCard);
+
+// Song modal -> Time Machine, opened straight on this track's day-by-day past.
+// The song modal closes behind it: two stacked modals showing the same song's
+// history would just fight over the screen.
+const songTimeMachineBtn = document.getElementById('song-timemachine-btn');
+if (songTimeMachineBtn) {
+  songTimeMachineBtn.addEventListener('click', () => {
+    if (!currentSongMeta || typeof window.openTimeMachineForSong !== 'function') return;
+    closeSongModal();
+    window.openTimeMachineForSong(
+      currentSongMeta.songId,
+      currentSongMeta.title,
+      currentSongMeta.albumTitle
+    );
+  });
+}
 const scYearEndToggle = document.getElementById('sc-yearend-toggle');
 if (scYearEndToggle) scYearEndToggle.addEventListener('change', () => { if (currentSongMeta) openSongCard(); });
 if (songCardCloseBtn) songCardCloseBtn.addEventListener('click', () => songCardModal.classList.add('hidden'));
@@ -5584,6 +5600,80 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       </div>`;
   }
 
+  // The 30 days leading up to the chosen one, as clickable bars. This is the
+  // answer to "what was the daily doing around here" — a single day's number
+  // says nothing without the days on either side of it.
+  function stripHtml(strip, anchorSnapDay) {
+    const days = (strip || []).filter(d => d && d.day);
+    if (days.length < 3) return '';                   // two bars isn't a shape
+    const max = Math.max(...days.map(d => Number(d.daily) || 0));
+    if (max <= 0) return '';
+    const bars = days.map((d) => {
+      const v = Number(d.daily) || 0;
+      const sDay = toStreamDay(d.day);
+      // A floor of 4% so a quiet day is still a target you can click.
+      const h = Math.max(4, (v / max) * 100);
+      return `<button type="button" class="tm-bar${d.day === anchorSnapDay ? ' is-anchor' : ''}"
+        data-tm-day="${esc(sDay)}" title="${esc(formatDate(sDay))} · +${esc(formatNumber(v))}"
+        aria-label="${esc(formatDate(sDay))}: ${esc(formatNumber(v))} streams">
+        <span class="tm-bar-fill" style="height:${h.toFixed(1)}%"></span></button>`;
+    }).join('');
+    return `
+      <div class="tm-strip">
+        <div class="tm-strip-head">
+          <span class="tm-strip-title">Daily streams into this day</span>
+          <span class="tm-strip-peak">peak +${formatShortNumber(max)}</span>
+        </div>
+        <div class="tm-strip-bars">${bars}</div>
+        <div class="tm-strip-axis">
+          <span>${esc(formatChartDate(toStreamDay(days[0].day)))}</span>
+          <span>${esc(formatChartDate(toStreamDay(days[days.length - 1].day)))}</span>
+        </div>
+      </div>`;
+  }
+
+  // "That day" as a headline in its own right, with the two comparisons that
+  // give it meaning: the day before, and the month it sits in.
+  function dailyTileHtml(data, firstDay) {
+    const daily = Number(data.daily_gain) || 0;
+    const strip = (data.daily_strip || []).filter(d => d && d.day);
+    const anchorSnap = data.as_of ? String(data.as_of).slice(0, 10) : null;
+
+    let vsPrev = '';
+    const iAnchor = anchorSnap ? strip.findIndex(d => d.day === anchorSnap) : strip.length - 1;
+    const prev = iAnchor > 0 ? strip[iAnchor - 1] : null;
+    if (prev && !firstDay) {
+      const p = Number(prev.daily) || 0;
+      const diff = daily - p;
+      if (p > 0) {
+        const pct = Math.abs((diff / p) * 100);
+        vsPrev = `<span class="${gainClass(diff)}">${signed(diff)}</span>
+          <span class="tm-tile-note">vs the day before (${pct >= 10 ? Math.round(pct) : pct.toFixed(1)}%)</span>`;
+      }
+    }
+
+    // Average across the strip, so "a big day" is judged against this artist's
+    // own recent normal rather than against nothing.
+    let vsAvg = '';
+    if (strip.length >= 5 && daily > 0) {
+      const avg = Math.round(strip.reduce((t, d) => t + (Number(d.daily) || 0), 0) / strip.length);
+      if (avg > 0) {
+        const over = ((daily - avg) / avg) * 100;
+        const word = over >= 0 ? 'above' : 'below';
+        vsAvg = `<span class="tm-tile-note">${Math.abs(over) < 1 ? 'right on' : `${Math.abs(over) >= 10 ? Math.round(Math.abs(over)) : Math.abs(over).toFixed(1)}% ${word}`} the ${strip.length}-day average (+${formatShortNumber(avg)})</span>`;
+      }
+    }
+
+    return `
+      <div class="tm-hero-tile tm-hero-daily">
+        <span class="tm-headline-label">Streams that day</span>
+        <span class="tm-headline-value gain-positive">${firstDay ? '—' : '+' + formatNumber(daily)}</span>
+        ${firstDay
+          ? `<span class="tm-headline-sub">first day on record</span>`
+          : `<span class="tm-tile-sub">${vsPrev}</span>${vsAvg}`}
+      </div>`;
+  }
+
   function render(data, streamDay) {
     // Kept so the per-song drill-down can come back without refetching the day.
     lastData = data;
@@ -5658,14 +5748,16 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
           discography isn't covered, so there's no artist total to show for this day.
           Each track's own number is exact.
         </div>` : `
-      <div class="tm-headline">
-        <div class="tm-headline-main">
+      <div class="tm-hero">
+        <div class="tm-hero-tile tm-hero-total">
           <span class="tm-headline-label">Total streams on ${esc(formatDate(streamDay))}</span>
           <span class="tm-headline-value">${formatNumber(total)}</span>
-          <span class="tm-headline-sub">${formatNumber(data.total_songs)} tracks${firstDay ? '' : ` · +${formatNumber(data.daily_gain)} that day`}</span>
+          <span class="tm-headline-sub">${formatNumber(data.total_songs)} tracks</span>
+          ${sinceHtml}
         </div>
-        ${sinceHtml}
+        ${dailyTileHtml(data, firstDay)}
       </div>
+      ${stripHtml(data.daily_strip, data.as_of ? String(data.as_of).slice(0, 10) : null)}
       ${stale ? `<div class="tm-note">No scrape that day — showing the last one before it (${esc(formatDate(asOfStream))}).</div>` : ''}
       ${firstDay ? `<div class="tm-note">First day on record. There's no earlier snapshot to compare against, and the catalogue was still being discovered — later days are more complete.</div>` : ''}
       <div class="tm-splits">
@@ -5802,6 +5894,20 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       <div class="tm-hlist">${listRows}</div>`;
   }
 
+  // An anchor past the song's last snapshot would label the newest numbers with
+  // a day they don't belong to — happens when the drill-down is opened straight
+  // from the song modal, before any day has been loaded.
+  function clampAnchor(d) {
+    const rows = d.rows || [];
+    if (!rows.length) return;
+    const newest = String(rows[rows.length - 1].recorded_date).slice(0, 10);
+    if (d.anchor > newest) d.anchor = newest;
+    // Opened from the song modal the date picker is still blank — fill it in
+    // with the day we landed on, so it isn't sitting there empty and Back has
+    // a day to return to.
+    if (!dateInput.value) dateInput.value = toStreamDay(d.anchor);
+  }
+
   async function openDetail(songId, title, album, asOf) {
     if (!songId) return;
     const mine = ++detailReq;
@@ -5815,7 +5921,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       range: '30',
       rows: historyCache.get(songId) || null,
     };
-    if (detail.rows) { renderDetail(); return; }
+    if (detail.rows) { clampAnchor(detail); renderDetail(); return; }
 
     resultEl.innerHTML = detailHead(detail, '') + `<div class="tm-loading">Loading this song's history…</div>`;
     try {
@@ -5828,6 +5934,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       const list = Array.isArray(rows) ? rows : [];
       historyCache.set(songId, list);
       detail.rows = list;
+      clampAnchor(detail);
       renderDetail();
     } catch (err) {
       if (mine !== detailReq) return;
@@ -5846,6 +5953,8 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
   resultEl.addEventListener('click', (e) => {
     if (e.target.closest('[data-tm-back]')) { backToDay(); return; }
+    const bar = e.target.closest('[data-tm-day]');
+    if (bar) { go(bar.dataset.tmDay); return; }
     const rangeBtn = e.target.closest('[data-tm-hrange]');
     if (rangeBtn && detail) { detail.range = rangeBtn.dataset.tmHrange; renderDetail(); return; }
     const row = e.target.closest('.tm-row');
@@ -5905,7 +6014,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     goTimer = setTimeout(() => load(clamped), 180);
   }
 
-  function open() {
+  function showModal() {
     // A different artist means a different history, so the cached range and the
     // previously shown day are both meaningless — start from their latest day.
     if (lastArtist !== currentArtist) {
@@ -5922,10 +6031,27 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
         ? 'Streaming days — the totals Spotify was showing on that date.'
         : 'Totals as recorded on that date.';
     }
+  }
+
+  function open() {
+    showModal();
     // No day chosen yet (first open, or a fresh artist) → ask for the newest.
     if (dateInput.value) go(dateInput.value);
     else load(null);
   }
+
+  // Entry point from the song modal: skip the day view and land straight in this
+  // song's history. Back still walks up to the full day, loading it then.
+  window.openTimeMachineForSong = function (songId, title, album) {
+    if (!songId) return;
+    showModal();
+    // Cancel anything the day view has in flight so a late response can't paint
+    // over the history we're about to show.
+    reqId++;
+    clearTimeout(goTimer);
+    const sub = album && album.toLowerCase() !== String(title || '').toLowerCase() ? album : '';
+    openDetail(songId, title, sub, toSnapshotDay(dateInput.value || latestStreamDay()));
+  };
 
   function close() {
     clearTimeout(goTimer);

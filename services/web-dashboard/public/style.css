@@ -5370,15 +5370,39 @@ select.tc-input { cursor: pointer; }
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--card-border);
 }
-.tm-headline {
+/* Two headline tiles: where the catalogue stood that day, and what it did that
+   day. The daily figure used to be a clause in the total's subtitle, which is
+   the one number people open the Time Machine for. */
+.tm-hero {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 14px;
 }
-.tm-headline-main { display: flex; flex-direction: column; gap: 2px; }
+.tm-hero-tile {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--card-border);
+}
+.tm-hero-daily {
+  background: linear-gradient(180deg, rgba(30, 215, 96, 0.09), rgba(30, 215, 96, 0.02));
+  border-color: rgba(30, 215, 96, 0.22);
+}
+.tm-hero-daily .tm-headline-value { color: var(--gain-green); }
+.tm-tile-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.tm-tile-note { font-size: 0.75rem; font-weight: 500; color: var(--text-muted); }
 .tm-headline-label {
   font-size: 0.72rem;
   font-weight: 700;
@@ -5397,7 +5421,8 @@ select.tc-input { cursor: pointer; }
 .tm-since {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
+  margin-top: 6px;
   gap: 2px;
   font-family: 'Outfit', sans-serif;
   font-size: 1.15rem;
@@ -5409,7 +5434,66 @@ select.tc-input { cursor: pointer; }
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--text-muted);
-  text-align: right;
+}
+
+/* The run-up to the chosen day. Each bar is a day you can click to travel to. */
+.tm-strip {
+  margin-bottom: 16px;
+  padding: 12px 14px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--card-border);
+}
+.tm-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tm-strip-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tm-strip-peak { font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tm-strip-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 64px;
+}
+.tm-bar {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.tm-bar-fill {
+  display: block;
+  width: 100%;
+  border-radius: 3px 3px 2px 2px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: background 0.15s ease;
+}
+.tm-bar:hover .tm-bar-fill { background: rgba(255, 255, 255, 0.34); }
+.tm-bar.is-anchor .tm-bar-fill {
+  background: var(--gain-green);
+  box-shadow: 0 0 10px rgba(30, 215, 96, 0.35);
+}
+.tm-strip-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
 }
 
 .tm-splits {
@@ -5493,10 +5577,12 @@ select.tc-input { cursor: pointer; }
   .tm-table th:nth-child(3),
   .tm-table td:nth-child(3) { display: table-cell; }
   .tm-presets { margin-left: 0; width: 100%; }
-  .tm-headline { align-items: flex-start; }
   .tm-since { align-items: flex-start; }
-  .tm-since-note { text-align: left; }
   .tm-headline-value { font-size: 1.8rem; }
+  .tm-hero-tile { flex-basis: 100%; padding: 12px 14px; }
+  .tm-hero-daily .tm-headline-value { font-size: 1.6rem; }
+  /* Thinner bars, no gap: 30 days still has to fit a phone's width. */
+  .tm-strip-bars { height: 52px; gap: 2px; }
   .tm-song-album { display: none; }
   /* Narrow enough that the "since then" column would wrap under the value and
      sit right-aligned against nothing — stack the whole row left instead. */

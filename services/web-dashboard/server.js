@@ -1180,6 +1180,9 @@ app.get('/api/stats', requireAuth, validateArtistAccess, async (req, res) => {
 // can never make a past day read lower than it did at the time.
 // ---------------------------------------------------------------------------
 const STREAMS_ON_TOP_SONGS = 30;
+// How many days of artist-level daily totals the day view carries with it, so
+// the chosen day can be read against the ones around it instead of in isolation.
+const STREAMS_ON_STRIP_DAYS = 30;
 
 // ---------------------------------------------------------------------------
 // Artists carrying BACKFILLED history that predates full-catalogue coverage.
@@ -1333,12 +1336,61 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess, async (req, res) =
         (SELECT monthly_listeners   FROM newest) AS latest_value,
         (SELECT recorded_date::text FROM newest) AS latest_date
     `;
+    // The run-up to the chosen day: one artist-level daily total per snapshot,
+    // so the day view can plot where that day sat among its neighbours (and let
+    // the reader jump to one). Unlike the aggregate above this filters to the
+    // artist's songs BEFORE touching canonical_streams and only reads a month of
+    // snapshots, so it stays cheap next to the full-history scan.
+    //
+    // One extra day is read at the back: the oldest row in the window has no
+    // predecessor to diff against, so it seeds the first real gain and is then
+    // dropped by the outer date filter.
+    const stripQuery = `
+      WITH mine AS (
+        SELECT s.id
+        FROM songs s
+        JOIN albums a ON s.album_id = a.id
+        WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})
+      ),
+      win AS (
+        SELECT
+          cs.song_id,
+          cs.recorded_date,
+          MAX(cs.stream_count) OVER (
+            PARTITION BY cs.song_id ORDER BY cs.recorded_date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS runmax
+        FROM canonical_streams cs
+        JOIN mine m ON m.id = cs.song_id
+        WHERE cs.recorded_date <= $2::date
+          AND cs.recorded_date > ($2::date - ${STREAMS_ON_STRIP_DAYS + 1})
+      ),
+      gains AS (
+        SELECT
+          recorded_date,
+          -- Calendar-normalised like everywhere else: a two-day gap splits its
+          -- gain across both days rather than spiking the later one.
+          ((runmax - LAG(runmax) OVER (PARTITION BY song_id ORDER BY recorded_date))
+            / NULLIF(recorded_date - LAG(recorded_date) OVER (PARTITION BY song_id ORDER BY recorded_date), 0)
+          )::bigint AS gain
+        FROM win
+      )
+      SELECT recorded_date::text AS day, COALESCE(SUM(gain), 0)::bigint AS daily
+      FROM gains
+      WHERE gain IS NOT NULL
+        AND recorded_date > ($2::date - ${STREAMS_ON_STRIP_DAYS})
+      GROUP BY recorded_date
+      ORDER BY recorded_date
+    `;
     const artistId = artistUri.replace('spotify:artist:', '');
-    const [result, range, mlResult] = await Promise.all([
+    const [result, range, mlResult, stripResult] = await Promise.all([
       dbQuery(query, [artistUri, date]),
       artistDateRange(artistUri).catch(() => ({ min_date: null, max_date: null })),
       // Never let a missing monthly-listeners row take the whole day down with it.
       dbQuery(mlQuery, [artistId, date]).catch(() => ({ rows: [] })),
+      // Same for the strip — it's context, not the answer.
+      dbQuery(stripQuery, [artistUri, date]).catch(() => ({ rows: [] })),
     ]);
     const row = result.rows[0] || {};
 
@@ -1372,6 +1424,7 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess, async (req, res) =
       total_songs: row.total_songs || 0,
       top_songs: row.top_songs || [],
       monthly_listeners: monthlyListeners,
+      daily_strip: (stripResult.rows || []).map(r => ({ day: r.day, daily: Number(r.daily) || 0 })),
       range,
     });
   } catch (err) {
