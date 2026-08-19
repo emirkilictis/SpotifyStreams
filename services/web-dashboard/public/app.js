@@ -300,6 +300,21 @@ function formatChartDate(dateStr) {
 // when something needs debugging. Set to 0 to drop the shift entirely.
 const STREAM_DATE_OFFSET_DAYS = -1;
 
+// ---------------------------------------------------------------------------
+// Editorial policy: JT's pages never print a negative stream figure.
+//
+// Same stance as the Compare card's anti-drag guard — this is a fan dashboard
+// and his numbers are its subject. When Spotify takes streams back, the loss is
+// still recorded and still corrected in the database, so every TOTAL on the
+// site stays truthful; what's suppressed is the red "−X" caption announcing it.
+// A day that lost streams reads as a day that gained nothing.
+//
+// Deliberately keyed to the artist, not to the number: every other artist shows
+// their removals in full.
+// ---------------------------------------------------------------------------
+const NO_NEGATIVE_ARTIST_ID = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
+const showsNegatives = () => currentArtist !== NO_NEGATIVE_ARTIST_ID;
+
 // Returns a YYYY-MM-DD string so downstream formatters stay on a local date.
 function toStreamDay(dateStr) {
   if (!dateStr || !STREAM_DATE_OFFSET_DAYS) return dateStr;
@@ -413,7 +428,7 @@ async function fetchData() {
     // the catalogue earned, and mixing the two would leave the headline unable
     // to say which of them moved.
     if (dailyRemovedEl) {
-      const removed = Number(statsData.removed_streams) || 0;
+      const removed = showsNegatives() ? (Number(statsData.removed_streams) || 0) : 0;
       if (removed < 0) {
         dailyRemovedEl.textContent = `${formatRemoved(removed)} removed by Spotify`;
         dailyRemovedEl.title = statsData.removed_on
@@ -714,21 +729,21 @@ function renderSongs() {
     let gainHtml = '<span class="gain-cell gain-neutral">-</span>';
     if (dailyGain > 0) {
       gainHtml = `<span class="gain-cell gain-positive">+${formatNumber(dailyGain)}</span>`;
-    } else if (dailyGain < 0) {
+    } else if (dailyGain < 0 && showsNegatives()) {
       gainHtml = `<span class="gain-cell" style="color: var(--accent-red);">${formatNumber(dailyGain)}</span>`;
     }
 
     // Raw last-day change. The daily_gain above comes from the running-max view
     // so it never goes negative; this surfaces a genuine playcount DROP (pulled
     // streams / bad snapshot) — shown ONLY when it's actually negative.
-    const realChange = Number(song.real_daily_change);
+    const realChange = showsNegatives() ? Number(song.real_daily_change) : 0;
     if (realChange < 0) {
       gainHtml += `<span class="real-drop" title="Raw last-day change, without the running-max shield — this song's playcount went down">▼ ${formatNumber(Math.abs(realChange))}</span>`;
     }
 
     // A confirmed removal replaces the day's "+0" as the row's headline number:
     // on that day, losing 3.13M is the story, not gaining nothing.
-    const removed = Number(song.removed_streams) || 0;
+    const removed = showsNegatives() ? (Number(song.removed_streams) || 0) : 0;
     if (removed < 0) {
       const when = song.removed_on ? formatDate(song.removed_on) : '';
       gainHtml = `<span class="gain-cell gain-removed" title="Spotify removed streams from this song${when ? ` (${when})` : ''}">${formatRemoved(removed)}</span>`;
@@ -3463,7 +3478,7 @@ window.openSongById = async function(songId) {
   modalSongSubtitle.textContent = song.album_title || 'Single';
   modalSongStreams.textContent = formatNumber(song.cumulative);
   // Same rule as the songs table: a confirmed removal is the day's headline.
-  const modalRemoved = Number(song.removed_streams) || 0;
+  const modalRemoved = showsNegatives() ? (Number(song.removed_streams) || 0) : 0;
   if (modalRemoved < 0) {
     modalSongGain.textContent = formatRemoved(modalRemoved);
     modalSongGain.classList.remove('gain-positive');
