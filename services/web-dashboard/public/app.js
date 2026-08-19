@@ -415,10 +415,10 @@ async function fetchData() {
     if (dailyRemovedEl) {
       const removed = Number(statsData.removed_streams) || 0;
       if (removed < 0) {
-        dailyRemovedEl.textContent = `${formatRemoved(removed)} Spotify tarafından silindi`;
+        dailyRemovedEl.textContent = `${formatRemoved(removed)} removed by Spotify`;
         dailyRemovedEl.title = statsData.removed_on
-          ? `Spotify bu katalogdan stream geri aldı (${formatDate(statsData.removed_on)})`
-          : 'Spotify bu katalogdan stream geri aldı';
+          ? `Spotify took streams back from this catalogue (${formatDate(statsData.removed_on)})`
+          : 'Spotify took streams back from this catalogue';
         dailyRemovedEl.classList.remove('hidden');
       } else {
         dailyRemovedEl.classList.add('hidden');
@@ -723,7 +723,7 @@ function renderSongs() {
     // streams / bad snapshot) — shown ONLY when it's actually negative.
     const realChange = Number(song.real_daily_change);
     if (realChange < 0) {
-      gainHtml += `<span class="real-drop" title="Gerçek son-gün değişimi (running-max kalkanı olmadan) — bu şarkıda stream düşüşü tespit edildi">▼ ${formatNumber(Math.abs(realChange))}</span>`;
+      gainHtml += `<span class="real-drop" title="Raw last-day change, without the running-max shield — this song's playcount went down">▼ ${formatNumber(Math.abs(realChange))}</span>`;
     }
 
     // A confirmed removal replaces the day's "+0" as the row's headline number:
@@ -731,7 +731,7 @@ function renderSongs() {
     const removed = Number(song.removed_streams) || 0;
     if (removed < 0) {
       const when = song.removed_on ? formatDate(song.removed_on) : '';
-      gainHtml = `<span class="gain-cell gain-removed" title="Spotify bu şarkıdan stream sildi${when ? ` (${when})` : ''}">${formatRemoved(removed)}</span>`;
+      gainHtml = `<span class="gain-cell gain-removed" title="Spotify removed streams from this song${when ? ` (${when})` : ''}">${formatRemoved(removed)}</span>`;
     }
 
     let badgeClass = 'badge-lead';
@@ -3469,8 +3469,8 @@ window.openSongById = async function(songId) {
     modalSongGain.classList.remove('gain-positive');
     modalSongGain.classList.add('gain-removed');
     modalSongGain.title = song.removed_on
-      ? `Spotify bu şarkıdan stream sildi (${formatDate(song.removed_on)})`
-      : 'Spotify bu şarkıdan stream sildi';
+      ? `Spotify removed streams from this song (${formatDate(song.removed_on)})`
+      : 'Spotify removed streams from this song';
   } else {
     modalSongGain.textContent = (Number(song.daily_gain) > 0 ? '+' : '') + formatNumber(song.daily_gain);
     modalSongGain.classList.remove('gain-removed');
