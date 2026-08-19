@@ -112,6 +112,7 @@ const streamsBreakdown = document.getElementById('streams-breakdown');
 // Daily Streams breakdown (Lead / Featured) toggle
 const dailyBreakdownToggle = document.getElementById('daily-breakdown-toggle');
 const dailyStreamsBreakdown = document.getElementById('daily-streams-breakdown');
+const dailyRemovedEl = document.getElementById('daily-removed');
 const leadDailyStreamsEl = document.getElementById('lead-daily-streams');
 const featDailyStreamsEl = document.getElementById('feat-daily-streams');
 
@@ -168,6 +169,14 @@ function formatShortNumber(val) {
     return (num / 1000).toFixed(1) + 'K';
   }
   return num.toString();
+}
+
+// Streams Spotify TOOK BACK, always as a red negative: −3.132.704.
+// The correction shaves the history down, so the day itself reads +0 — true,
+// but it says nothing about what happened. This is the number that does.
+function formatRemoved(n) {
+  const v = Math.abs(Number(n) || 0);
+  return `−${formatNumber(v)}`;
 }
 
 function getYearEndProjection(cumulative, dailyGain) {
@@ -399,6 +408,22 @@ async function fetchData() {
     }
     setSharePct(leadDailyPctEl, statsData.lead_daily_gain, dailyGain);
     setSharePct(featDailyPctEl, statsData.feat_daily_gain, dailyGain);
+
+    // Removals sit BESIDE the daily figure, never inside it: daily_gain is what
+    // the catalogue earned, and mixing the two would leave the headline unable
+    // to say which of them moved.
+    if (dailyRemovedEl) {
+      const removed = Number(statsData.removed_streams) || 0;
+      if (removed < 0) {
+        dailyRemovedEl.textContent = `${formatRemoved(removed)} Spotify tarafından silindi`;
+        dailyRemovedEl.title = statsData.removed_on
+          ? `Spotify bu katalogdan stream geri aldı (${formatDate(statsData.removed_on)})`
+          : 'Spotify bu katalogdan stream geri aldı';
+        dailyRemovedEl.classList.remove('hidden');
+      } else {
+        dailyRemovedEl.classList.add('hidden');
+      }
+    }
     
     totalSongsEl.textContent = statsData.total_songs ?? '0';
     lastUpdateEl.textContent = formatDate(statsData.last_update);
@@ -699,6 +724,14 @@ function renderSongs() {
     const realChange = Number(song.real_daily_change);
     if (realChange < 0) {
       gainHtml += `<span class="real-drop" title="Gerçek son-gün değişimi (running-max kalkanı olmadan) — bu şarkıda stream düşüşü tespit edildi">▼ ${formatNumber(Math.abs(realChange))}</span>`;
+    }
+
+    // A confirmed removal replaces the day's "+0" as the row's headline number:
+    // on that day, losing 3.13M is the story, not gaining nothing.
+    const removed = Number(song.removed_streams) || 0;
+    if (removed < 0) {
+      const when = song.removed_on ? formatDate(song.removed_on) : '';
+      gainHtml = `<span class="gain-cell gain-removed" title="Spotify bu şarkıdan stream sildi${when ? ` (${when})` : ''}">${formatRemoved(removed)}</span>`;
     }
 
     let badgeClass = 'badge-lead';
@@ -3429,7 +3462,21 @@ window.openSongById = async function(songId) {
   modalSongTitle.textContent = song.title;
   modalSongSubtitle.textContent = song.album_title || 'Single';
   modalSongStreams.textContent = formatNumber(song.cumulative);
-  modalSongGain.textContent = (Number(song.daily_gain) > 0 ? '+' : '') + formatNumber(song.daily_gain);
+  // Same rule as the songs table: a confirmed removal is the day's headline.
+  const modalRemoved = Number(song.removed_streams) || 0;
+  if (modalRemoved < 0) {
+    modalSongGain.textContent = formatRemoved(modalRemoved);
+    modalSongGain.classList.remove('gain-positive');
+    modalSongGain.classList.add('gain-removed');
+    modalSongGain.title = song.removed_on
+      ? `Spotify bu şarkıdan stream sildi (${formatDate(song.removed_on)})`
+      : 'Spotify bu şarkıdan stream sildi';
+  } else {
+    modalSongGain.textContent = (Number(song.daily_gain) > 0 ? '+' : '') + formatNumber(song.daily_gain);
+    modalSongGain.classList.remove('gain-removed');
+    modalSongGain.classList.add('gain-positive');
+    modalSongGain.removeAttribute('title');
+  }
   modalSongDuration.textContent = formatDuration(song.duration_ms);
   
   // Spotify Link

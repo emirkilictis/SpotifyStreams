@@ -1109,10 +1109,24 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
         COALESCE(dsc.real_change, 0)::bigint AS real_daily_change,
         -- The day before the latest snapshot, so a card can show a day-over-day
         -- delta without refetching each song's history one request at a time.
-        COALESCE(dsc.prev_daily_gain, 0)::bigint AS prev_daily_gain
+        COALESCE(dsc.prev_daily_gain, 0)::bigint AS prev_daily_gain,
+        -- Streams Spotify TOOK BACK. A correction shaves the history down, which
+        -- leaves the day reading +0 — true, but it hides the story. This carries
+        -- the amount (negative) so the row can say what actually happened. Only
+        -- while it's recent news; after that the song goes back to normal days.
+        drop_info.removed::bigint AS removed_streams,
+        drop_info.applied_on::text AS removed_on
       FROM songs s
       LEFT JOIN albums a ON s.album_id = a.id
       LEFT JOIN agg dsc ON s.id = dsc.canonical_id
+      LEFT JOIN LATERAL (
+        SELECT (c.new_count - c.old_count) AS removed, c.applied_on
+        FROM stream_drop_corrections c
+        WHERE c.head_id = s.id
+          AND c.applied_on > ((((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date) - 3)
+        ORDER BY c.applied_on DESC, c.id DESC
+        LIMIT 1
+      ) drop_info ON TRUE
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()})
       ORDER BY cumulative DESC;
@@ -1274,8 +1288,30 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()});
     `;
-    const result = await dbQuery(query, [artistUri]);
-    res.json(result.rows[0]);
+    // Streams removed from this artist's catalogue in the last few days. Kept
+    // out of the aggregate above on purpose: daily_gain is what the catalogue
+    // EARNED, and folding a removal into it would leave the headline unable to
+    // say which of the two moved. A missing table (pre-migration) is not worth
+    // failing the page over.
+    const removedQuery = `
+      SELECT COALESCE(SUM(c.new_count - c.old_count), 0)::bigint AS removed,
+             MAX(c.applied_on)::text AS removed_on
+      FROM stream_drop_corrections c
+      JOIN songs s ON s.id = c.head_id
+      JOIN albums a ON s.album_id = a.id
+      WHERE ${artistBucketMatchSQL('s', 'a')}
+        AND c.applied_on > ((((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date) - 3)
+    `;
+    const [result, removed] = await Promise.all([
+      dbQuery(query, [artistUri]),
+      dbQuery(removedQuery, [artistUri]).catch(() => ({ rows: [] })),
+    ]);
+    const rem = removed.rows[0] || {};
+    res.json({
+      ...result.rows[0],
+      removed_streams: Number(rem.removed) || 0,
+      removed_on: rem.removed_on || null,
+    });
   } catch (err) {
     console.error('Fetch stats error:', err);
     res.status(500).json({ error: 'Failed to load stats.' });

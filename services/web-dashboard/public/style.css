@@ -883,6 +883,21 @@ tbody tr.featured-row:hover {
 /* Genuine last-day playcount drop (un-clamped). Only rendered when negative,
    so it flags streams that were pulled / a bad snapshot — sits under the
    normal (running-max) daily gain. */
+/* Streams Spotify took back. Red, and never dressed up as a gain: the
+   correction shaves the history so the day itself reads +0, and this is the
+   only place the loss is actually stated. */
+.gain-removed {
+  color: var(--accent-red);
+  font-weight: 700;
+}
+.stat-removed {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--accent-red);
+}
+
 .real-drop {
   display: block;
   margin-top: 2px;
