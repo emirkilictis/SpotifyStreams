@@ -315,6 +315,13 @@ const STREAM_DATE_OFFSET_DAYS = -1;
 const NO_NEGATIVE_ARTIST_ID = '31TPClRtHm23RisEBtV3X7';   // Justin Timberlake
 const showsNegatives = () => currentArtist !== NO_NEGATIVE_ARTIST_ID;
 
+// Artists whose Daily Streams card still carries the red removal caption. For
+// everyone else it is suppressed there (it named no track, so it read as a
+// catalogue-wide loss); the per-song removals are unaffected either way.
+const SHOWS_DAILY_REMOVAL = new Set([
+  '3LHYvj5ZejV1NLqncEObSJ',   // Vaelis (Monarch)
+]);
+
 // Returns a YYYY-MM-DD string so downstream formatters stay on a local date.
 function toStreamDay(dateStr) {
   if (!dateStr || !STREAM_DATE_OFFSET_DAYS) return dateStr;
@@ -424,13 +431,29 @@ async function fetchData() {
     setSharePct(leadDailyPctEl, statsData.lead_daily_gain, dailyGain);
     setSharePct(featDailyPctEl, statsData.feat_daily_gain, dailyGain);
 
-    // Removals are NOT announced next to the daily headline, for any artist.
-    // A catalogue-wide "−17,783,672 removed by Spotify" under Daily Streams
-    // reads as if the artist just lost that many streams today, when it is
-    // really one song's history being trued up to what Spotify now reports.
-    // The removal is still shown where it can be acted on — per song, in the
-    // songs table and the song modal — and every total stays truthful.
-    if (dailyRemovedEl) dailyRemovedEl.classList.add('hidden');
+    // The daily headline does not announce removals — a catalogue-wide
+    // "−17,783,672 removed by Spotify" reads as if the artist lost that many
+    // streams today, when it is really one song's history being trued up to
+    // what Spotify now reports. Everywhere else the removal still shows, per
+    // song, where it names the track it belongs to.
+    //
+    // Vaelis is the deliberate exception: a small catalogue where a removal is
+    // a real event worth seeing at a glance, not noise buried under a number
+    // in the billions.
+    if (dailyRemovedEl) {
+      const removed = SHOWS_DAILY_REMOVAL.has(currentArtist)
+        ? (Number(statsData.removed_streams) || 0)
+        : 0;
+      if (removed < 0) {
+        dailyRemovedEl.textContent = `${formatRemoved(removed)} removed by Spotify`;
+        dailyRemovedEl.title = statsData.removed_on
+          ? `Spotify took streams back from this catalogue (${formatDate(statsData.removed_on)})`
+          : 'Spotify took streams back from this catalogue';
+        dailyRemovedEl.classList.remove('hidden');
+      } else {
+        dailyRemovedEl.classList.add('hidden');
+      }
+    }
     
     totalSongsEl.textContent = statsData.total_songs ?? '0';
     lastUpdateEl.textContent = formatDate(statsData.last_update);
