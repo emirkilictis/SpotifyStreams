@@ -1,4 +1,8 @@
 .env
+# Credential backups kept around during a DB move (e.g. .env.neon-backup-YYYYMMDD)
+# hold a live connection string — the bare `.env` rule above does not match them.
+.env.*
+!.env.example
 node_modules/
 *.log
 .DS_Store
