@@ -424,21 +424,13 @@ async function fetchData() {
     setSharePct(leadDailyPctEl, statsData.lead_daily_gain, dailyGain);
     setSharePct(featDailyPctEl, statsData.feat_daily_gain, dailyGain);
 
-    // Removals sit BESIDE the daily figure, never inside it: daily_gain is what
-    // the catalogue earned, and mixing the two would leave the headline unable
-    // to say which of them moved.
-    if (dailyRemovedEl) {
-      const removed = showsNegatives() ? (Number(statsData.removed_streams) || 0) : 0;
-      if (removed < 0) {
-        dailyRemovedEl.textContent = `${formatRemoved(removed)} removed by Spotify`;
-        dailyRemovedEl.title = statsData.removed_on
-          ? `Spotify took streams back from this catalogue (${formatDate(statsData.removed_on)})`
-          : 'Spotify took streams back from this catalogue';
-        dailyRemovedEl.classList.remove('hidden');
-      } else {
-        dailyRemovedEl.classList.add('hidden');
-      }
-    }
+    // Removals are NOT announced next to the daily headline, for any artist.
+    // A catalogue-wide "−17,783,672 removed by Spotify" under Daily Streams
+    // reads as if the artist just lost that many streams today, when it is
+    // really one song's history being trued up to what Spotify now reports.
+    // The removal is still shown where it can be acted on — per song, in the
+    // songs table and the song modal — and every total stays truthful.
+    if (dailyRemovedEl) dailyRemovedEl.classList.add('hidden');
     
     totalSongsEl.textContent = statsData.total_songs ?? '0';
     lastUpdateEl.textContent = formatDate(statsData.last_update);
