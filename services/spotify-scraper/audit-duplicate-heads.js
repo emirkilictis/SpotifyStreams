@@ -145,7 +145,18 @@ const C_SQL = `
   )
   SELECT s.canonical_id, so.title, s.recorded_date, s.daily_gain, s.oncesi, s.cumulative,
          COALESCE(x.hareket, 0) AS sonraki_hareket,
-         COALESCE(ta.name, 'JT-bucket') AS sanatci
+         COALESCE(ta.name, 'JT-bucket') AS sanatci,
+         -- Sıçrayan değer AYNI GÜN başka bir şarkıda da duruyorsa, okuma
+         -- neredeyse kesin ondan gelmiştir. Kaynağı ismen basmak şart:
+         -- 2026-08-21'de "Give It To Me" tam bu şekilde yakalanmış, ama kaynak
+         -- gösterilmediği için kworb'daki BAŞKA bir track ile karşılaştırılıp
+         -- "gerçek" diye temize çıkarılmış ve 513M hayalet bir gün daha durmuştu.
+         (SELECT so2.title FROM stream_stats ss2
+            JOIN songs so2 ON so2.id = ss2.song_id
+           WHERE ss2.stream_count = s.cumulative
+             AND ss2.recorded_date = s.recorded_date
+             AND COALESCE(so2.canonical_id, so2.id) <> s.canonical_id
+           LIMIT 1) AS kaynak_sarki
   FROM sicrama s
   JOIN songs so ON so.id = s.canonical_id
   LEFT JOIN sonrasi x ON x.canonical_id = s.canonical_id
@@ -223,7 +234,11 @@ async function main() {
     for (const r of c) {
       console.log(`  ${r.sanatci} — ${r.title}`);
       console.log(`      ${r.recorded_date.toISOString().slice(0, 10)}: ${fmt(r.oncesi)} → ${fmt(r.cumulative)} (+${fmt(r.daily_gain)}), sonrasında hiç hareket yok`);
-      console.log(`      bu okuma başka bir şarkıya ait olabilir; repair-stream-drops.js ile canlı değeri teyit et`);
+      if (r.kaynak_sarki) {
+        console.log(`      >>> AYNI GÜN AYNI DEĞER: "${r.kaynak_sarki}" — okuma bu şarkıdan gelmiş, değer bu gruba AİT DEĞİL`);
+      } else {
+        console.log(`      bu okuma başka bir şarkıya ait olabilir; repair-stream-drops.js ile canlı değeri teyit et`);
+      }
       bulgu++;
     }
 
