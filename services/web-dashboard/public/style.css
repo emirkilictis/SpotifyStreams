@@ -5761,3 +5761,39 @@ select.tc-input { cursor: pointer; }
 }
 #notify-btn.notify-on svg { stroke-width: 2.6; }
 #notify-btn:disabled { opacity: 0.6; cursor: progress; }
+
+/* ===== Site notice =====
+   Kisa sureli duyuru satiri (ornegin "sahibi tatilde, guncellemeler otomatik").
+   Kasten sessiz: sabit degil, sayfayla birlikte kayiyor; arka plan neredeyse
+   yok, yazi ikincil renkte ve kucuk. Amac bilgi vermek, dikkat calmak degil. */
+.site-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.035);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: center;
+}
+
+.site-notice-close {
+  flex: none;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.site-notice-close:hover { opacity: 1; }
+
+@media (max-width: 560px) {
+  .site-notice { font-size: 11.5px; padding: 6px 10px; }
+}

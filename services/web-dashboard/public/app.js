@@ -1391,6 +1391,44 @@ albumModal.addEventListener('click', (e) => {
 })();
 
 // Download Modal as Image (Twitter Share Card)
+// ===== Site notice =====
+// Kısa süreli bir duyuru satırı. İki tasarım kararı var ve ikisi de kasıtlı:
+//
+//  1. KENDİ KENDİNE SONA ERİYOR. `until` gününden sonra hiç görünmüyor, yani
+//     dönüşte birinin gidip kapatması gerekmiyor — unutulup aylarca "tatilde"
+//     yazan bir site kalmıyor geriye.
+//  2. SESSİZ. Sabit değil (sayfayla kayıyor), rengi ikincil, yazısı küçük ve
+//     kapatınca bir daha açılmıyor. Ziyaretçi rakamlara bakmaya geldi; bu satır
+//     onun önüne geçmemeli.
+//
+// Kapatmak için metni boşaltmak yeterli.
+const SITE_NOTICE = {
+  text: 'Emir is away until 29 August. Updates continue automatically.',
+  until: '2026-08-29',
+  key: 'site-notice-vacation-2026-08',   // değişince kapatanlara tekrar gösterilir
+};
+
+(function initSiteNotice() {
+  const el = document.getElementById('site-notice');
+  const textEl = document.getElementById('site-notice-text');
+  const closeBtn = document.getElementById('site-notice-close');
+  if (!el || !textEl || !closeBtn) return;
+  if (!SITE_NOTICE.text || !SITE_NOTICE.text.trim()) return;
+
+  // Bitiş gününün SONUNA kadar göster (o gün de dahil).
+  const bitis = new Date(`${SITE_NOTICE.until}T23:59:59Z`);
+  if (Number.isFinite(bitis.getTime()) && Date.now() > bitis.getTime()) return;
+
+  try { if (localStorage.getItem(SITE_NOTICE.key) === 'dismissed') return; } catch {}
+
+  textEl.textContent = SITE_NOTICE.text;
+  el.classList.remove('hidden');
+  closeBtn.addEventListener('click', () => {
+    el.classList.add('hidden');
+    try { localStorage.setItem(SITE_NOTICE.key, 'dismissed'); } catch {}
+  });
+})();
+
 // html2canvas clones the ENTIRE document before it rasterises anything, so every
 // card export also copies the 268-row songs table sitting behind the modal —
 // none of which is drawn. That clone is the cost, not the pixels: on JT's page

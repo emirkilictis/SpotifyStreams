@@ -19,6 +19,14 @@
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body class="dashboard-body">
+  <!-- Tatil notu. Kapatilabilir ve KENDI KENDINE sona eriyor (app.js'teki
+       SITE_NOTICE.until), boylece donuste kimsenin bir sey silmesi gerekmiyor.
+       Kasten sessiz: sayfanin ustune yapisan bir seritten cok, kucuk ve notr
+       bir satir — bilgi verir, kimseyi rahatsiz etmez. -->
+  <div id="site-notice" class="site-notice hidden" role="status">
+    <span id="site-notice-text"></span>
+    <button id="site-notice-close" class="site-notice-close" aria-label="Dismiss">&times;</button>
+  </div>
   <!-- ========== Artist Picker Landing ========== -->
   <section id="artist-picker" class="artist-picker-section">
     <div class="picker-bg-glow picker-glow-1"></div>
