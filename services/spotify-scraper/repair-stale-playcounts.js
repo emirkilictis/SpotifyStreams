@@ -1,0 +1,135 @@
+/**
+ * repair-stale-playcounts.js — günlerdir kıpırdamayan şarkıları Spotify'dan
+ * CANLI okuyup gerçek değerine çeker.
+ *
+ * NEDEN GEREKLİ. Scraper playcount'u ALBÜM sayfasından okuyor. Bazı şarkılarda
+ * o sayfanın sayısı bayatlıyor: 2026-08-21'de JT'nin "Holy Grail"i sekiz gündür
+ * 406.032.077'de duruyordu ve günlüğü 0 görünüyordu — ama şarkının kendi
+ * sayfası 406.368.183 diyordu. "Give It To Me"de de aynısı, 297.867 geride.
+ * Veri yanlış değildi, sadece eskiydi; ve donmuş bir şarkı sanatçının günlük
+ * toplamından sessizce eksiliyor.
+ *
+ * repair-stream-drops.js bunları göremez: o araç Spotify'ın stream GERİ ALDIĞI
+ * durumu düzeltiyor ve "fark pozitifse atla" diyor. Bu araç tam tersini yapar.
+ *
+ *   node repair-stale-playcounts.js                 # dry-run
+ *   node repair-stale-playcounts.js --apply
+ *   node repair-stale-playcounts.js --days=3 --limit=25 --artist=<id>
+ *
+ * SEÇİM. Son `days` gündür değeri hiç değişmemiş, MIN_STREAMS üzerindeki
+ * şarkılar; en çok stream'i olandan başlayarak `limit` tanesi. Tarayıcı açmak
+ * pahalı olduğu için sınırlı tutuluyor — saatlik çalıştığında birkaç turda
+ * hepsini dolaşıyor.
+ *
+ * Yalnızca YUKARI yazar (GREATEST). Canlı okuma bizden düşükse ona dokunmaz:
+ * düşüşler teyit isteyen ayrı bir mekanizmanın işi, ve tek bir bayat okumayla
+ * geçmişi tıraşlamak bugün 513 milyonluk hayalete mal olan hatanın aynısı olur.
+ */
+const { launchBrowser, fetchAlbumTracks } = require('./spotify');
+const { getPool, closePool } = require('./db');
+require('dotenv').config({ path: __dirname + '/../../.env' });
+
+const arg = (name, fallback) => {
+  const hit = process.argv.slice(2).find(a => a.startsWith(`--${name}=`));
+  return hit ? hit.split('=')[1] : fallback;
+};
+
+const MIN_STREAMS = Number(arg('min', 1000000));
+const fmt = n => Number(n).toLocaleString('en-US');
+
+// Son N taramada değeri HİÇ değişmemiş şarkılar. Şarkının kendi satırlarına
+// bakıyoruz (canonical gruba değil): bayatlayan tek tek track sayfaları.
+const DONMUS_SQL = `
+  WITH son AS (
+    SELECT ss.song_id, ss.stream_count, ss.recorded_date,
+           ROW_NUMBER() OVER (PARTITION BY ss.song_id ORDER BY ss.recorded_date DESC) AS rn
+    FROM stream_stats ss
+  ),
+  ozet AS (
+    SELECT song_id,
+           COUNT(*) AS gun,
+           MIN(stream_count) AS en_dusuk,
+           MAX(stream_count) AS en_yuksek,
+           MAX(recorded_date) AS son_tarih
+    FROM son WHERE rn <= $1 GROUP BY song_id
+  )
+  SELECT s.id, s.title, s.album_id, o.en_yuksek AS stored, o.son_tarih
+  FROM ozet o
+  JOIN songs s ON s.id = o.song_id
+  WHERE o.gun >= $1
+    AND o.en_dusuk = o.en_yuksek           -- hiç kıpırdamamış
+    AND o.en_yuksek >= $2
+    AND o.son_tarih >= CURRENT_DATE - 1    -- hâlâ taranıyor; büsbütün ölü değil
+    AND s.album_id IS NOT NULL
+    AND ($3::text IS NULL OR s.primary_artist = $3)
+  ORDER BY o.en_yuksek DESC
+  LIMIT $4`;
+
+async function main() {
+  const apply = process.argv.includes('--apply');
+  const days = Number(arg('days', 2));
+  const limit = Number(arg('limit', 20));
+  const artist = arg('artist', null);
+  const artistParam = artist ? `spotify:artist:${artist.replace('spotify:artist:', '')}` : null;
+
+  const client = await getPool().connect();
+  let browser, page;
+  try {
+    const { rows } = await client.query(DONMUS_SQL, [days, MIN_STREAMS, artistParam, limit]);
+    if (!rows.length) {
+      console.log(`[stale] ${days} gündür sabit kalan şarkı yok. Yapacak bir şey yok.`);
+      return;
+    }
+    console.log(`[stale] ${rows.length} aday (>= ${days} gün sabit, >= ${fmt(MIN_STREAMS)} stream)`);
+
+    ({ browser, page } = await launchBrowser(process.env.SP_DC));
+
+    const guncellenecek = [];
+    for (const row of rows) {
+      let hit = null;
+      try {
+        const tracks = await fetchAlbumTracks(page, row.album_id);
+        hit = tracks.find(t => t.id === row.id);
+      } catch (e) {
+        console.warn(`[stale] ${row.title}: okuma hatası (${e.message}), atlandı.`);
+        continue;
+      }
+      if (!hit || !(hit.playCount > 0)) {
+        console.warn(`[stale] ${row.title}: playcount okunamadı, atlandı.`);
+        continue;
+      }
+      const stored = Number(row.stored) || 0;
+      const fark = hit.playCount - stored;
+      console.log(`[stale] ${row.title}\n        bizde: ${fmt(stored)}   Spotify: ${fmt(hit.playCount)}   fark: ${fark > 0 ? '+' : ''}${fmt(fark)}`);
+      if (fark <= 0) { console.log('        → canlı değer daha yüksek değil, dokunulmadı.'); continue; }
+      guncellenecek.push({ id: row.id, count: hit.playCount, stored });
+    }
+
+    if (!guncellenecek.length) { console.log('\n[stale] Güncellenecek bir şey yok.'); return; }
+    const toplam = guncellenecek.reduce((a, g) => a + (g.count - g.stored), 0);
+    console.log(`\n[stale] ${guncellenecek.length} şarkı, toplam +${fmt(toplam)} stream geride.`);
+    if (!apply) return console.log('[stale] DRY-RUN — yazmak için --apply ekle.');
+
+    await client.query('BEGIN');
+    for (const g of guncellenecek) {
+      await client.query(
+        `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
+         VALUES ($1, $2, CURRENT_DATE, NOW())
+         ON CONFLICT (song_id, recorded_date) DO UPDATE
+           SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
+               recorded_at = NOW()`,
+        [g.id, g.count]);
+    }
+    await client.query('COMMIT');
+    console.log(`[stale] ${guncellenecek.length} şarkı güncellendi.`);
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
+    console.error('[stale] HATA (yok sayıldı):', err.message);
+  } finally {
+    client.release();
+    if (browser) await browser.close();
+    await closePool();
+  }
+}
+
+main().catch(err => console.error('[stale] HATA (yok sayıldı):', err.message));

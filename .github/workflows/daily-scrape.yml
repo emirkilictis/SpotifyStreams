@@ -90,6 +90,27 @@ jobs:
           if [ -n "$SCRAPE_ARTISTS" ]; then ARGS="--artists=$SCRAPE_ARTISTS --force"; fi
           node reconcile-kworb.js $ARGS
 
+      # Bayat playcount onarimi. Scraper playcount'u ALBUM sayfasindan okuyor ve
+      # bazi sarkilarda o sayfa gunlerce guncellenmiyor: JT'nin "Holy Grail"i
+      # sekiz gun 406.032.077'de dondu, sarkinin kendi sayfasi 406.368.183
+      # diyorken. Veri yanlis degil, eski — ve donmus bir sarki sanatcinin
+      # gunluk toplamindan sessizce eksiliyor.
+      #
+      # Bu adim gunlerdir kipirdamayan sarkilari canli okuyup gercek degerine
+      # cekiyor. Sadece YUKARI yazar; dususler teyit isteyen ayri mekanizmanin
+      # isi. Tarayici actigi icin her turda az sayida sarkiya bakar, birkac
+      # turda hepsini dolasir.
+      - name: Repair stale playcounts
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 12
+        working-directory: services/spotify-scraper
+        env:
+          SP_DC:        ${{ secrets.SP_DC }}
+          SP_KEY:       ${{ secrets.SP_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node repair-stale-playcounts.js --limit=12 --apply
+
       # Saatlik dedup. Dedup normalde sadece GERCEK tarama yapan run'in sonunda
       # calisiyor, yani gunde bir; arada ortaya cikan kopyalar (yeni kesfedilen
       # bir derleme edition'i, Spotify'in bir kaydi baskasina baglamasi) ertesi
