@@ -52,18 +52,26 @@ const DONMUS_SQL = `
            MAX(stream_count) AS en_yuksek,
            MAX(recorded_date) AS son_tarih
     FROM son WHERE rn <= $1 GROUP BY song_id
+  ),
+  aday AS (
+    SELECT DISTINCT ON (COALESCE(s.canonical_id, s.id))
+           s.id, s.title, s.album_id, o.en_yuksek AS stored, o.son_tarih
+    FROM ozet o
+    JOIN songs s ON s.id = o.song_id
+    WHERE o.gun >= $1
+      AND o.en_dusuk = o.en_yuksek           -- hiç kıpırdamamış
+      AND o.en_yuksek >= $2
+      AND o.son_tarih >= CURRENT_DATE - 1    -- hâlâ taranıyor; büsbütün ölü değil
+      AND s.album_id IS NOT NULL
+      AND ($3::text IS NULL OR s.primary_artist = $3)
+    -- Grup başına TEK aday. Aksi halde bir şarkının edition'ları turu yiyor:
+    -- ilk çalıştırmada "Beauty and the Beast" tek başına 5 slot aldı ve sırada
+    -- bekleyen başka şarkılara gelmedi. Grubun en yüksek üyesini onarmak
+    -- yeterli — günlük kazanç zaten grup MAX'inden hesaplanıyor.
+    ORDER BY COALESCE(s.canonical_id, s.id), o.en_yuksek DESC
   )
-  SELECT s.id, s.title, s.album_id, o.en_yuksek AS stored, o.son_tarih
-  FROM ozet o
-  JOIN songs s ON s.id = o.song_id
-  WHERE o.gun >= $1
-    AND o.en_dusuk = o.en_yuksek           -- hiç kıpırdamamış
-    AND o.en_yuksek >= $2
-    AND o.son_tarih >= CURRENT_DATE - 1    -- hâlâ taranıyor; büsbütün ölü değil
-    AND s.album_id IS NOT NULL
-    AND ($3::text IS NULL OR s.primary_artist = $3)
-  ORDER BY o.en_yuksek DESC
-  LIMIT $4`;
+  SELECT id, title, album_id, stored, son_tarih
+  FROM aday ORDER BY stored DESC LIMIT $4`;
 
 async function main() {
   const apply = process.argv.includes('--apply');
