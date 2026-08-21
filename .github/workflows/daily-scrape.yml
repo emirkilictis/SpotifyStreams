@@ -142,12 +142,13 @@ jobs:
           TWEET_FOOTER:      ${{ vars.TWEET_FOOTER }}
         run: node tweet-monthly-listeners.js
 
-      # JT'nin gunluk stream'i 10M'i asarsa ayri bir tweet. Nadir oldugu icin
-      # haber degeri var. Rakam siteden okunur (atif kurali DB'de basit bir
-      # filtre degil), ve JT'nin sarkilarinin %90'i o gune yazilmadan bakilmaz:
-      # tarama surerken gunluk rakam oturana kadar oynuyor, yarim bir gunle
-      # "10M'i gecti" demek birkac dakika sonra yanlisa donebilir.
-      - name: Tweet 10M daily milestone
+      # JT'nin gunluk stream'i esigi (varsayilan 9M) asarsa gunun ozeti + en cok
+      # akan 5 sarki. Rakamlar siteden okunur, DB'den degil: atif kurali basit
+      # bir primary_artist filtresi degil ve elle hesaplanan sayi sayfadakiyle
+      # tutmuyor. JT'nin sarkilarinin %90'i o gune yazilmadan bakilmaz —
+      # tarama surerken gunluk rakam oturana kadar oynuyor (9.8M → 9.4M), yarim
+      # bir gunle atilan tweet birkac dakika sonra yanlisa donebilir.
+      - name: Tweet daily recap
         if: always()
         continue-on-error: true
         timeout-minutes: 5
@@ -160,7 +161,7 @@ jobs:
           X_ACCESS_TOKEN:    ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET:   ${{ secrets.X_ACCESS_SECRET }}
           TWEET_FOOTER:      ${{ vars.TWEET_FOOTER }}
-        run: node tweet-daily-milestone.js
+        run: node tweet-daily-recap.js
 
       # Yeni gunun sayilari yakalandiysa takipcilere web push gonder. Endpoint
       # idempotent (push_sent_days ledger'i) — her saat cagrilmasi zararsiz,
