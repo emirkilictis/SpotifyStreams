@@ -90,6 +90,30 @@ jobs:
           if [ -n "$SCRAPE_ARTISTS" ]; then ARGS="--artists=$SCRAPE_ARTISTS --force"; fi
           node reconcile-kworb.js $ARGS
 
+      # Saatlik dedup. Dedup normalde sadece GERCEK tarama yapan run'in sonunda
+      # calisiyor, yani gunde bir; arada ortaya cikan kopyalar (yeni kesfedilen
+      # bir derleme edition'i, Spotify'in bir kaydi baskasina baglamasi) ertesi
+      # gune kadar duruyor ve o sure boyunca toplamlar sisik gorunuyor.
+      #
+      # Bu adim vaktiyle Neon yuzunden kaldirilmisti: her calisma compute'u
+      # uyandiriyor, fatura da uyanik kalma suresine gore kesiliyordu. Supabase
+      # oyle bir sey faturalamiyor, o yuzden geri geldi.
+      #
+      # Ardindan audit-duplicate-heads: dedup'in goremedigi iki deseni (ayni
+      # kaydi tasiyan ikiz baslar, yanlis gruba baglanmis uye) tarar ve yalnizca
+      # kaniti kesin olanlari — ayni gunde birebir ayni playcount, 3+ gun —
+      # manual_merges kurali olarak birlestirir. Geri kalani rapora yazar.
+      - name: Deduplicate + audit
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 10
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          node run-dedup.js
+          node audit-duplicate-heads.js --apply
+
       # JT'nin aylik dinleyici sayisini gunde bir tweetler. Veriyi Spotify'dan
       # degil bu run'in DB'ye yazdigi satirdan okur, yani tweet her zaman
       # sitedeki rakamla ayni olur. tweet_log defteri sayesinde idempotent:
@@ -117,6 +141,26 @@ jobs:
           # ise yaramaz olunca silinir. Bos birakilirsa hicbir sey eklenmez.
           TWEET_FOOTER:      ${{ vars.TWEET_FOOTER }}
         run: node tweet-monthly-listeners.js
+
+      # JT'nin gunluk stream'i 10M'i asarsa ayri bir tweet. Nadir oldugu icin
+      # haber degeri var. Rakam siteden okunur (atif kurali DB'de basit bir
+      # filtre degil), ve JT'nin sarkilarinin %90'i o gune yazilmadan bakilmaz:
+      # tarama surerken gunluk rakam oturana kadar oynuyor, yarim bir gunle
+      # "10M'i gecti" demek birkac dakika sonra yanlisa donebilir.
+      - name: Tweet 10M daily milestone
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL:      ${{ secrets.DATABASE_URL }}
+          DASHBOARD_URL:     ${{ vars.DASHBOARD_URL || 'https://spotify-streams-dashboard.onrender.com' }}
+          X_CONSUMER_KEY:    ${{ secrets.X_CONSUMER_KEY }}
+          X_CONSUMER_SECRET: ${{ secrets.X_CONSUMER_SECRET }}
+          X_ACCESS_TOKEN:    ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET:   ${{ secrets.X_ACCESS_SECRET }}
+          TWEET_FOOTER:      ${{ vars.TWEET_FOOTER }}
+        run: node tweet-daily-milestone.js
 
       # Yeni gunun sayilari yakalandiysa takipcilere web push gonder. Endpoint
       # idempotent (push_sent_days ledger'i) — her saat cagrilmasi zararsiz,
@@ -146,3 +190,4 @@ jobs:
         if: failure()
         run: |
           echo "Scraper başarısız oldu! Loglara bak: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
