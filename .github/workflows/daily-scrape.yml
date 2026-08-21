@@ -90,6 +90,30 @@ jobs:
           if [ -n "$SCRAPE_ARTISTS" ]; then ARGS="--artists=$SCRAPE_ARTISTS --force"; fi
           node reconcile-kworb.js $ARGS
 
+      # JT'nin aylik dinleyici sayisini gunde bir tweetler. Veriyi Spotify'dan
+      # degil bu run'in DB'ye yazdigi satirdan okur, yani tweet her zaman
+      # sitedeki rakamla ayni olur. tweet_log defteri sayesinde idempotent:
+      # saatlik tetiklemelerin tamami cagirsa da gun basina tek tweet cikar.
+      #
+      # Supheye dusunce SUSAR: gunun satiri yoksa, o gun icin zaten atildiysa,
+      # ya da degisim %10'u asiyorsa (aylik dinleyici gunde ~%0.1 oynar, %10 =
+      # veri kazasi) hicbir sey gondermez. Sahibi yokken calisiyor ve yanlis
+      # rakami geri almak hic atmamaktan pahali.
+      #
+      # X anahtarlari yoksa sessizce atlanir; hicbir kosulda run'i dusurmez.
+      - name: Tweet monthly listeners
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL:      ${{ secrets.DATABASE_URL }}
+          X_CONSUMER_KEY:    ${{ secrets.X_CONSUMER_KEY }}
+          X_CONSUMER_SECRET: ${{ secrets.X_CONSUMER_SECRET }}
+          X_ACCESS_TOKEN:    ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET:   ${{ secrets.X_ACCESS_SECRET }}
+        run: node tweet-monthly-listeners.js
+
       # Yeni gunun sayilari yakalandiysa takipcilere web push gonder. Endpoint
       # idempotent (push_sent_days ledger'i) — her saat cagrilmasi zararsiz,
       # sadece HENUZ duyurulmamis bir gun varsa bildirim cikar. Sanatcinin
