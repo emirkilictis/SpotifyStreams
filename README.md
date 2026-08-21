@@ -6,7 +6,7 @@ Bu proje, belirlenen sanatçıların (Justin Timberlake, LISA, Lady Gaga, Billie
 
 ### 1. Gereksinimler
 *   **Node.js**: Sisteminizde Node.js (v18+) kurulu olmalıdır.
-*   **PostgreSQL**: Verilerin saklanması için PostgreSQL veritabanı (projede şu an Neon DB kullanılmaktadır).
+*   **PostgreSQL**: Verilerin saklanması için PostgreSQL veritabanı (projede şu an Supabase kullanılmaktadır — session pooler, port 5432, `?sslmode=no-verify`).
 *   **Spotify SP_DC Çerezi**: Spotify'ın internal API'lerinden playcount verisini çekebilmek için tarayıcınızdan alacağınız geçerli bir `sp_dc` cookie değeri gereklidir.
 
 ---

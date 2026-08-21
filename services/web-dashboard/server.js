@@ -741,8 +741,10 @@ const pool = new Pool({
     rejectUnauthorized: false
   },
   max: 5,
-  // Close our idle clients before Neon's ~5min autosuspend severs them,
-  // so we reconnect cleanly instead of getting killed sockets.
+  // Recycle idle clients rather than holding them open indefinitely: the
+  // Supabase session pooler sits between us and Postgres and will drop a
+  // long-idle connection, so we would rather reconnect on our own terms than
+  // discover a dead socket mid-query.
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 15000,
   keepAlive: true
@@ -932,11 +934,16 @@ const validateArtistAccess = (req, res, next) => {
 // ---------------------------------------------------------------------------
 // Read-through response cache.
 //
-// Neon bills for the time the compute is AWAKE, not per query — every request
-// that reaches the database holds it up for another autosuspend window. The
-// data behind these endpoints only moves when a scrape lands (once a day), so
-// the second visitor of the hour has no business waking the database at all.
-// Serving them from memory is what actually lets the compute sleep.
+// These endpoints run heavy aggregates — joins across half a million snapshot
+// rows, window functions over every canonical group. Cold, they take tens of
+// seconds on the free instance; cached, half a second. The data behind them
+// only moves when a scrape lands (once a day), so recomputing per visitor buys
+// nothing. The cache is cleared when a scrape finishes, so freshness is exact.
+//
+// (This began as a way to stop waking Neon's metered compute. That bill is
+// gone — Supabase does not charge for wake time — but the cache long since
+// earned its place on speed alone. Do not remove it; removing it is what would
+// make the site slow.)
 //
 // The cache sits in the middleware chain, in FRONT of each handler: on a hit it
 // answers and the handler never runs. On a miss it patches res.json to capture

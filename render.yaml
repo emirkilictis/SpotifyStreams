@@ -10,7 +10,10 @@ services:
       - key: PORT
         value: 10000
       - key: DATABASE_URL
-        sync: false # You will enter your Neon PostgreSQL URL when deploying
+        sync: false # Supabase session pooler URI — port 5432, NOT the 6543
+        # transaction pooler (pg uses prepared statements), and it MUST end in
+        # ?sslmode=no-verify: the pooler certificate is self-signed, and plain
+        # "require" is treated as verify-full, which fails every query.
       # Web push. Without these the notification feature reports itself
       # unavailable and the bell never appears — the site runs exactly as it did
       # before it existed. Generate a pair with `npx web-push generate-vapid-keys`
