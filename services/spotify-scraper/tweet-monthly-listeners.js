@@ -73,7 +73,10 @@ async function postTweet(text, creds) {
 
 // ---------------------------------------------------------------------------
 
-function tweetMetni({ bugun, dun, zirveMi, tarih }) {
+// Tweet'in sonuna eklenen serbest not (TWEET_FOOTER). Tatil duyurusu gibi
+// gecici seyler icin: repo degiskeni oldugu icin donunce GitHub'dan silmek
+// yetiyor, kod degismiyor. Bos/tanimsizsa hic satir eklenmez.
+function tweetMetni({ bugun, dun, zirveMi, tarih, footer }) {
   const fark = dun == null ? null : Number(bugun) - Number(dun);
   const isaret = fark == null ? '' : (fark >= 0 ? `+${fmt(fark)}` : fmt(fark));
   const gun = new Date(`${tarih}T12:00:00Z`).toLocaleDateString('en-GB',
@@ -86,6 +89,7 @@ function tweetMetni({ bugun, dun, zirveMi, tarih }) {
   ];
   if (zirveMi) satirlar.push('', 'All-time high.');
   satirlar.push('', gun);
+  if (footer && footer.trim()) satirlar.push('', footer.trim());
   return satirlar.join('\n');
 }
 
@@ -156,7 +160,10 @@ async function main() {
        WHERE artist_id = $1 AND recorded_date < $2`, [JT, tarih]);
     const zirveMi = zirve.rows[0].m != null && deger > Number(zirve.rows[0].m);
 
-    const metin = tweetMetni({ bugun: deger, dun, zirveMi, tarih });
+    const metin = tweetMetni({ bugun: deger, dun, zirveMi, tarih, footer: process.env.TWEET_FOOTER });
+    if (metin.length > 280) {
+      return console.log(`[tweet] Metin ${metin.length} karakter (sınır 280) — atlandı. TWEET_FOOTER'ı kısalt.`);
+    }
     console.log('--- tweet ---\n' + metin + '\n-------------');
 
     if (dryRun) return console.log('[tweet] DRY-RUN — gönderilmedi.');

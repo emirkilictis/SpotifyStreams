@@ -112,6 +112,10 @@ jobs:
           X_CONSUMER_SECRET: ${{ secrets.X_CONSUMER_SECRET }}
           X_ACCESS_TOKEN:    ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET:   ${{ secrets.X_ACCESS_SECRET }}
+          # Tweet'in sonuna eklenen serbest not. Repository variable, secret
+          # degil: gecici duyurular icin (ornegin tatil) GitHub'dan yazilir,
+          # ise yaramaz olunca silinir. Bos birakilirsa hicbir sey eklenmez.
+          TWEET_FOOTER:      ${{ vars.TWEET_FOOTER }}
         run: node tweet-monthly-listeners.js
 
       # Yeni gunun sayilari yakalandiysa takipcilere web push gonder. Endpoint
