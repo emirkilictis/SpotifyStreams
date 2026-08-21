@@ -4577,28 +4577,29 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   // Check immediately on load
   checkScraperStatus();
 
-  // Adaptive polling. A fixed 10s tick meant every open tab hit the database
-  // six times a minute forever, which kept Neon's compute awake around the
-  // clock — the fastest way to burn a monthly compute allowance. Poll quickly
-  // only while a scrape is actually running, slowly when it isn't, and not at
-  // all while the tab is in the background.
+  // Adaptive polling: fast while a scrape is in flight, unobtrusive when it
+  // isn't, and asleep while the tab is in the background.
+  //
+  // The idle end of this ladder used to climb to 15 minutes and then stop
+  // outright, because on Neon every poll from every open tab kept a metered
+  // compute awake and a forgotten tab could burn the monthly allowance on its
+  // own. Supabase does not bill for wake time, so that tradeoff is gone — and
+  // it cost real usability: a tab left open went dead, so a sync you started
+  // could finish without the page ever noticing. Idle now settles at a minute
+  // and keeps going.
   const POLL_ACTIVE_MS = 10000;          // a scrape is in flight
-  const POLL_IDLE_STEPS = [120000, 300000, 900000];  // 2min -> 5min -> 15min
+  const POLL_IDLE_STEPS = [15000, 30000, 60000];  // 15s -> 30s -> 60s, then hold
   let pollTimer = null;
   let idleStep = 0;
 
   function schedulePoll() {
     clearTimeout(pollTimer);
     if (document.hidden) return;         // resumed by visibilitychange below
-    if (syncIsActive) {
-      idleStep = 0;
-    } else if (idleStep >= POLL_IDLE_STEPS.length) {
-      // Nothing has happened for ~20 minutes. Stop entirely rather than ping a
-      // sleeping database forever — a forgotten open tab is not a reason to
-      // keep the compute awake. Refocusing the tab starts it up again.
-      return;
-    }
-    const delay = syncIsActive ? POLL_ACTIVE_MS : POLL_IDLE_STEPS[idleStep++];
+    if (syncIsActive) idleStep = 0;
+    // Hold at the slowest idle step instead of giving up, so an open tab keeps
+    // noticing scrapes that start while nobody is looking at it.
+    const step = Math.min(idleStep++, POLL_IDLE_STEPS.length - 1);
+    const delay = syncIsActive ? POLL_ACTIVE_MS : POLL_IDLE_STEPS[step];
     pollTimer = setTimeout(async () => {
       await checkScraperStatus();
       schedulePoll();
