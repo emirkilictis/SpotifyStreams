@@ -343,6 +343,119 @@ async function fetchAlbumTracks(page, albumId) {
 }
 
 /**
+ * Tek bir şarkının playcount'unu ŞARKININ KENDİ sayfasından okur.
+ *
+ * NEDEN AYRI BİR OKUMA. fetchAlbumTracks playcount'u ALBÜM sayfasından alıyor
+ * ve bazı şarkılarda o sayfanın sayısı günlerce bayat kalıyor: JT'nin "Holy
+ * Grail"i sekiz gün 406.032.077'de dondu, şarkının kendi sayfası 406.368.183
+ * derken. Bayat bir kaydı onarmak için albüm sayfasını yeniden okumak işe
+ * yaramaz — aynı eski sayıyı verir. Onarım yolu (repair-stale-playcounts.js)
+ * bu yüzden buradan okur.
+ *
+ * Şarkının albümü büsbütün okunamaz hâle geldiğinde de (silinmiş/bölgesel
+ * kapanmış derleme) track sayfası çalışmaya devam ediyor; o şarkılar ancak
+ * böyle canlı tutulabiliyor.
+ *
+ * Okunamazsa null döner — çağıran albüm okumasına düşebilir.
+ */
+async function fetchTrackPlaycount(page, trackId) {
+  const uri = `spotify:track:${trackId}`;
+
+  const readPlaycount = (body) => {
+    const tr = body?.data?.trackUnion;
+    if (!tr || tr.uri !== uri) return null;
+    const n = parseInt(tr.playcount ?? '', 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  // Hızlı yol: aynı sorgunun persisted-query imzası daha önce yakalandıysa
+  // sayfa açmadan doğrudan sor. Sayfa açmak ~5sn, bu ~0.3sn — bir turda
+  // onlarca şarkıya bakabilmenin tek yolu.
+  if (page.capturedToken && page.trackQuery) {
+    try {
+      const data = await page.evaluate(async (token, q, trackUri) => {
+        const res = await fetch('https://api-partner.spotify.com/pathfinder/v2/query', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            variables: { ...q.variables, uri: trackUri },
+            operationName: q.operationName,
+            extensions: { persistedQuery: { version: 1, sha256Hash: q.sha256Hash } }
+          })
+        });
+        if (!res.ok) return null;
+        const text = await res.text();
+        if (!text) return null;
+        try { return JSON.parse(text); } catch { return null; }
+      }, page.capturedToken, page.trackQuery, uri);
+
+      const fast = readPlaycount(data);
+      if (fast !== null) return fast;
+    } catch (err) { /* aşağıda sayfa açılarak denenecek */ }
+    // Buraya düştüysek imza artık tutmuyor (Spotify hash'i döndürdü, token
+    // eskidi, ya da yanıt boş geldi). Unut ki aşağıdaki sayfa açılışı
+    // yenisini yakalasın — aksi halde tur boyunca her şarkı önce boşa bir
+    // istek yapar, sonra yine sayfa açar.
+    page.trackQuery = null;
+  }
+
+  let result = null;
+  const onResponse = async (res) => {
+    try {
+      if (result !== null || !res.url().includes('pathfinder/v2')) return;
+      const body = await res.json().catch(() => null);
+      const pc = readPlaycount(body);
+      if (pc !== null) result = pc;
+    } catch {}
+  };
+  // Sayfanın kendi isteğinden imzayı yakala: sıradaki şarkı sayfa açmadan
+  // sorulabilsin.
+  const onRequest = (req) => {
+    try {
+      if (page.trackQuery || !req.url().includes('pathfinder/v2')) return;
+      const post = req.postData();
+      if (!post) return;
+      const body = JSON.parse(post);
+      if (body?.variables?.uri !== uri) return;
+      const hash = body?.extensions?.persistedQuery?.sha256Hash;
+      if (!hash || !body.operationName) return;
+      page.trackQuery = {
+        operationName: body.operationName,
+        sha256Hash: hash,
+        variables: body.variables,
+      };
+    } catch {}
+  };
+
+  page.on('response', onResponse);
+  page.on('request', onRequest);
+  try {
+    await page.goto(`https://open.spotify.com/track/${trackId}`, {
+      waitUntil: 'networkidle2', timeout: 30000,
+    });
+  } catch (navErr) {
+    // networkidle2, yanıt interception'a çoktan düşmüşken de zaman aşımına
+    // uğrayabiliyor (fetchAlbumTracks'te de aynısı) — pes etmeden bak.
+    console.warn(`[fetchTrackPlaycount] Nav timeout for track ${trackId} (${navErr.message}); checking interception.`);
+  }
+  await dismissCookieBanner(page);
+  for (let i = 0; i < 20; i++) {
+    if (result !== null) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  page.off('response', onResponse);
+  page.off('request', onRequest);
+
+  if (result === null) {
+    console.warn(`[fetchTrackPlaycount] Track ${trackId} playcount'u yakalanamadı.`);
+  }
+  return result;
+}
+
+/**
  * Artist'in featured olduğu (appears on) albümleri döner.
  * artistUnion.relatedContent.appearsOn.items[i].releases.items[0]
  */
@@ -503,4 +616,4 @@ async function fetchArtistAvatar(page, artistId) {
   return avatar;
 }
 
-module.exports = { launchBrowser, fetchArtistAlbums, fetchAlbumTracks, fetchArtistAppearsOn, fetchArtistAvatar };
+module.exports = { launchBrowser, fetchArtistAlbums, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAppearsOn, fetchArtistAvatar };

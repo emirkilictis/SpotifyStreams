@@ -12,20 +12,34 @@
  * repair-stream-drops.js bunları göremez: o araç Spotify'ın stream GERİ ALDIĞI
  * durumu düzeltiyor ve "fark pozitifse atla" diyor. Bu araç tam tersini yapar.
  *
+ * NEREDEN OKUR. ŞARKININ KENDİ sayfasından (fetchTrackPlaycount). Bayat olan
+ * albüm sayfası olduğu için onu yeniden okumak hiçbir şeyi onarmaz — aynı eski
+ * sayıyı verir, fark 0 çıkar, şarkı ertesi saat yine aday olur ve kuyruğu
+ * tıkar. İlk sürüm bu yüzden yalnızca albüm sayfası kendiliğinden tazelenmiş
+ * şarkıları düzeltebiliyordu; featured şarkılar (başkasının albümünde
+ * yaşadıkları için en çok bayatlayanlar) haftalarca donmuş kalıyordu.
+ * Track sayfası okunamazsa albüm okumasına düşülür.
+ *
  *   node repair-stale-playcounts.js                 # dry-run
  *   node repair-stale-playcounts.js --apply
  *   node repair-stale-playcounts.js --days=3 --limit=25 --artist=<id>
  *
  * SEÇİM. Son `days` gündür değeri hiç değişmemiş, MIN_STREAMS üzerindeki
- * şarkılar; en çok stream'i olandan başlayarak `limit` tanesi. Tarayıcı açmak
- * pahalı olduğu için sınırlı tutuluyor — saatlik çalıştığında birkaç turda
- * hepsini dolaşıyor.
+ * şarkılar; en çok stream'i olandan başlayarak `limit` tanesi. Saatlik
+ * çalıştığında birkaç turda hepsini dolaşıyor.
+ *
+ * `--seen` son kaç gün içinde taranmış şarkıların aday sayılacağını söyler
+ * (varsayılan 7). Eskiden bu 1 gündü, yani "hâlâ taranıyor" demekti; ama bir
+ * şarkının albüm sayfası büsbütün okunamaz hâle geldiğinde şarkı hiç yeni
+ * satır almıyor ve tam da onarıma en çok ihtiyacı olan şarkı aday listesinden
+ * düşüyordu. Track sayfası o albümler için de çalıştığından artık kapsanıyor.
+ * Silinmiş şarkı zaten okunamaz, okunamayana da yazılmaz.
  *
  * Yalnızca YUKARI yazar (GREATEST). Canlı okuma bizden düşükse ona dokunmaz:
  * düşüşler teyit isteyen ayrı bir mekanizmanın işi, ve tek bir bayat okumayla
  * geçmişi tıraşlamak bugün 513 milyonluk hayalete mal olan hatanın aynısı olur.
  */
-const { launchBrowser, fetchAlbumTracks } = require('./spotify');
+const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount } = require('./spotify');
 const { getPool, closePool } = require('./db');
 require('dotenv').config({ path: __dirname + '/../../.env' });
 
@@ -61,7 +75,7 @@ const DONMUS_SQL = `
     WHERE o.gun >= $1
       AND o.en_dusuk = o.en_yuksek           -- hiç kıpırdamamış
       AND o.en_yuksek >= $2
-      AND o.son_tarih >= CURRENT_DATE - 1    -- hâlâ taranıyor; büsbütün ölü değil
+      AND o.son_tarih >= CURRENT_DATE - $5::int  -- büsbütün terk edilmiş değil
       AND s.album_id IS NOT NULL
       AND ($3::text IS NULL OR s.primary_artist = $3)
     -- Grup başına TEK aday. Aksi halde bir şarkının edition'ları turu yiyor:
@@ -77,13 +91,14 @@ async function main() {
   const apply = process.argv.includes('--apply');
   const days = Number(arg('days', 2));
   const limit = Number(arg('limit', 20));
+  const seen = Number(arg('seen', 7));
   const artist = arg('artist', null);
   const artistParam = artist ? `spotify:artist:${artist.replace('spotify:artist:', '')}` : null;
 
   const client = await getPool().connect();
   let browser, page;
   try {
-    const { rows } = await client.query(DONMUS_SQL, [days, MIN_STREAMS, artistParam, limit]);
+    const { rows } = await client.query(DONMUS_SQL, [days, MIN_STREAMS, artistParam, limit, seen]);
     if (!rows.length) {
       console.log(`[stale] ${days} gündür sabit kalan şarkı yok. Yapacak bir şey yok.`);
       return;
@@ -94,23 +109,35 @@ async function main() {
 
     const guncellenecek = [];
     for (const row of rows) {
-      let hit = null;
+      // Önce şarkının KENDİ sayfası — bayat olan albüm sayfası, onu tekrar
+      // okumak bu aracın var oluş sebebini boşa çıkarır.
+      let canli = null;
+      let kaynak = 'track';
       try {
-        const tracks = await fetchAlbumTracks(page, row.album_id);
-        hit = tracks.find(t => t.id === row.id);
+        canli = await fetchTrackPlaycount(page, row.id);
       } catch (e) {
-        console.warn(`[stale] ${row.title}: okuma hatası (${e.message}), atlandı.`);
-        continue;
+        console.warn(`[stale] ${row.title}: track sayfası okunamadı (${e.message}).`);
       }
-      if (!hit || !(hit.playCount > 0)) {
+      // Track sayfası tutmazsa albüm okumasına düş: eskisi kadar iyi değil ama
+      // hiç okumamaktan iyi.
+      if (canli === null) {
+        try {
+          const tracks = await fetchAlbumTracks(page, row.album_id);
+          const hit = tracks.find(t => t.id === row.id);
+          if (hit && hit.playCount > 0) { canli = hit.playCount; kaynak = 'albüm'; }
+        } catch (e) {
+          console.warn(`[stale] ${row.title}: albüm okuma hatası (${e.message}).`);
+        }
+      }
+      if (canli === null) {
         console.warn(`[stale] ${row.title}: playcount okunamadı, atlandı.`);
         continue;
       }
       const stored = Number(row.stored) || 0;
-      const fark = hit.playCount - stored;
-      console.log(`[stale] ${row.title}\n        bizde: ${fmt(stored)}   Spotify: ${fmt(hit.playCount)}   fark: ${fark > 0 ? '+' : ''}${fmt(fark)}`);
+      const fark = canli - stored;
+      console.log(`[stale] ${row.title}\n        bizde: ${fmt(stored)}   Spotify (${kaynak}): ${fmt(canli)}   fark: ${fark > 0 ? '+' : ''}${fmt(fark)}`);
       if (fark <= 0) { console.log('        → canlı değer daha yüksek değil, dokunulmadı.'); continue; }
-      guncellenecek.push({ id: row.id, count: hit.playCount, stored });
+      guncellenecek.push({ id: row.id, count: canli, stored });
     }
 
     if (!guncellenecek.length) { console.log('\n[stale] Güncellenecek bir şey yok.'); return; }

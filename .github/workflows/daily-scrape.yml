@@ -98,8 +98,16 @@ jobs:
       #
       # Bu adim gunlerdir kipirdamayan sarkilari canli okuyup gercek degerine
       # cekiyor. Sadece YUKARI yazar; dususler teyit isteyen ayri mekanizmanin
-      # isi. Tarayici actigi icin her turda az sayida sarkiya bakar, birkac
-      # turda hepsini dolasir.
+      # isi.
+      #
+      # Okuma artik SARKININ KENDI sayfasindan yapiliyor. Albumden okumak
+      # bayatlayan kaynagi yeniden okumak demekti: fark 0 cikiyor, sarki ertesi
+      # saat yine ilk sirada aday oluyor ve arkasindaki kuyrugu tikiyordu.
+      # Featured sarkilar (baskasinin albumunde yasayanlar) tam da bu yuzden
+      # dashboard'da gunlerce "-" gorunuyordu. Track sorgusunun imzasi ilk
+      # sayfadan yakalanip sonrakilerde tekrar kullanildigi icin bir tur artik
+      # 12 degil 30 sarkiya bakabiliyor; esik de 1M'den 100k'ya indi, boylece
+      # kucuk featured surumler de kapsaniyor.
       - name: Repair stale playcounts
         if: always()
         continue-on-error: true
@@ -109,7 +117,7 @@ jobs:
           SP_DC:        ${{ secrets.SP_DC }}
           SP_KEY:       ${{ secrets.SP_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: node repair-stale-playcounts.js --limit=12 --apply
+        run: node repair-stale-playcounts.js --limit=30 --min=100000 --apply
 
       # Saatlik dedup. Dedup normalde sadece GERCEK tarama yapan run'in sonunda
       # calisiyor, yani gunde bir; arada ortaya cikan kopyalar (yeni kesfedilen
