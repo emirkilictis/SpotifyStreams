@@ -67,6 +67,15 @@ jobs:
           SP_DC: ${{ secrets.SP_DC }}
         run: node audit-live-vs-stored.js --artist=31TPClRtHm23RisEBtV3X7 --top=60
 
+      # Salt okunur. Bugunun gunlugunun ne kadari o gun kazanildi, ne kadari
+      # donmus bir degerin geri gelmesi?
+      - name: Where today's JT daily comes from
+        continue-on-error: true
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node audit-catchup.js --artist=31TPClRtHm23RisEBtV3X7
+
       - name: Check the served headline query
         working-directory: services/web-dashboard
         env:
