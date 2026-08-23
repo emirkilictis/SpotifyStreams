@@ -132,9 +132,23 @@ const C_SQL = `
            d.cumulative - d.daily_gain AS oncesi
     FROM daily_streams_canonical d
     WHERE d.recorded_date > CURRENT_DATE - 30
+      -- İki gün geçmiş olsun: sıçrama EN SON snapshot'taysa "sonrasında hareket
+      -- yok" kendiliğinden doğrudur ve gerçek bir büyük gün rapora düşer.
+      AND d.recorded_date <= CURRENT_DATE - 2
       AND d.daily_gain > $1
       AND d.cumulative - d.daily_gain > 0
-      AND d.daily_gain > (d.cumulative - d.daily_gain) * 2
+      -- Eşik %20. Eskiden "3 katına çıkmış olsun" (× 2) deniyordu ve o yalnızca
+      -- değerin bambaşka, çok daha büyük bir şarkıdan geldiği hâli yakalıyordu.
+      -- Çalınan okuma AYNI ŞARKININ başka bir sürümünden geldiğinde sıçrama o
+      -- kadar büyük olmuyor ve desen sessizce kaçıyordu: Cardi B'nin "Never Lose
+      -- Me"si 113,8M'den 190,7M'ye çıktı (%67,6), orada dondu, ve donmuş bir
+      -- başın kazancı her gün yeniden sayıldığı için sanatçının günlüğü beş gün
+      -- boyunca 5,5M yerine 82,5M göründü — audit hiçbir şey demeden.
+      --
+      -- Eşiği düşürmek gürültü yapmıyor, çünkü asıl imza oran değil DONMA:
+      -- gerçekten viral olan bir şarkı ertesi gün de hareket eder. Aşağıdaki
+      -- hareket = 0 şartı ayıklamayı zaten yapıyor.
+      AND d.daily_gain > (d.cumulative - d.daily_gain) * 0.20
   ),
   sonrasi AS (
     SELECT s.canonical_id, COUNT(*) FILTER (WHERE d.daily_gain > 0) AS hareket

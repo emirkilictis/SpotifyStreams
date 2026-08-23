@@ -570,72 +570,11 @@ function artistBucketMatchSQL(s, a) {
   )`;
 }
 
-// ---------------------------------------------------------------------------
-// The per-song figures every listing needs — latest snapshot, the day before
-// it, the 7-day average and the raw change — as CTEs, computed in ONE pass.
-//
-// They used to come from daily_streams_canonical / canonical_streams, one scan
-// each. Those are VIEWS over the whole stream_stats table: every read rebuilt
-// the running max and the day-over-day gains for every artist we track, then
-// threw away all but the rows for the artist actually being viewed. /api/songs
-// did that four times, /api/albums three; each scan cost well over a second and
-// grows with the table.
-//
-// So: resolve which canonical songs this endpoint is about FIRST, and derive
-// everything from a single pass over just their rows. The arithmetic is copied
-// from the view definitions on purpose — `cumulative` is the running max (a
-// playcount can never fall), `daily_gain` divides by the day gap so an
-// irregular snapshot cadence spreads across the days it covers, `real_change`
-// reads the RAW counts so a genuine drop still reads negative.
-//
-// `songFilter` is SQL selecting this endpoint's songs; it may reference `s`
-// (songs) and `a` (albums), which are joined here the same way.
-function artistLatestAggCTE(songFilter) {
-  return `
-      agg_scope AS (
-        SELECT DISTINCT COALESCE(s.canonical_id, s.id) AS canonical_id
-        FROM songs s
-        LEFT JOIN albums a ON s.album_id = a.id
-        WHERE ${songFilter}
-      ),
-      agg_cs AS (
-        SELECT COALESCE(s2.canonical_id, s2.id) AS canonical_id,
-               ss.recorded_date,
-               MAX(ss.stream_count) AS stream_count
-        FROM stream_stats ss
-        JOIN songs s2 ON s2.id = ss.song_id
-        WHERE COALESCE(s2.canonical_id, s2.id) IN (SELECT canonical_id FROM agg_scope)
-        GROUP BY 1, 2
-      ),
-      agg_runmax AS (
-        SELECT canonical_id, recorded_date, stream_count,
-               MAX(stream_count) OVER (
-                 PARTITION BY canonical_id ORDER BY recorded_date
-                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-               ) AS cumulative
-        FROM agg_cs
-      ),
-      agg_gains AS (
-        SELECT canonical_id, recorded_date, cumulative,
-               (cumulative - LAG(cumulative) OVER w)
-                 / NULLIF(recorded_date - LAG(recorded_date) OVER w, 0) AS daily_gain,
-               (stream_count - LAG(stream_count) OVER w)::bigint AS real_change,
-               ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
-        FROM agg_runmax
-        WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
-      ),
-      agg AS (
-        SELECT canonical_id,
-               MAX(recorded_date) FILTER (WHERE rn = 1) AS recorded_date,
-               MAX(cumulative)    FILTER (WHERE rn = 1) AS cumulative,
-               MAX(daily_gain)    FILTER (WHERE rn = 1) AS daily_gain,
-               MAX(daily_gain)    FILTER (WHERE rn = 2) AS prev_daily_gain,
-               ROUND(AVG(daily_gain) FILTER (WHERE rn <= 7))::bigint AS daily_avg_7d,
-               MAX(real_change)   FILTER (WHERE rn = 1) AS real_change
-        FROM agg_gains
-        GROUP BY canonical_id
-      )`;
-}
+// The per-song/per-artist aggregate CTEs live in lib/agg-sql.js so the query the
+// dashboard actually serves can be run against a real database by
+// scripts/check-stats-sql.js — the arithmetic here is where a wrong headline
+// comes from, and it was previously only checkable by loading the page.
+const { artistLatestAggCTE } = require('./lib/agg-sql');
 
 // Dynamically generate the album exclusion clauses for albums query based on active artists.
 function artistAlbumMatchSQL(s) {
@@ -1264,9 +1203,12 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_featured), 0)::bigint AS feat_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_solo), 0)::bigint AS solo_streams,
-        COALESCE(SUM(dsc.daily_gain), 0)::bigint AS daily_gain,
-        COALESCE(SUM(dsc.daily_gain) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_daily_gain,
-        COALESCE(SUM(dsc.daily_gain) FILTER (WHERE s.is_featured), 0)::bigint AS feat_daily_gain,
+        -- day_gain, not daily_gain: only what each head earned ON the headline
+        -- day (see agg_day in artistLatestAggCTE). A head that froze after a big
+        -- day used to keep re-adding that day's gain to every day after it.
+        COALESCE(SUM(dsc.day_gain), 0)::bigint AS daily_gain,
+        COALESCE(SUM(dsc.day_gain) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_daily_gain,
+        COALESCE(SUM(dsc.day_gain) FILTER (WHERE s.is_featured), 0)::bigint AS feat_daily_gain,
         -- 7-day trailing average of the artist's total daily gain. Smooths out
         -- Spotify's irregular update cadence (some days post 0, the next ~2x),
         -- which otherwise makes the headline daily number bounce wildly.
@@ -1283,7 +1225,10 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
           ) pd
         ) AS daily_avg_7d,
         COUNT(*)::int AS total_songs,
-        MAX(dsc.recorded_date) AS last_update
+        -- The day the headline is about, not the newest row in the table: a
+        -- stale-playcount repair can write a dozen rows dated today hours
+        -- before the day's scrape lands.
+        (SELECT recorded_date FROM agg_day) AS last_update
       FROM agg dsc
       JOIN songs s ON s.id = dsc.canonical_id
       JOIN albums a ON s.album_id = a.id

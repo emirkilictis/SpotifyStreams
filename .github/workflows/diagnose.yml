@@ -40,3 +40,17 @@ jobs:
           # Girdiyi komut satirina interpolate etme — env uzerinden gecir.
           ARTIST: ${{ inputs.artist || 'Cardi' }}
         run: node diagnose-artist-daily.js --artist="$ARTIST" --days=14 --top=30
+
+      # Dashboard'un servis ettigi headline sorgusunun ta kendisini gercek DB'ye
+      # karsi calistirir. lib/agg-sql.js'i require ettigi icin burada gecen SQL
+      # ile sayfada calisan SQL ayni metin.
+      - name: Check the served headline query
+        working-directory: services/web-dashboard
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          npm install --no-audit --no-fund
+          echo "--- Cardi B"
+          node scripts/check-stats-sql.js 4kYSro6naA4h99UJvo89HB
+          echo "--- Justin Timberlake"
+          node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7
