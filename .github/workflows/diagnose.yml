@@ -55,31 +55,6 @@ jobs:
           SP_DC: ${{ secrets.SP_DC }}
         run: node inspect-title.js --live 'until the end of time'
 
-      # TEK SEFERLIK YAZMA — yalnizca commit mesajinda [fix-uteot] gecerse calisir.
-      #
-      # Iki SOLO kopyayi Spotify'in soyledigi 30,499,643'e ceker. Duet
-      # (2wZTnl0pPFr3HBcyXfOaVJ, 99,953,435) LISTEYE ALINMAZ ve --only-listed
-      # sayesinde tirasa hic girmez — aile geneline tiras atmak ondan 69,5M
-      # gotururdu. Ardindan dedup: sayilar artik esit olmadigi icin Pass 2 ikisini
-      # bir daha ayni gruba koymuyor, solo kopyalar kendi aralarinda grupleniyor.
-      - name: Split Until the End of Time from the Beyonce duet
-        if: contains(github.event.head_commit.message, '[fix-uteot]')
-        working-directory: services/spotify-scraper
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SP_DC: ${{ secrets.SP_DC }}
-        run: |
-          echo "--- once oldugu gibi"
-          node inspect-title.js 'until the end of time'
-          echo "--- dry-run"
-          node repair-stream-drops.js --only-listed 6QINlZTl5PrAJ92l3FxziG 7H26V1eqId2OhZbLdFtqlP
-          echo "--- apply"
-          node repair-stream-drops.js --apply --force --only-listed 6QINlZTl5PrAJ92l3FxziG 7H26V1eqId2OhZbLdFtqlP
-          echo "--- dedup"
-          node run-dedup.js
-          echo "--- sonra"
-          node inspect-title.js 'until the end of time'
-
       - name: Check the served headline query
         working-directory: services/web-dashboard
         env:
