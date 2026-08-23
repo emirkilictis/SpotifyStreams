@@ -267,7 +267,15 @@ async function recordStreamDrops(client, drops, observedDate) {
  * minConfirmations exists for the one-off repair path, where the reading was
  * taken by hand against Spotify rather than by two scrapes.
  */
-async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DAYS, lookbackDays = 14 } = {}) {
+// forceHeads: bu başlar için oran koruması atlanır. Koruma "bu kadar büyük bir
+// düşüş Spotify'ın temizliği değil, bozuk okumadır" diyor ve genelde haklı —
+// ama tersi de oluyor: 2026-08-18'de Cardi B'nin "Never Lose Me"si 113,8M'den
+// 190,7M'ye sıçrayıp orada dondu, şarkının kendi sayfası 114,2M diyordu. Yani
+// bozuk olan CANLI okuma değil, bizdeki değerdi; düzeltmesi %40 düşüş olduğu
+// için koruma onu reddediyordu ve hayalet duruyordu. Geçiş kapısı yalnızca
+// ADIYLA verilen başlara açılır (repair-stream-drops.js --force), başka hiçbir
+// şeye dokunmaz: operatör canlı değeri gözüyle doğruladığını beyan etmiş olur.
+async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DAYS, lookbackDays = 14, forceHeads = new Set() } = {}) {
   const today = await todayIstanbul(client);
   // Latest observation per canonical family, plus how many separate days that
   // family has been seen low. Grouping by the head is what lets ten aliases of
@@ -312,8 +320,11 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
     const drop = oldCount - newCount;
     if (!(drop > 0)) continue;
     if (drop / oldCount > DROP_SANITY_MAX_RATIO) {
-      console.warn(`[drops] ${row.head}: ${drop} (${((drop / oldCount) * 100).toFixed(1)}%) düşüş fazla büyük — bozuk okuma sayıldı, dokunulmadı.`);
-      continue;
+      if (!forceHeads.has(row.head)) {
+        console.warn(`[drops] ${row.head}: ${drop} (${((drop / oldCount) * 100).toFixed(1)}%) düşüş fazla büyük — bozuk okuma sayıldı, dokunulmadı.`);
+        continue;
+      }
+      console.warn(`[drops] ${row.head}: ${drop} (${((drop / oldCount) * 100).toFixed(1)}%) düşüş — koruma ADIYLA atlandı (--force).`);
     }
 
     const fam = await client.query(

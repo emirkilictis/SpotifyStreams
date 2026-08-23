@@ -11,14 +11,28 @@
  *
  *   node repair-stream-drops.js <trackId> [trackId...]         # dry-run
  *   node repair-stream-drops.js --apply <trackId> [trackId...]  # yaz
+ *   node repair-stream-drops.js --apply --force <trackId>       # oran korumasını atla
+ *
+ * Okuma ŞARKININ KENDİ sayfasından yapılır: bizdeki değerin bozuk olduğu
+ * durumlarda bozan şey çoğu zaman albüm sayfasının kendisi oluyor, onu tekrar
+ * okumak aynı bozuk sayıyı geri getirir.
+ *
+ * --force yalnızca komut satırında ADIYLA verilen track'lerin başına, yalnızca
+ * o çalıştırma için %25 düşüş korumasını kapatır. Koruma normalde doğru:
+ * büyük bir düşüş genellikle CANLI okumanın bozuk olduğunu gösterir. Tersinin
+ * kanıtlandığı durumda kullanılır — Cardi B'nin "Never Lose Me"si bir günde
+ * 113,8M'den 190,7M'ye sıçrayıp orada dondu ve şarkının kendi sayfası 114,2M
+ * diyordu; düzeltmesi %40 olduğu için koruma reddediyor, hayalet duruyordu.
+ * Kullanmadan önce canlı değeri gözünle doğrula (read-live-playcount.js).
  */
-const { launchBrowser, fetchAlbumTracks } = require('./spotify');
+const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount } = require('./spotify');
 const { getPool, reconcileStreamDrops, closePool } = require('./db');
 require('dotenv').config({ path: __dirname + '/../../.env' });
 
 async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes('--apply');
+  const force = args.includes('--force');
   const trackIds = args.filter(a => !a.startsWith('--'));
   if (!trackIds.length) {
     console.error('Kullanım: node repair-stream-drops.js [--apply] <trackId> [trackId...]');
@@ -40,17 +54,21 @@ async function main() {
 
     const observed = [];
     for (const row of meta.rows) {
-      const tracks = await fetchAlbumTracks(page, row.album_id);
-      const hit = tracks.find(t => t.id === row.id);
-      if (!hit || !(hit.playCount > 0)) {
+      let live = await fetchTrackPlaycount(page, row.id);
+      if (live === null) {
+        const tracks = await fetchAlbumTracks(page, row.album_id);
+        const hit = tracks.find(t => t.id === row.id);
+        if (hit && hit.playCount > 0) live = hit.playCount;
+      }
+      if (live === null) {
         console.warn(`[repair] ${row.title}: Spotify'da playcount okunamadı, atlandı.`);
         continue;
       }
       const stored = Number(row.stored) || 0;
-      const diff = hit.playCount - stored;
-      console.log(`[repair] ${row.title}\n         bizde: ${stored}   Spotify: ${hit.playCount}   fark: ${diff > 0 ? '+' : ''}${diff}`);
+      const diff = live - stored;
+      console.log(`[repair] ${row.title}\n         bizde: ${stored}   Spotify: ${live}   fark: ${diff > 0 ? '+' : ''}${diff}`);
       if (diff >= 0) { console.log('         → düşüş yok, atlandı.'); continue; }
-      observed.push({ songId: row.id, head: row.head, count: hit.playCount, stored });
+      observed.push({ songId: row.id, head: row.head, count: live, stored });
     }
     if (!observed.length) { console.log('\nDüzeltilecek bir şey yok.'); return; }
     if (!apply) { console.log('\n(dry-run — yazmak için --apply)'); return; }
@@ -65,8 +83,11 @@ async function main() {
         [o.songId, o.count, o.stored]
       );
     }
-    // Canlı okuma teyidin kendisi olduğu için tek gözlem yeterli.
-    const applied = await reconcileStreamDrops(client, { minConfirmations: 1 });
+    // Canlı okuma teyidin kendisi olduğu için tek gözlem yeterli. Oran koruması
+    // yalnızca --force ile ve yalnızca bu çalıştırmada adı geçen başlar için
+    // kalkar; taramanın kendi reconcile çağrısı korumalı kalmaya devam eder.
+    const forceHeads = force ? new Set(observed.map(o => o.head)) : new Set();
+    const applied = await reconcileStreamDrops(client, { minConfirmations: 1, forceHeads });
     await client.query('COMMIT');
     console.log(`\n[repair] ${applied.length} kayıt düzeltildi.`);
   } finally {
