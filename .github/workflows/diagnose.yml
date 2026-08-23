@@ -54,3 +54,17 @@ jobs:
           node scripts/check-stats-sql.js 4kYSro6naA4h99UJvo89HB
           echo "--- Justin Timberlake"
           node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7
+
+      # Supheli degerin gercegini Spotify'a sor. Ayni adim fetchTrackPlaycount'u
+      # da gercek Spotify'a karsi calistiriyor — bayat-onarim yolunun yeni okuma
+      # kaynagi bu, ve "Not a Bad Thing - Radio Edit" tam da album sayfasindan
+      # okunamayan sarkiydi.
+      - name: Ask Spotify what the suspect values really are
+        continue-on-error: true
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SP_DC: ${{ secrets.SP_DC }}
+        run: |
+          node read-live-playcount.js 0i1bokCJ95evU1gb5HcXFy
+          node read-live-playcount.js --title='Not a Bad Thing'
