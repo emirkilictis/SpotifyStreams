@@ -44,6 +44,17 @@ jobs:
       # Dashboard'un servis ettigi headline sorgusunun ta kendisini gercek DB'ye
       # karsi calistirir. lib/agg-sql.js'i require ettigi icin burada gecen SQL
       # ile sayfada calisan SQL ayni metin.
+      # Salt okunur. Bir basligin altindaki butun satirlari, nasil gruplandiklarini
+      # ve onlara dokunan kalici merge kurallarini basar; --live ile Spotify'in
+      # su anki degerini de sorar.
+      - name: Inspect Until the End of Time
+        continue-on-error: true
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SP_DC: ${{ secrets.SP_DC }}
+        run: node inspect-title.js --live 'until the end of time'
+
       - name: Check the served headline query
         working-directory: services/web-dashboard
         env:
