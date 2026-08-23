@@ -61,8 +61,13 @@ const SQL = `
          c.old_count::bigint, c.new_count::bigint, k.cum::bigint
   FROM kazanc k
   JOIN songs s ON s.id = k.head
-  LEFT JOIN stream_drop_corrections c
-         ON c.head_id = k.head AND c.applied_on = CURRENT_DATE
+  -- Bas basina TEK satir. Duz bir LEFT JOIN, ayni basa bugun birden fazla
+  -- duzeltme yazilmissa o basi o kadar kez sayiyor ve toplami sisiriyor.
+  LEFT JOIN (
+    SELECT head_id, MAX(old_count) AS old_count, MIN(new_count) AS new_count
+    FROM stream_drop_corrections WHERE applied_on = CURRENT_DATE
+    GROUP BY head_id
+  ) c ON c.head_id = k.head
   WHERE k.rn = 1 AND k.fark > 0
   ORDER BY k.fark DESC`;
 
