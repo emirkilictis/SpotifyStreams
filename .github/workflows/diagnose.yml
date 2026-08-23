@@ -1,0 +1,42 @@
+name: Diagnose
+
+# Read-only tesbit kosusu. Hicbir sey yazmaz — sadece SELECT calistirip raporu
+# log'a basar. Gelistirme dallarina push'ta calisir cunku workflow_dispatch
+# yalnizca default branch'ten tetiklenebiliyor ve tesbit genelde dal ustunde
+# yaziliyor.
+on:
+  push:
+    branches: ['claude/**']
+  workflow_dispatch:
+    inputs:
+      artist:
+        description: 'Artist id or name fragment'
+        type: string
+        default: 'Cardi'
+
+concurrency:
+  group: diagnose-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    name: Diagnose artist daily
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/spotify-scraper/package.json
+      - name: Install dependencies
+        working-directory: services/spotify-scraper
+        run: npm ci
+      - name: Diagnose
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Girdiyi komut satirina interpolate etme — env uzerinden gecir.
+          ARTIST: ${{ inputs.artist || 'Cardi' }}
+        run: node diagnose-artist-daily.js --artist="$ARTIST" --days=14 --top=30
