@@ -275,7 +275,20 @@ async function recordStreamDrops(client, drops, observedDate) {
 // için koruma onu reddediyordu ve hayalet duruyordu. Geçiş kapısı yalnızca
 // ADIYLA verilen başlara açılır (repair-stream-drops.js --force), başka hiçbir
 // şeye dokunmaz: operatör canlı değeri gözüyle doğruladığını beyan etmiş olur.
-async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DAYS, lookbackDays = 14, forceHeads = new Set() } = {}) {
+// onlyHeads: boş değilse YALNIZCA bu başlar işlenir. Bu fonksiyon
+// stream_observations'ın TAMAMINI tarıyor, çağıranın o an ilgilendiği şarkıları
+// değil — "şu track'i onar" diye çağıran bir araç, farkında olmadan bekleyen
+// bütün gözlem birikimini uygular. 2026-08-23'te tam bu oldu: tek bir şarkı
+// için çalıştırılan repair-stream-drops 40 kaydı birden düzeltti, üstelik
+// minConfirmations 1'e indirilmiş olduğu için ikinci günün teyidini bekleyenler
+// de dahil. Kapsam artık çağıranın sorumluluğunda.
+//
+// clampIds: verilirse tıraşlama YALNIZCA bu şarkı id'lerine uygulanır, canonical
+// ailenin tamamına değil. Ailede doğru değeri taşıyan bir üye varsa şart:
+// "Until the End of Time"ın grubunda solo kopyalar yanlış (düetin sayısını
+// taşıyorlar) ama düetin kendi 99,953,435'i doğru — aile geneline tıraş atmak
+// düetten 69,5M götürürdü.
+async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DAYS, lookbackDays = 14, forceHeads = new Set(), onlyHeads = new Set(), clampIds = null } = {}) {
   const today = await todayIstanbul(client);
   // Latest observation per canonical family, plus how many separate days that
   // family has been seen low. Grouping by the head is what lets ten aliases of
@@ -315,6 +328,7 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
 
   const applied = [];
   for (const row of candidates.rows) {
+    if (onlyHeads.size && !onlyHeads.has(row.head)) continue;
     const oldCount = Number(row.old_count);
     const newCount = Number(row.new_count);
     const drop = oldCount - newCount;
@@ -330,7 +344,8 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
     const fam = await client.query(
       `SELECT id FROM songs WHERE COALESCE(canonical_id, id) = $1`, [row.head]
     );
-    const ids = fam.rows.map(r => r.id);
+    let ids = fam.rows.map(r => r.id);
+    if (clampIds) ids = ids.filter(id => clampIds.has(id));
     if (!ids.length) continue;
 
     const clamped = await client.query(

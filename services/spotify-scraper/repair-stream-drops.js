@@ -12,6 +12,11 @@
  *   node repair-stream-drops.js <trackId> [trackId...]         # dry-run
  *   node repair-stream-drops.js --apply <trackId> [trackId...]  # yaz
  *   node repair-stream-drops.js --apply --force <trackId>       # oran korumasını atla
+ *   node repair-stream-drops.js --apply --only-listed <trackId>  # yalnızca bu id'yi tıraşla
+ *
+ * Düzeltme HER ZAMAN yalnızca komut satırında verilen track'lerin başlarına
+ * uygulanır. --only-listed ayrıca tıraşlamayı ailenin tamamı yerine yalnızca
+ * verilen id'lerle sınırlar: ailede doğru değeri taşıyan bir üye varsa şart.
  *
  * Okuma ŞARKININ KENDİ sayfasından yapılır: bizdeki değerin bozuk olduğu
  * durumlarda bozan şey çoğu zaman albüm sayfasının kendisi oluyor, onu tekrar
@@ -33,6 +38,7 @@ async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes('--apply');
   const force = args.includes('--force');
+  const onlyListed = args.includes('--only-listed');
   const trackIds = args.filter(a => !a.startsWith('--'));
   if (!trackIds.length) {
     console.error('Kullanım: node repair-stream-drops.js [--apply] <trackId> [trackId...]');
@@ -83,11 +89,20 @@ async function main() {
         [o.songId, o.count, o.stored]
       );
     }
-    // Canlı okuma teyidin kendisi olduğu için tek gözlem yeterli. Oran koruması
-    // yalnızca --force ile ve yalnızca bu çalıştırmada adı geçen başlar için
-    // kalkar; taramanın kendi reconcile çağrısı korumalı kalmaya devam eder.
-    const forceHeads = force ? new Set(observed.map(o => o.head)) : new Set();
-    const applied = await reconcileStreamDrops(client, { minConfirmations: 1, forceHeads });
+    // Canlı okuma teyidin kendisi olduğu için tek gözlem yeterli — AMA yalnızca
+    // burada okuduğumuz şarkılar için. onlyHeads olmadan bu çağrı bekleyen tüm
+    // gözlem birikimini de uygular ve minConfirmations: 1 ikinci günün teyidini
+    // bekleyenleri de içeri alır: 2026-08-23'te tek şarkı için çalıştırılan bir
+    // koşu böyle 40 kaydı birden düzeltti.
+    const heads = new Set(observed.map(o => o.head));
+    // Oran koruması yalnızca --force ile ve yalnızca adı geçen başlar için kalkar.
+    const forceHeads = force ? heads : new Set();
+    // --only-listed: tıraşlama yalnızca komut satırındaki id'lere. Ailede doğru
+    // değeri taşıyan bir üye varsa şart.
+    const clampIds = onlyListed ? new Set(observed.map(o => o.songId)) : null;
+    const applied = await reconcileStreamDrops(client, {
+      minConfirmations: 1, forceHeads, onlyHeads: heads, clampIds,
+    });
     await client.query('COMMIT');
     console.log(`\n[repair] ${applied.length} kayıt düzeltildi.`);
   } finally {
