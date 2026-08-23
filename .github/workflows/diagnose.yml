@@ -47,13 +47,15 @@ jobs:
       # Salt okunur. Bir basligin altindaki butun satirlari, nasil gruplandiklarini
       # ve onlara dokunan kalici merge kurallarini basar; --live ile Spotify'in
       # su anki degerini de sorar.
-      - name: Inspect Until the End of Time
+      - name: Inspect the songs showing no daily
         continue-on-error: true
         working-directory: services/spotify-scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SP_DC: ${{ secrets.SP_DC }}
-        run: node inspect-title.js --live 'until the end of time'
+        run: |
+          node inspect-title.js --live --history=6 'give it to me'
+          node inspect-title.js --history=6 'until the end of time'
 
       # Salt okunur. "Toplam sismis mi?" sorusunun tek kesin cevabi: her grubun
       # MAX'ini tasiyan uyeyi Spotify'dan okuyup bizdekiyle karsilastir.

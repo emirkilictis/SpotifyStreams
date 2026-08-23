@@ -15,6 +15,8 @@ const { getPool, closePool } = require('./db');
 require('dotenv').config({ path: __dirname + '/../../.env' });
 
 const live = process.argv.includes('--live');
+const histArg = process.argv.slice(2).find(a => a.startsWith('--history='));
+const hist = histArg ? Number(histArg.split('=')[1]) : 0;
 const q = process.argv.slice(2).filter(a => !a.startsWith('--')).join(' ');
 const fmt = n => Number(n || 0).toLocaleString('en-US');
 
@@ -68,6 +70,27 @@ async function main() {
         console.log(`\n--- ${tbl}: ${m.length}`);
         for (const x of m) console.log(`  ${JSON.stringify(x)}`);
       } catch (e) { console.log(`\n--- ${tbl}: okunamadı (${e.message})`); }
+    }
+
+    // Son N gun: grubun degeri gunden gune ne yapmis. Daily "-" gorunuyorsa
+    // cevap burada — deger kipirdamamissa gunluk kazanc sifirdir.
+    if (hist) {
+      console.log(`\n--- Gruplarin son ${hist} gunu (deger = uyelerin MAX'i)`);
+      for (const g of grup) {
+        const h = (await client.query(
+          `SELECT x.recorded_date::text AS d, MAX(x.stream_count)::bigint AS v
+             FROM stream_stats x JOIN songs s ON s.id = x.song_id
+            WHERE COALESCE(s.canonical_id, s.id) = $1
+            GROUP BY 1 ORDER BY 1 DESC LIMIT $2`, [g.head, hist])).rows;
+        console.log(`  ${g.head_title}`);
+        let onceki = null;
+        for (const r of h.slice().reverse()) {
+          const fark = onceki === null ? null : Number(r.v) - onceki;
+          console.log(`      ${r.d}  ${fmt(r.v).padStart(14)}` +
+            (fark === null ? '' : `   ${fark > 0 ? '+' : ''}${fmt(fark)}`));
+          onceki = Number(r.v);
+        }
+      }
     }
 
     if (live) {
