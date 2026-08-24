@@ -54,13 +54,17 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SP_DC: ${{ secrets.SP_DC }}
         run: |
-          node inspect-title.js --live --history=6 'give it to me'
-          node inspect-title.js --history=6 'until the end of time'
+          node inspect-title.js --history=7 'give it to me'
+          node inspect-title.js --history=7 'holy grail'
 
       # Salt okunur. "Toplam sismis mi?" sorusunun tek kesin cevabi: her grubun
       # MAX'ini tasiyan uyeyi Spotify'dan okuyup bizdekiyle karsilastir.
+      # Canli okuma Spotify yavaslarsa dakikalarca asilabiliyor ve isin 10
+      # dakikalik butcesini yiyip ARDINDAN gelen SELECT adimlarini hic
+      # calistirmiyor. Bu adim yardimci, sonrakiler asil soru — sinirla.
       - name: Audit JT stored values against live Spotify
         continue-on-error: true
+        timeout-minutes: 3
         working-directory: services/spotify-scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -85,4 +89,4 @@ jobs:
           echo "--- Cardi B"
           node scripts/check-stats-sql.js 4kYSro6naA4h99UJvo89HB
           echo "--- Justin Timberlake"
-          node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7
+          node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7 37jTPJgwCCmIGMPB45jrPV
