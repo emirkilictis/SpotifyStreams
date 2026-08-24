@@ -8,9 +8,10 @@
  * tek güne düşer: tarih boşluğu olmadığı için daily_gain'in gün farkına bölme
  * kuralı devreye girmez. Toplam doğrudur, ama o günün günlüğü şişer.
  *
- * İki kaynağı ayırıyor:
  * Toplam, dashboard'un headline günü için hesaplanır — sayfada gördüğün günlük
  * sayıyla aynı gün, aynı kapsam.
+ *
+ * İki kaynağı ayırıyor:
  *
  *   KIRPMA  — stream_drop_corrections'ta bugün yazılmış bir düzeltme var ve
  *             değer o düzeltmenin öncesine dönmüş. Geri gelen fark bu.
@@ -53,12 +54,10 @@ const SQL = `
   kazanc AS (
     SELECT head, recorded_date, cum,
            cum - LAG(cum) OVER w AS fark,
-           -- Bugünden önceki 4 günde hiç hareket etmemiş mi?
-           cum - LAG(cum, 5) OVER w AS onceki5,
-           LAG(cum) OVER w - LAG(cum, 5) OVER w AS oncekiDortGun,
-           ROW_NUMBER() OVER (PARTITION BY head ORDER BY recorded_date DESC) AS rn
+           -- Bu günden önceki dört günde hiç hareket etmemiş mi?
+           LAG(cum) OVER w - LAG(cum, 5) OVER w AS oncekiDortGun
     FROM runmax WINDOW w AS (PARTITION BY head ORDER BY recorded_date)
-  )
+  ),
   -- Hangi gun? Dashboard'un headline gunu ile ayni kural: en yeni tarih degil,
   -- baslarin en az dortte birinin rapor ettigi en yeni tarih. Bayat-onarim gun
   -- ortasinda birkac satiri bugune yaziyor; en yeni tarihe kilitlenmek sayiyi
