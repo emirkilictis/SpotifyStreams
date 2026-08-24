@@ -43,43 +43,61 @@ function artistLatestAggCTE(songFilter) {
                ) AS cumulative
         FROM agg_cs
       ),
-      -- Ground a correction took away, so re-crossing it is not a gain.
+      -- A jump belongs to every day it covers, not just the day we saw it.
       --
-      -- When a playcount is corrected downwards the day loses its gain (the
-      -- running max cannot fall, so it reads 0) and the removal is reported on
-      -- its own line, deliberately outside daily_gain. The climb back up has to
-      -- be treated the same way, or the same streams are counted as earned a
-      -- second time on whatever day the value recovers.
+      -- daily_gain already divides by the date gap, so a song we did not read
+      -- for three days spreads its growth over those three days. A song we DID
+      -- read every day but whose value never moved gets no such treatment: the
+      -- rows are there, the gap is one day, and the whole backlog lands on
+      -- whatever day the value finally moves.
       --
-      -- It showed up as Give It To Me reading +1,189,826 and Holy Grail
-      -- +790,005 on 2026-08-24 — neither earned anything like that; both were
-      -- climbing back to where they had been before a correction the day
-      -- before. old_count is the peak the head held before the correction.
-      agg_corr AS (
-        SELECT head_id, MAX(old_count) AS old_count
-        FROM stream_drop_corrections
-        WHERE applied_on > CURRENT_DATE - 14
-        GROUP BY head_id
+      -- Holy Grail sat at 406,032,077 from 2026-08-17 to 08-23 and then read
+      -- 406,822,082 on the 24th. That +790,005 is seven days of listening, not
+      -- one day's, and it made the song look like it was suddenly enormous.
+      --
+      -- So measure a rise from the last day the value actually CHANGED, not
+      -- from the previous row, and give every day in between its share. Same
+      -- rule as the date-gap division, applied to the case where the dates are
+      -- present but the number is standing still.
+      agg_steps AS (
+        SELECT canonical_id, recorded_date, cumulative, stream_count,
+               CASE WHEN cumulative > LAG(cumulative) OVER w THEN 1 ELSE 0 END AS is_step,
+               (stream_count - LAG(stream_count) OVER w)::bigint AS real_change
+        FROM agg_runmax
+        WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
+      ),
+      -- The first day at or after this one on which the value moves. Every day
+      -- sharing that date is covered by the same rise.
+      agg_cover AS (
+        SELECT canonical_id, recorded_date, cumulative, real_change, is_step,
+               MIN(CASE WHEN is_step = 1 THEN recorded_date END) OVER (
+                 PARTITION BY canonical_id ORDER BY recorded_date
+                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+               ) AS cover_step_date
+        FROM agg_steps
+      ),
+      -- Each rise, with the span it covers: from the previous rise to this one.
+      agg_step_rows AS (
+        SELECT canonical_id,
+               recorded_date AS step_date,
+               (cumulative - LAG(cumulative) OVER w) AS step_size,
+               (recorded_date - LAG(recorded_date) OVER w) AS step_days
+        FROM agg_cover
+        WHERE is_step = 1
+        WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
       ),
       agg_gains AS (
-        SELECT r.canonical_id, r.recorded_date, r.cumulative,
-               -- The part of the day's rise that is still below the pre-correction
-               -- peak is recovered ground, not earnings. Once the head climbs past
-               -- that peak the term goes to zero on its own, so genuine growth
-               -- above it still counts.
-               (
-                 (r.cumulative - LAG(r.cumulative) OVER w)
-                 - GREATEST(
-                     0,
-                     LEAST(r.cumulative, COALESCE(c.old_count, 0))
-                       - LAG(r.cumulative) OVER w
-                   )
-               ) / NULLIF(r.recorded_date - LAG(r.recorded_date) OVER w, 0) AS daily_gain,
-               (r.stream_count - LAG(r.stream_count) OVER w)::bigint AS real_change,
-               ROW_NUMBER() OVER (PARTITION BY r.canonical_id ORDER BY r.recorded_date DESC) AS rn
-        FROM agg_runmax r
-        LEFT JOIN agg_corr c ON c.head_id = r.canonical_id
-        WINDOW w AS (PARTITION BY r.canonical_id ORDER BY r.recorded_date)
+        SELECT c.canonical_id, c.recorded_date, c.cumulative,
+               -- NULL past the last rise we have seen: the growth covering
+               -- those days has not been observed yet, so claiming a number
+               -- for them would be inventing one.
+               (sr.step_size / NULLIF(sr.step_days, 0)) AS daily_gain,
+               c.real_change,
+               ROW_NUMBER() OVER (PARTITION BY c.canonical_id ORDER BY c.recorded_date DESC) AS rn
+        FROM agg_cover c
+        LEFT JOIN agg_step_rows sr
+          ON sr.canonical_id = c.canonical_id
+         AND sr.step_date = c.cover_step_date
       ),
       -- Which day the artist-level headline is about, and how much each head
       -- earned ON that day.
