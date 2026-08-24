@@ -21,10 +21,23 @@ const { Pool } = require('pg');
 const artistId = (process.argv[2] || '31TPClRtHm23RisEBtV3X7').replace('spotify:artist:', '');
 const fmt = n => Number(n || 0).toLocaleString('en-US');
 
-// JT dışındaki her sanatçının kovası server.js'teki artistBucketMatchSQL ile
-// aynı: kendi primary_artist'i + extra_artist_songs'ta ona pinlenenler.
-const BUCKET = `(s.primary_artist = $1
-  OR s.id IN (SELECT song_id FROM extra_artist_songs WHERE artist_id = $2))`;
+// Kova, server.js'teki artistBucketMatchSQL ile aynı olmalı — yoksa ölçtüğün
+// sayı sayfanın gösterdiği sayı olmaz.
+//
+// JT'ninki bir CATCH-ALL: izlenen başka hiçbir sanatçıya ait olmayan her şey.
+// Burada bir süre "primary_artist = JT" yazıyordu ve bu, JT'nin en büyük
+// feature'larını dışarıda bırakıyordu — Holy Grail JAY-Z'nin, Give It To Me
+// Timbaland'ın primary_artist'ine sahip. O yüzden bu betik 6,497,788 derken
+// doğru kovayla bakan audit 9,903,258 diyordu, ve tam o şarkılar için yapılan
+// bir düzeltme burada hiç kıpırdamıyormuş gibi görünüyordu.
+const BUCKET = `(
+  CASE WHEN $2 = '31TPClRtHm23RisEBtV3X7'
+    THEN s.primary_artist IS NULL OR s.primary_artist NOT IN (
+           SELECT 'spotify:artist:' || artist_id FROM tracked_artists
+            WHERE artist_id <> '31TPClRtHm23RisEBtV3X7')
+    ELSE s.primary_artist = $1
+         OR s.id IN (SELECT song_id FROM extra_artist_songs WHERE artist_id = $2)
+  END)`;
 
 async function main() {
   if (!process.env.DATABASE_URL) { console.error('DATABASE_URL yok.'); process.exit(1); }
@@ -57,12 +70,7 @@ async function main() {
     WHERE ${filter}`;
 
   const uri = `spotify:artist:${artistId}`;
-  // JT'nin kovası bir "geri kalan her şey" kuralı (izlenen HER sanatçıyı dışlar),
-  // buradaki basit kural onu tarif etmiyor. Sorgunun kendisi yine de aynı, ama
-  // JT için basılan sayılar sayfadakiyle birebir olmaz.
-  if (artistId === '31TPClRtHm23RisEBtV3X7') {
-    console.log('\n[not] JT catch-all kovası burada yaklaşık — sayılar sayfadakiyle birebir değil, sorgu aynı.');
-  }
+
   const t0 = Date.now();
   const r = await pool.query(sql, [uri, artistId]);
   const ms = Date.now() - t0;
@@ -77,6 +85,22 @@ async function main() {
   const yakin = (v) => ort > 0 && Math.abs(v - ort) <= ort * 0.6;
   console.log(`\n  → yeni sayı 7 gün ortalamasına ${yakin(yeni) ? 'YAKIN' : 'UZAK'}, ` +
               `eski sayı ${yakin(eski) ? 'YAKIN' : 'UZAK'}.`);
+  // İkinci argüman bir baş id'siyse, o başın son günlerini SORGUNUN KENDİSİNDEN
+  // bas. Donmuş bir şarkının sıçraması gerçekten günlere bölünüyor mu sorusunun
+  // tek dürüst cevabı bu — toplamdan geri hesaplamak değil.
+  const head = process.argv[3];
+  if (head) {
+    const r2 = await pool.query(`
+      WITH ${artistLatestAggCTE(filter)}
+      SELECT recorded_date::text AS d, cumulative::bigint, daily_gain::bigint
+      FROM agg_gains WHERE canonical_id = $3
+      ORDER BY recorded_date DESC LIMIT 9`, [uri, artistId, head]);
+    console.log(`\n--- ${head} — sorgunun verdiği günlük değerler`);
+    for (const x of r2.rows.slice().reverse()) {
+      console.log(`  ${x.d}  ${fmt(x.cumulative).padStart(14)}  daily_gain ${x.daily_gain === null ? 'NULL' : fmt(x.daily_gain)}`);
+    }
+  }
+
   await pool.end();
 }
 

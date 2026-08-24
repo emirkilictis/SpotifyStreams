@@ -85,4 +85,4 @@ jobs:
           echo "--- Cardi B"
           node scripts/check-stats-sql.js 4kYSro6naA4h99UJvo89HB
           echo "--- Justin Timberlake"
-          node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7
+          node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7 37jTPJgwCCmIGMPB45jrPV
