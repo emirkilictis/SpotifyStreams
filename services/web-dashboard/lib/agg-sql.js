@@ -43,14 +43,43 @@ function artistLatestAggCTE(songFilter) {
                ) AS cumulative
         FROM agg_cs
       ),
+      -- Ground a correction took away, so re-crossing it is not a gain.
+      --
+      -- When a playcount is corrected downwards the day loses its gain (the
+      -- running max cannot fall, so it reads 0) and the removal is reported on
+      -- its own line, deliberately outside daily_gain. The climb back up has to
+      -- be treated the same way, or the same streams are counted as earned a
+      -- second time on whatever day the value recovers.
+      --
+      -- It showed up as Give It To Me reading +1,189,826 and Holy Grail
+      -- +790,005 on 2026-08-24 — neither earned anything like that; both were
+      -- climbing back to where they had been before a correction the day
+      -- before. old_count is the peak the head held before the correction.
+      agg_corr AS (
+        SELECT head_id, MAX(old_count) AS old_count
+        FROM stream_drop_corrections
+        WHERE applied_on > CURRENT_DATE - 14
+        GROUP BY head_id
+      ),
       agg_gains AS (
-        SELECT canonical_id, recorded_date, cumulative,
-               (cumulative - LAG(cumulative) OVER w)
-                 / NULLIF(recorded_date - LAG(recorded_date) OVER w, 0) AS daily_gain,
-               (stream_count - LAG(stream_count) OVER w)::bigint AS real_change,
-               ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
-        FROM agg_runmax
-        WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
+        SELECT r.canonical_id, r.recorded_date, r.cumulative,
+               -- The part of the day's rise that is still below the pre-correction
+               -- peak is recovered ground, not earnings. Once the head climbs past
+               -- that peak the term goes to zero on its own, so genuine growth
+               -- above it still counts.
+               (
+                 (r.cumulative - LAG(r.cumulative) OVER w)
+                 - GREATEST(
+                     0,
+                     LEAST(r.cumulative, COALESCE(c.old_count, 0))
+                       - LAG(r.cumulative) OVER w
+                   )
+               ) / NULLIF(r.recorded_date - LAG(r.recorded_date) OVER w, 0) AS daily_gain,
+               (r.stream_count - LAG(r.stream_count) OVER w)::bigint AS real_change,
+               ROW_NUMBER() OVER (PARTITION BY r.canonical_id ORDER BY r.recorded_date DESC) AS rn
+        FROM agg_runmax r
+        LEFT JOIN agg_corr c ON c.head_id = r.canonical_id
+        WINDOW w AS (PARTITION BY r.canonical_id ORDER BY r.recorded_date)
       ),
       -- Which day the artist-level headline is about, and how much each head
       -- earned ON that day.
