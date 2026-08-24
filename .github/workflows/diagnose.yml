@@ -82,6 +82,18 @@ jobs:
           SP_DC: ${{ secrets.SP_DC }}
         run: node verify-drop-candidates.js
 
+      # TEK SEFERLIK. Kirpmanin aldigi degeri track sayfasindan geri yazar.
+      # Yalnizca commit mesajinda [repair-stale] varsa calisir; yazan bir adimin
+      # her push'ta kendiliginden atesleme hakki yok.
+      - name: Restore stale playcounts (one-off)
+        if: contains(github.event.head_commit.message, '[repair-stale]')
+        timeout-minutes: 6
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SP_DC: ${{ secrets.SP_DC }}
+        run: node repair-stale-playcounts.js --apply --days=3 --limit=40 --min=1000000 --artist=31TPClRtHm23RisEBtV3X7
+
       # Salt okunur. Bugunun gunlugunun ne kadari o gun kazanildi, ne kadari
       # donmus bir degerin geri gelmesi?
       - name: Where today's JT daily comes from
