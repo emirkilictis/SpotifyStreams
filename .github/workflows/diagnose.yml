@@ -59,8 +59,12 @@ jobs:
 
       # Salt okunur. "Toplam sismis mi?" sorusunun tek kesin cevabi: her grubun
       # MAX'ini tasiyan uyeyi Spotify'dan okuyup bizdekiyle karsilastir.
+      # Canli okuma Spotify yavaslarsa dakikalarca asilabiliyor ve isin 10
+      # dakikalik butcesini yiyip ARDINDAN gelen SELECT adimlarini hic
+      # calistirmiyor. Bu adim yardimci, sonrakiler asil soru — sinirla.
       - name: Audit JT stored values against live Spotify
         continue-on-error: true
+        timeout-minutes: 3
         working-directory: services/spotify-scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
