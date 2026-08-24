@@ -100,8 +100,21 @@ async function main() {
     // --only-listed: tıraşlama yalnızca komut satırındaki id'lere. Ailede doğru
     // değeri taşıyan bir üye varsa şart.
     const clampIds = onlyListed ? new Set(observed.map(o => o.songId)) : null;
+    // Doğrulayıcı: bu araç canlı değerleri zaten yukarıda okudu, aynı sayfaları
+    // ikinci kez açmanın anlamı yok. reconcileStreamDrops artık kanıtsız
+    // kırpmıyor, kanıt burada elimizde.
+    const liveById = new Map(observed.map(o => [o.songId, o.count]));
     const applied = await reconcileStreamDrops(client, {
       minConfirmations: 1, forceHeads, onlyHeads: heads, clampIds,
+      verify: async (songIds) => {
+        const out = new Map();
+        for (const id of songIds) {
+          if (liveById.has(id)) { out.set(id, liveById.get(id)); continue; }
+          try { out.set(id, await fetchTrackPlaycount(page, id)); }
+          catch { out.set(id, null); }
+        }
+        return out;
+      },
     });
     await client.query('COMMIT');
     console.log(`\n[repair] ${applied.length} kayıt düzeltildi.`);

@@ -96,11 +96,14 @@ async function main() {
     let head = arg, label = arg;
     if (!/^[A-Za-z0-9]{22}$/.test(arg)) {
       const hit = await pool.query(
-        `SELECT COALESCE(canonical_id, id) AS head, title
-           FROM songs
-          WHERE LOWER(title) LIKE '%' || LOWER($1) || '%'
-            AND id NOT IN (SELECT song_id FROM hidden_songs)
-          ORDER BY stream_count DESC NULLS LAST LIMIT 1`, [arg]);
+        `SELECT COALESCE(s.canonical_id, s.id) AS head, s.title,
+                (SELECT MAX(ss.stream_count) FROM stream_stats ss
+                  JOIN songs s2 ON s2.id = ss.song_id
+                 WHERE COALESCE(s2.canonical_id, s2.id) = COALESCE(s.canonical_id, s.id)) AS v
+           FROM songs s
+          WHERE LOWER(s.title) LIKE '%' || LOWER($1) || '%'
+            AND s.id NOT IN (SELECT song_id FROM hidden_songs)
+          ORDER BY v DESC NULLS LAST LIMIT 1`, [arg]);
       if (!hit.rows.length) { console.log(`\n[!] "${arg}" hicbir sarkiyla eslesmedi.`); await pool.end(); return; }
       head = hit.rows[0].head; label = `${hit.rows[0].title} (${head})`;
     }

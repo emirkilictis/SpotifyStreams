@@ -8,7 +8,7 @@
 
 require('dotenv').config({ path: '../../.env' });
 
-const { launchBrowser, fetchAlbumTracks, fetchArtistAvatar } = require('./spotify');
+const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAvatar } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
 const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, reconcileStreamDrops, closePool } = require('./db');
 const { dedupCanonical } = require('./dedup');
@@ -963,7 +963,22 @@ async function run() {
       // total permanently inflated. Confirmed drops are corrected here, after
       // the catalogue is in, before dedup rebuilds the canonical mapping.
       try {
-        await reconcileStreamDrops(client);
+        // Kırpmanın kanıtı ŞARKININ KENDİ sayfası olmak zorunda. Buraya kadar
+        // gelen gözlemler albüm sayfasından okundu ve albüm sayfası günlerce
+        // eski kalabiliyor — eski bir sayfa, yükselmiş bir şarkıyı düşmüş gibi
+        // gösterip iki gün üst üste "teyit" üretiyor. "Give It To Me" böyle
+        // 1,189,826 kaybetti (2026-08-24). Aday başlar birkaç tane olduğu için
+        // bu, koşuya birkaç sayfa açmaktan fazlasına mal olmuyor.
+        await reconcileStreamDrops(client, {
+          verify: async (songIds) => {
+            const out = new Map();
+            for (const id of songIds) {
+              try { out.set(id, await fetchTrackPlaycount(page, id)); }
+              catch (e) { console.warn(`[drops] ${id} canlı okunamadı: ${e.message}`); out.set(id, null); }
+            }
+            return out;
+          },
+        });
       } catch (dropErr) {
         console.error('[scraper] Drop reconciliation failed (skipped):', dropErr.message);
       }
