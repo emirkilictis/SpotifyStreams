@@ -77,7 +77,22 @@ const DONMUS_SQL = `
       AND o.en_yuksek >= $2
       AND o.son_tarih >= CURRENT_DATE - $5::int  -- büsbütün terk edilmiş değil
       AND s.album_id IS NOT NULL
-      AND ($3::text IS NULL OR s.primary_artist = $3)
+      -- Sanatci kovasi panonunkiyle AYNI olmak zorunda. Burada bir sure
+      -- "primary_artist = $3" yaziyordu ve bu, JT'ye scope'lanan her
+      -- calistirmada JT'nin EN BUYUK feature'larini sessizce disarida
+      -- birakiyordu: Holy Grail'in primary'si JAY-Z, Give It To Me'ninki
+      -- Timbaland. Yani tam da en cok bayatlayan sarkilar (baskasinin
+      -- albuminde yasadiklari icin) onarimdan hic gecmiyordu.
+      -- JT'nin kovasi bir CATCH-ALL: izlenen baska hicbir sanatciya ait
+      -- olmayan her sey.
+      AND ($3::text IS NULL OR
+           CASE WHEN $6 = '31TPClRtHm23RisEBtV3X7'
+             THEN s.primary_artist IS NULL OR s.primary_artist NOT IN (
+                    SELECT 'spotify:artist:' || artist_id FROM tracked_artists
+                     WHERE artist_id <> '31TPClRtHm23RisEBtV3X7')
+             ELSE s.primary_artist = $3
+                  OR s.id IN (SELECT song_id FROM extra_artist_songs WHERE artist_id = $6)
+           END)
     -- Grup başına TEK aday. Aksi halde bir şarkının edition'ları turu yiyor:
     -- ilk çalıştırmada "Beauty and the Beast" tek başına 5 slot aldı ve sırada
     -- bekleyen başka şarkılara gelmedi. Grubun en yüksek üyesini onarmak
@@ -93,12 +108,13 @@ async function main() {
   const limit = Number(arg('limit', 20));
   const seen = Number(arg('seen', 7));
   const artist = arg('artist', null);
-  const artistParam = artist ? `spotify:artist:${artist.replace('spotify:artist:', '')}` : null;
+  const artistId = artist ? artist.replace('spotify:artist:', '') : null;
+  const artistParam = artistId ? `spotify:artist:${artistId}` : null;
 
   const client = await getPool().connect();
   let browser, page;
   try {
-    const { rows } = await client.query(DONMUS_SQL, [days, MIN_STREAMS, artistParam, limit, seen]);
+    const { rows } = await client.query(DONMUS_SQL, [days, MIN_STREAMS, artistParam, limit, seen, artistId]);
     if (!rows.length) {
       console.log(`[stale] ${days} gündür sabit kalan şarkı yok. Yapacak bir şey yok.`);
       return;
