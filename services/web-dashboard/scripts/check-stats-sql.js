@@ -88,14 +88,29 @@ async function main() {
   // İkinci argüman bir baş id'siyse, o başın son günlerini SORGUNUN KENDİSİNDEN
   // bas. Donmuş bir şarkının sıçraması gerçekten günlere bölünüyor mu sorusunun
   // tek dürüst cevabı bu — toplamdan geri hesaplamak değil.
-  const head = process.argv[3];
-  if (head) {
+  // Argüman bir baş id'si ya da bir baslik parcasi olabilir. Parca verilince
+  // bas id'sini once cozer — bir sarkinin hangi id'de toplandigi dedup'a gore
+  // degisebiliyor, ve yanlis id'ye bakmak tam da olcumu bos cikaran sey.
+  const arg = process.argv[3];
+  if (arg) {
+    let head = arg, label = arg;
+    if (!/^[A-Za-z0-9]{22}$/.test(arg)) {
+      const hit = await pool.query(
+        `SELECT COALESCE(canonical_id, id) AS head, title
+           FROM songs
+          WHERE LOWER(title) LIKE '%' || LOWER($1) || '%'
+            AND id NOT IN (SELECT song_id FROM hidden_songs)
+          ORDER BY stream_count DESC NULLS LAST LIMIT 1`, [arg]);
+      if (!hit.rows.length) { console.log(`\n[!] "${arg}" hicbir sarkiyla eslesmedi.`); await pool.end(); return; }
+      head = hit.rows[0].head; label = `${hit.rows[0].title} (${head})`;
+    }
     const r2 = await pool.query(`
       WITH ${artistLatestAggCTE(filter)}
       SELECT recorded_date::text AS d, cumulative::bigint, daily_gain::bigint
       FROM agg_gains WHERE canonical_id = $3
-      ORDER BY recorded_date DESC LIMIT 9`, [uri, artistId, head]);
-    console.log(`\n--- ${head} — sorgunun verdiği günlük değerler`);
+      ORDER BY recorded_date DESC LIMIT 12`, [uri, artistId, head]);
+    console.log(`\n--- ${label} — sorgunun verdigi gunluk degerler`);
+    if (!r2.rows.length) console.log('  (bu bas sanatcinin kovasinda yok — filtre disinda kaliyor)');
     for (const x of r2.rows.slice().reverse()) {
       console.log(`  ${x.d}  ${fmt(x.cumulative).padStart(14)}  daily_gain ${x.daily_gain === null ? 'NULL' : fmt(x.daily_gain)}`);
     }
