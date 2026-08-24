@@ -9,6 +9,9 @@
  * kuralı devreye girmez. Toplam doğrudur, ama o günün günlüğü şişer.
  *
  * İki kaynağı ayırıyor:
+ * Toplam, dashboard'un headline günü için hesaplanır — sayfada gördüğün günlük
+ * sayıyla aynı gün, aynı kapsam.
+ *
  *   KIRPMA  — stream_drop_corrections'ta bugün yazılmış bir düzeltme var ve
  *             değer o düzeltmenin öncesine dönmüş. Geri gelen fark bu.
  *   DONMA   — düzeltme yok ama şarkı önceki günlerde hiç kıpırdamamış; bugünkü
@@ -56,6 +59,19 @@ const SQL = `
            ROW_NUMBER() OVER (PARTITION BY head ORDER BY recorded_date DESC) AS rn
     FROM runmax WINDOW w AS (PARTITION BY head ORDER BY recorded_date)
   )
+  -- Hangi gun? Dashboard'un headline gunu ile ayni kural: en yeni tarih degil,
+  -- baslarin en az dortte birinin rapor ettigi en yeni tarih. Bayat-onarim gun
+  -- ortasinda birkac satiri bugune yaziyor; en yeni tarihe kilitlenmek sayiyi
+  -- o bir avuc sarkiya indirirdi.
+  gunler AS (
+    SELECT recorded_date, COUNT(*) AS heads
+    FROM kazanc WHERE fark IS NOT NULL GROUP BY recorded_date
+  ),
+  gun_sec AS (
+    SELECT recorded_date FROM gunler
+    WHERE heads >= GREATEST((SELECT MAX(heads) FROM gunler) / 4, 1)
+    ORDER BY recorded_date DESC LIMIT 1
+  )
   SELECT k.head, s.title, k.recorded_date::text AS d, k.fark::bigint,
          k.oncekiDortGun::bigint AS onceki_dort_gun,
          c.old_count::bigint, c.new_count::bigint, k.cum::bigint
@@ -68,7 +84,7 @@ const SQL = `
     FROM stream_drop_corrections WHERE applied_on = CURRENT_DATE
     GROUP BY head_id
   ) c ON c.head_id = k.head
-  WHERE k.rn = 1 AND k.fark > 0
+  WHERE k.recorded_date = (SELECT recorded_date FROM gun_sec) AND k.fark > 0
   ORDER BY k.fark DESC`;
 
 async function main() {
