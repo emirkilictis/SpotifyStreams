@@ -288,7 +288,30 @@ async function recordStreamDrops(client, drops, observedDate) {
 // "Until the End of Time"ın grubunda solo kopyalar yanlış (düetin sayısını
 // taşıyorlar) ama düetin kendi 99,953,435'i doğru — aile geneline tıraş atmak
 // düetten 69,5M götürürdü.
-async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DAYS, lookbackDays = 14, forceHeads = new Set(), onlyHeads = new Set(), clampIds = null } = {}) {
+//
+// verify: async (songIds) => Map(songId -> playcount|null). ŞARKININ KENDİ
+// sayfasından okur. Bu, düşüşün gerçek olup olmadığına karar veren KANITTIR ve
+// zorunludur — verilmezse hiçbir şey kırpılmaz.
+//
+// Sebebi: gözlemler normal taramadan geliyor, normal tarama playcount'u ALBÜM
+// sayfasından okuyor ve albüm sayfası günlerce eski kalabiliyor. Eski bir albüm
+// sayfası, aslında yükselmiş bir şarkıyı düşmüş gibi gösteriyor; aynı eski sayı
+// ikinci gün de gelince "iki ayrı günde teyit edildi" sayılıyor ve kırpma
+// yazılıyor. Sonra track sayfası değeri tekrar yukarı çekiyor, ertesi gece yine
+// kırpılıyor: şarkı iki değer arasında gidip geliyor.
+//
+// 2026-08-24'te "Give It To Me" tam bunu yaşadı. Track sayfası 543,155,769,
+// bizdeki 541,965,943 — tam 1,189,826 fark, yani bir gün önce "yanlış daily"
+// diye görünen yükselişin aynısı geri alınmıştı. Düşüş oranı %0,22 olduğu için
+// %25'lik koruma da devreye girmiyordu; büyük düşüşe karşı korumamız vardı,
+// KÜÇÜK ve UYDURMA düşüşe karşı hiçbir şeyimiz yoktu.
+//
+// Canlı okuma düşüşü yalanlarsa gözlemler SİLİNİR. Silinmezse aynı sahte kanıt
+// her gece yeniden değerlendirilir ve döngü sürer. Canlı değer bizdekinden
+// büyükse ayrıca yazılır: kaçırdığımız gerçek büyüme odur.
+//
+// Okunamayan bir şarkı kırpılmaz. Okunamamak kanıt değildir.
+async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DAYS, lookbackDays = 14, forceHeads = new Set(), onlyHeads = new Set(), clampIds = null, verify = null } = {}) {
   const today = await todayIstanbul(client);
   // Latest observation per canonical family, plus how many separate days that
   // family has been seen low. Grouping by the head is what lets ten aliases of
@@ -327,12 +350,60 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
   );
 
   const applied = [];
+  const refuted = [];
   for (const row of candidates.rows) {
     if (onlyHeads.size && !onlyHeads.has(row.head)) continue;
     const oldCount = Number(row.old_count);
-    const newCount = Number(row.new_count);
-    const drop = oldCount - newCount;
+    let   newCount = Number(row.new_count);
+    let   drop = oldCount - newCount;
     if (!(drop > 0)) continue;
+
+    // KANIT: şarkının kendi sayfası. Albüm sayfasından gelen gözlem tek başına
+    // kırpma gerekçesi değil (bkz. yukarıdaki not).
+    if (!verify) {
+      console.warn(`[drops] ${row.head}: canlı doğrulama yok — kırpılmadı. reconcileStreamDrops'a verify verilmeli.`);
+      continue;
+    }
+    const famIds = (await client.query(
+      `SELECT id FROM songs WHERE COALESCE(canonical_id, id) = $1`, [row.head]
+    )).rows.map(r => r.id);
+    const liveMap = await verify(clampIds ? famIds.filter(id => clampIds.has(id)) : famIds);
+    const liveVals = [...liveMap.values()].filter(v => Number.isFinite(v) && v > 0);
+    if (!liveVals.length) {
+      console.warn(`[drops] ${row.head}: canlı playcount okunamadı — kırpılmadı.`);
+      continue;
+    }
+    const liveMax = Math.max(...liveVals);
+    if (liveMax >= oldCount) {
+      // Düşüş yalanlandı. Sahte kanıtı sil, yoksa her gece yeniden denenir.
+      await client.query(
+        `DELETE FROM stream_observations
+          WHERE song_id = ANY($1) AND observed_date > ($2::date - $3::int)`,
+        [famIds, today, lookbackDays]
+      );
+      // Canlı değer bizdekinden büyükse kaçırdığımız büyümedir; yukarı yaz.
+      const risen = [...liveMap.entries()].filter(([, v]) => Number.isFinite(v) && v > 0);
+      if (risen.length) {
+        const vr = risen.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2}, $${risen.length * 2 + 1}::date, NOW())`).join(', ');
+        await client.query(
+          `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
+           VALUES ${vr}
+           ON CONFLICT (song_id, recorded_date) DO UPDATE
+             SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
+                 recorded_at  = NOW()`,
+          [...risen.flatMap(([id, v]) => [id, v]), today]
+        );
+      }
+      console.log(`[drops] ${row.head}: düşüş YALANLANDI (bizde ${oldCount}, şarkı sayfası ${liveMax}) — gözlemler silindi.`);
+      refuted.push({ head: row.head, oldCount, liveMax });
+      continue;
+    }
+    // Kırpılacak değer albüm sayfasının dediği değil, şarkının kendi sayfasının
+    // dediğidir: otorite orası.
+    newCount = liveMax;
+    drop = oldCount - newCount;
+    if (!(drop > 0)) continue;
+
     if (drop / oldCount > DROP_SANITY_MAX_RATIO) {
       if (!forceHeads.has(row.head)) {
         console.warn(`[drops] ${row.head}: ${drop} (${((drop / oldCount) * 100).toFixed(1)}%) düşüş fazla büyük — bozuk okuma sayıldı, dokunulmadı.`);
@@ -341,10 +412,7 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
       console.warn(`[drops] ${row.head}: ${drop} (${((drop / oldCount) * 100).toFixed(1)}%) düşüş — koruma ADIYLA atlandı (--force).`);
     }
 
-    const fam = await client.query(
-      `SELECT id FROM songs WHERE COALESCE(canonical_id, id) = $1`, [row.head]
-    );
-    let ids = fam.rows.map(r => r.id);
+    let ids = famIds;
     if (clampIds) ids = ids.filter(id => clampIds.has(id));
     if (!ids.length) continue;
 
@@ -371,6 +439,7 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
     console.log(`[drops] ${row.head}: ${oldCount} → ${newCount} (−${drop}), ${ids.length} sürüm, ${clamped.rowCount} satır tıraşlandı.`);
     applied.push({ head: row.head, oldCount, newCount, drop, songs: ids.length, rows: clamped.rowCount });
   }
+  if (refuted.length) console.log(`[drops] ${refuted.length} düşüş canlı okumayla yalanlandı, kırpılmadı.`);
   return applied;
 }
 

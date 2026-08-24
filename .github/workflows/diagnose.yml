@@ -54,8 +54,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SP_DC: ${{ secrets.SP_DC }}
         run: |
-          node inspect-title.js --history=7 'give it to me'
-          node inspect-title.js --history=7 'holy grail'
+          node inspect-title.js --history=12 --live 'give it to me'
 
       # Salt okunur. "Toplam sismis mi?" sorusunun tek kesin cevabi: her grubun
       # MAX'ini tasiyan uyeyi Spotify'dan okuyup bizdekiyle karsilastir.
@@ -63,6 +62,7 @@ jobs:
       # dakikalik butcesini yiyip ARDINDAN gelen SELECT adimlarini hic
       # calistirmiyor. Bu adim yardimci, sonrakiler asil soru — sinirla.
       - name: Audit JT stored values against live Spotify
+        if: false
         continue-on-error: true
         timeout-minutes: 3
         working-directory: services/spotify-scraper
@@ -70,6 +70,29 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SP_DC: ${{ secrets.SP_DC }}
         run: node audit-live-vs-stored.js --artist=31TPClRtHm23RisEBtV3X7 --top=60
+
+      # Kirpma bu gece ne yapardi? Gercek reconcileStreamDrops, gercek canli
+      # dogrulama, ama --apply olmadan: karar gorunur, veri kipirdamaz.
+      - name: What tonight's clamp would do
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SP_DC: ${{ secrets.SP_DC }}
+        run: node verify-drop-candidates.js
+
+      # TEK SEFERLIK. Kirpmanin aldigi degeri track sayfasindan geri yazar.
+      # Yalnizca commit mesajinda [repair-stale] varsa calisir; yazan bir adimin
+      # her push'ta kendiliginden atesleme hakki yok.
+      - name: Restore stale playcounts (one-off)
+        if: contains(github.event.head_commit.message, '[repair-stale]')
+        timeout-minutes: 6
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SP_DC: ${{ secrets.SP_DC }}
+        run: node repair-stale-playcounts.js --apply --days=3 --limit=40 --min=1000000 --artist=31TPClRtHm23RisEBtV3X7
 
       # Salt okunur. Bugunun gunlugunun ne kadari o gun kazanildi, ne kadari
       # donmus bir degerin geri gelmesi?
@@ -89,4 +112,4 @@ jobs:
           echo "--- Cardi B"
           node scripts/check-stats-sql.js 4kYSro6naA4h99UJvo89HB
           echo "--- Justin Timberlake"
-          node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7 37jTPJgwCCmIGMPB45jrPV
+          node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7 'give it to me'
