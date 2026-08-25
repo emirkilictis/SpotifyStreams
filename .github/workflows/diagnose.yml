@@ -103,6 +103,25 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node audit-catchup.js --artist=31TPClRtHm23RisEBtV3X7
 
+      # "Site yavas" uc ayri yerden gelebilir: Render'in uykudan uyanmasi,
+      # Postgres'in sorguyu calistirmasi, ya da sorgunun kendisinin
+      # pahalilasmasi. Bu adim ucunu de ayri ayri olcer.
+      - name: How slow, and where
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: services/web-dashboard
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          npm install --no-audit --no-fund
+          echo "--- canli site (Render): ilk istek uyandirmayi da icerir"
+          for i in 1 2 3; do
+            curl -s -o /dev/null -w "  deneme $i: baglanti %{time_connect}s  ilk bayt %{time_starttransfer}s  toplam %{time_total}s  kod %{http_code}\n" \
+              --max-time 90 https://spotify-streams-dashboard.onrender.com/health || echo "  deneme $i: ulasilamadi"
+          done
+          echo "--- veritabani"
+          node scripts/bench-agg.js
+
       - name: Check the served headline query
         working-directory: services/web-dashboard
         env:
