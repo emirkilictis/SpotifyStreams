@@ -113,3 +113,25 @@ jobs:
           node scripts/check-stats-sql.js 4kYSro6naA4h99UJvo89HB
           echo "--- Justin Timberlake"
           node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7 'give it to me'
+
+      # "Site yavas" uc ayri yerden gelebilir: Render'in uykudan uyanmasi,
+      # Postgres'in sorguyu calistirmasi, ya da sorgunun kendisinin
+      # pahalilasmasi. Bu adim ucunu de ayri ayri olcer.
+      - name: How slow, and where
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: services/web-dashboard
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          npm install --no-audit --no-fund
+          echo "--- veritabani"
+          node scripts/bench-agg.js
+          # Site olcumu EN SONA: log kuyrugundan okunan tek sey bu olsun.
+          # 0,6 saniyelik bir sorgu tek basina "cok yavas" hissi vermez; asil
+          # soru sunucunun uykudan uyanip uyanmadigi.
+          echo "--- canli site (Render): ilk istek uyandirmayi da icerir"
+          for i in 1 2 3; do
+            curl -s -o /dev/null -w "  deneme $i: baglanti %{time_connect}s  ilk bayt %{time_starttransfer}s  toplam %{time_total}s  kod %{http_code}\n" \
+              --max-time 90 https://spotify-streams-dashboard.onrender.com/health || echo "  deneme $i: ulasilamadi"
+          done

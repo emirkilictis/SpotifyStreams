@@ -66,38 +66,36 @@ function artistLatestAggCTE(songFilter) {
         FROM agg_runmax
         WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
       ),
-      -- The first day at or after this one on which the value moves. Every day
-      -- sharing that date is covered by the same rise.
-      agg_cover AS (
-        SELECT canonical_id, recorded_date, cumulative, real_change, is_step,
-               MIN(CASE WHEN is_step = 1 THEN recorded_date END) OVER (
-                 PARTITION BY canonical_id ORDER BY recorded_date
-                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
-               ) AS cover_step_date
-        FROM agg_steps
-      ),
-      -- Each rise, with the span it covers: from the previous rise to this one.
-      agg_step_rows AS (
-        SELECT canonical_id,
-               recorded_date AS step_date,
-               (cumulative - LAG(cumulative) OVER w) AS step_size,
-               (recorded_date - LAG(recorded_date) OVER w) AS step_days
-        FROM agg_cover
-        WHERE is_step = 1
-        WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
-      ),
+      -- Her satir icin: kendisini KAPSAYAN yukselis (tarihi >= kendi tarihi olan
+      -- ilk yukselis) ve ondan bir onceki yukselis. Ikisinin farki yukselisin
+      -- boyu ve kapsadigi gun sayisi.
+      --
+      -- Dort pencerenin de PARTITION BY / ORDER BY'i ayni, yani Postgres hepsini
+      -- TEK siralamayla besliyor. Ilk yazimda bunu uc CTE ve bir join ile
+      -- yapmistim: yukselisleri filtreleyip yeniden pencerelemek ikinci bir
+      -- siralama, join de ustune bir hash gerektiriyordu ve JT'nin sorgusu
+      -- 304 ms'den 677 ms'ye cikmisti. Ayni sonuc, yarisindan az maliyetle.
+      --
+      -- cumulative azalmadigi icin gelecekteki yukselislerin MIN'i = ilk
+      -- gelecek yukselis; gecmistekilerin MAX'i = son gecmis yukselis.
+      -- Geriye bakan pencere CURRENT ROW'u disliyor (1 PRECEDING): bir yukselis
+      -- satirinin "onceki yukselisi" kendisi olamaz.
       agg_gains AS (
-        SELECT c.canonical_id, c.recorded_date, c.cumulative,
-               -- NULL past the last rise we have seen: the growth covering
-               -- those days has not been observed yet, so claiming a number
-               -- for them would be inventing one.
-               (sr.step_size / NULLIF(sr.step_days, 0)) AS daily_gain,
-               c.real_change,
-               ROW_NUMBER() OVER (PARTITION BY c.canonical_id ORDER BY c.recorded_date DESC) AS rn
-        FROM agg_cover c
-        LEFT JOIN agg_step_rows sr
-          ON sr.canonical_id = c.canonical_id
-         AND sr.step_date = c.cover_step_date
+        SELECT canonical_id, recorded_date, cumulative, real_change,
+               (
+                 MIN(CASE WHEN is_step = 1 THEN cumulative END) OVER ileri
+                 - MAX(CASE WHEN is_step = 1 THEN cumulative END) OVER geri
+               ) / NULLIF(
+                 MIN(CASE WHEN is_step = 1 THEN recorded_date END) OVER ileri
+                 - MAX(CASE WHEN is_step = 1 THEN recorded_date END) OVER geri, 0
+               ) AS daily_gain,
+               ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
+        FROM agg_steps
+        WINDOW
+          ileri AS (PARTITION BY canonical_id ORDER BY recorded_date
+                    ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING),
+          geri  AS (PARTITION BY canonical_id ORDER BY recorded_date
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
       ),
       -- Which day the artist-level headline is about, and how much each head
       -- earned ON that day.
