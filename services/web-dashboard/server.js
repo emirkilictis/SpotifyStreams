@@ -436,7 +436,29 @@ async function refreshOgStatsCache() {
   try {
     const roster = activeArtistsCache;
     const next = new Map();
-    await Promise.all(roster.map(async (a) => {
+    // Bu is SIRALI ve yavas olmali. Eskiden Promise.all ile 57 sanatcinin
+    // tamami ayni anda baslatiliyordu ve her biri agir bir aggregate — 5
+    // baglantilik havuzdan gecen 57 sorgu. Firtina suruyorken gelen ziyaretci
+    // istegi havuzda sira bekliyordu: cache'li istekler 0,25sn iken cache-miss
+    // 7 saniyeye ciktigi olcum bunun izidir.
+    //
+    // Ciktisi yalnizca link onizlemesindeki rakamlar. Bir dakikada bitmesi de
+    // yeterli; onemli olan bunu beklerken kimsenin sayfasinin acilmamasi.
+    // Ayni anda en fazla ikisi, aralarinda kisa bir nefes.
+    const OG_ESZAMANLI = 2;
+    const OG_NEFES_MS = 120;
+    const kuyruk = [...roster];
+    const isci = async () => {
+      for (;;) {
+        const a = kuyruk.shift();
+        if (!a) return;
+        await ogTekSanatci(a, next);
+        await new Promise((r) => { setTimeout(r, OG_NEFES_MS).unref?.(); });
+      }
+    };
+    await Promise.all(Array.from({ length: OG_ESZAMANLI }, isci));
+
+    async function ogTekSanatci(a, next) {
       try {
         const uri = `spotify:artist:${a.artist_id}`;
         const r = await dbQuery(
@@ -467,7 +489,7 @@ async function refreshOgStatsCache() {
         );
         next.set(a.artist_id, { total: r.rows[0].total, daily: r.rows[0].daily });
       } catch (_) { /* skip this artist; keep whatever was cached */ }
-    }));
+    }
     if (next.size) ogStatsCache = next;
   } catch (err) {
     console.warn('[og] stats cache refresh failed:', err.code || err.message);
