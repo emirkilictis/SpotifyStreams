@@ -48,6 +48,7 @@ jobs:
       # ve onlara dokunan kalici merge kurallarini basar; --live ile Spotify'in
       # su anki degerini de sorar.
       - name: Inspect the songs showing no daily
+        if: false
         continue-on-error: true
         working-directory: services/spotify-scraper
         env:
@@ -74,6 +75,7 @@ jobs:
       # Kirpma bu gece ne yapardi? Gercek reconcileStreamDrops, gercek canli
       # dogrulama, ama --apply olmadan: karar gorunur, veri kipirdamaz.
       - name: What tonight's clamp would do
+        if: false
         continue-on-error: true
         timeout-minutes: 5
         working-directory: services/spotify-scraper
@@ -97,13 +99,24 @@ jobs:
       # Salt okunur. Bugunun gunlugunun ne kadari o gun kazanildi, ne kadari
       # donmus bir degerin geri gelmesi?
       - name: Where today's JT daily comes from
+        if: false
         continue-on-error: true
         working-directory: services/spotify-scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node audit-catchup.js --artist=31TPClRtHm23RisEBtV3X7
 
+      # Ariana ve Anitta'da Kworb'a gore buyuk bir eksik var. Kesfedilmemis mi,
+      # kesfedilip okunmamis mi — ikisinin cozumu farkli, once ayir.
+      - name: Catalogue coverage
+        continue-on-error: true
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node diagnose-catalogue.js "ariana" "anitta" "timberlake"
+
       - name: Check the served headline query
+        if: false
         working-directory: services/web-dashboard
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -118,6 +131,7 @@ jobs:
       # Postgres'in sorguyu calistirmasi, ya da sorgunun kendisinin
       # pahalilasmasi. Bu adim ucunu de ayri ayri olcer.
       - name: How slow, and where
+        if: false
         continue-on-error: true
         timeout-minutes: 5
         working-directory: services/web-dashboard
