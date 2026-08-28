@@ -5882,3 +5882,13 @@ select.tc-input { cursor: pointer; }
   .picker-filter { padding: 6px 11px; font-size: 12px; }
   .new-artists-note { font-size: 12px; }
 }
+
+/* Acilis sanatcisi butonu aktifken: yildiz dolu ve vurgulu, boylece "bu
+   sanatci senin acilis sayfan" bilgisi tek bakista okunuyor. */
+#home-artist-btn.home-active {
+  color: var(--accent, #1ed760);
+  border-color: rgba(30, 215, 96, 0.45);
+  background: rgba(30, 215, 96, 0.12);
+}
+
+#home-artist-btn.home-active svg { fill: currentColor; }

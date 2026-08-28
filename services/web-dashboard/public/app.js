@@ -4034,6 +4034,41 @@ let artistSearchQuery = '';
 // koymaktansa filtresiz birakmak dogru.
 let artistCategoryFilter = 'all';
 
+// ===== Acilis sanatcisi ("home artist") =====
+// Ziyaretcilerin cogu tek bir sanatci icin geliyor ve her seferinde 57 kartlik
+// gridden onu bulmak zorunda kaliyordu. Bir kez secip her ziyarette dogrudan
+// oraya dusmeleri icin tercihi tarayicida tutuyoruz — sitenin hesap sistemi yok
+// ve bir favori icin hesap istemek ozellikten buyuk bir bedel olurdu.
+//
+// UC KURAL, ucu de kullaniciyi kilitli hissettirmemek icin:
+//  1. Paylasilan /?artist=<id> linki HER ZAMAN kazanir. Biri sana bir sanatci
+//     yolladiysa kendi favorine dusmen sasirtici olur.
+//  2. Yonlendirme yalnizca SAYFA ILK ACILDIGINDA. "← Artists" ile gride donen
+//     biri hemen geri firlatilmaz — o zaman gridden cikis imkansiz olurdu.
+//  3. Ayni butondan kaldirilabilir; ikinci tiklama tercihi siler.
+const HOME_ARTIST_KEY = 'home-artist';
+
+function getHomeArtist() {
+  try { return localStorage.getItem(HOME_ARTIST_KEY) || null; } catch { return null; }
+}
+function setHomeArtist(id) {
+  try { id ? localStorage.setItem(HOME_ARTIST_KEY, id) : localStorage.removeItem(HOME_ARTIST_KEY); } catch {}
+}
+
+// Butonun etiketi her zaman GORUNTULENEN sanatciya gore: bu sanatci acilis
+// sayfasiysa "Home ✓", degilse "Make home".
+function syncHomeArtistBtn() {
+  const btn = document.getElementById('home-artist-btn');
+  const label = document.getElementById('home-artist-label');
+  if (!btn || !label || !currentArtist) return;
+  const aktif = getHomeArtist() === currentArtist;
+  btn.classList.toggle('home-active', aktif);
+  label.textContent = aktif ? 'Home ✓' : 'Make home';
+  btn.title = aktif
+    ? 'This artist opens when you visit. Click to clear.'
+    : 'Open this artist when you visit the site';
+}
+
 const KATEGORI_ETIKET = { female: 'Female', male: 'Male', kpop: 'K-pop', ai: 'AI' };
 const KATEGORI_SIRA = ['female', 'male', 'kpop', 'ai'];
 
@@ -4127,6 +4162,7 @@ async function enterDashboard(artistId, artistName) {
     if (statsGrid) statsGrid.classList.remove('hidden');
     setActiveView('songs');
   }
+  syncHomeArtistBtn();
   setDashboardLoading(true);
   try {
     await Promise.all([fetchData(), fetchAlbumsData()]);
@@ -4314,6 +4350,21 @@ if (backToPickerBtn) {
   backToPickerBtn.addEventListener('click', showPicker);
 }
 
+// Acilis sanatcisi butonu. Ayni buton hem kurar hem kaldirir — ayri bir
+// "kaldir" kontrolu koymak, tercihi degistirmenin zor oldugu izlenimini verir.
+const homeArtistBtn = document.getElementById('home-artist-btn');
+if (homeArtistBtn) {
+  homeArtistBtn.addEventListener('click', () => {
+    if (!currentArtist) return;
+    const zatenHome = getHomeArtist() === currentArtist;
+    setHomeArtist(zatenHome ? null : currentArtist);
+    // Geri bildirim etiketin kendisi: "Make home" → "Home ✓". Ayri bir toast
+    // eklemedim, bu kod tabaninda toast altyapisi yok ve tek bir mesaj icin
+    // kurmak butonun anlattigi seyi tekrar etmekten baska ise yaramazdi.
+    syncHomeArtistBtn();
+  });
+}
+
 // Search input filter binding
 if (artistSearchInput) {
   artistSearchInput.addEventListener('input', (e) => {
@@ -4455,7 +4506,16 @@ function deriveThemeFromAccent(hex) {
       .replace('spotify:artist:', '').trim();
     const a = want && byId[want];
     if (a && a.active !== false && !isArtistLocked(want)) {
-      enterDashboard(want, a.name);
+      enterDashboard(want, a.name);          // paylasilan link favoriyi ezer
+    } else if (!want) {
+      // Acilis sanatcisi. Silinmis/pasif/kilitlenmis bir favori sessizce
+      // yok sayilir ve ziyaretci gridde kalir — kirik bir tercih yuzunden
+      // kimse bos ekranda kalmamali.
+      const home = getHomeArtist();
+      const h = home && byId[home];
+      if (h && h.active !== false && !isArtistLocked(home)) {
+        enterDashboard(home, h.name);
+      }
     }
   } catch (_) { /* on any error the picker remains as the fallback */ }
 
