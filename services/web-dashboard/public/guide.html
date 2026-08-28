@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guide — Spotify Streams</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <style>
+    /* Kilavuz kendi sayfasi: panonun degiskenlerini kullaniyor ama kendi
+       tipografisini tasiyor — burasi okunacak bir metin, taranacak bir tablo
+       degil, o yuzden satir uzunlugu 62ch'te tutuluyor. */
+    .guide-wrap { max-width: 820px; margin: 0 auto; padding: 34px 20px 90px; }
+    .guide-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 30px; }
+    .guide-top h1 { font-size: 27px; margin: 0; letter-spacing: -0.01em; }
+    .guide-back {
+      flex: none; padding: 8px 15px; border-radius: 999px; text-decoration: none;
+      border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 600;
+    }
+    .guide-back:hover { background: rgba(255,255,255,0.09); color: #fff; }
+    .guide-lede { color: rgba(255,255,255,0.62); font-size: 15px; line-height: 1.65; max-width: 62ch; margin: 0 0 34px; }
+
+    .guide-section { margin: 0 0 38px; }
+    .guide-section > h2 {
+      font-size: 13px; text-transform: uppercase; letter-spacing: 0.09em;
+      color: var(--accent-green, #1ed760); margin: 0 0 16px;
+    }
+
+    .feature { padding: 15px 0; border-top: 1px solid rgba(255,255,255,0.07); }
+    .feature:first-of-type { border-top: none; padding-top: 0; }
+    .feature h3 { font-size: 15.5px; margin: 0 0 5px; color: #fff; }
+    .feature p { margin: 0; font-size: 14px; line-height: 1.6; color: rgba(255,255,255,0.6); max-width: 62ch; }
+    .feature .where {
+      display: inline-block; margin-top: 7px; padding: 2px 8px; border-radius: 5px;
+      background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.5);
+      font-size: 11.5px; font-weight: 600;
+    }
+
+    /* Bildirim adimlari. iPhone kendi kutusunda ve once geliyor: push'un
+       calismadigi tek platform o, ve sebebi kullanicinin yaptigi bir hata
+       degil — Apple, ana ekrana eklenmemis siteye bildirim gondermiyor. */
+    .plat { border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; background: rgba(255,255,255,0.025); }
+    .plat.ios { border-color: rgba(30,215,96,0.28); background: rgba(30,215,96,0.05); }
+    .plat h3 { margin: 0 0 4px; font-size: 15.5px; color: #fff; }
+    .plat .note { margin: 0 0 13px; font-size: 13.5px; line-height: 1.55; color: rgba(255,255,255,0.6); }
+    .plat ol { margin: 0; padding-left: 20px; }
+    .plat li { font-size: 14px; line-height: 1.75; color: rgba(255,255,255,0.78); }
+    .plat li b { color: #fff; }
+
+    .callout {
+      margin-top: 26px; padding: 14px 16px; border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.09); background: rgba(255,255,255,0.03);
+      font-size: 13.5px; line-height: 1.6; color: rgba(255,255,255,0.6);
+    }
+    .callout b { color: rgba(255,255,255,0.85); }
+
+    @media (max-width: 560px) {
+      .guide-wrap { padding: 24px 16px 70px; }
+      .guide-top h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body class="dashboard-body">
+  <div class="guide-wrap">
+    <div class="guide-top">
+      <h1>Guide</h1>
+      <a href="/" class="guide-back">← Back</a>
+    </div>
+
+    <p class="guide-lede">
+      Everything here comes from Spotify itself and updates once a day, right after
+      Spotify refreshes its play counts. Numbers on this site are the same numbers
+      you would read off a track page — just kept, compared and totalled for you.
+    </p>
+
+    <section class="guide-section">
+      <h2>Notifications</h2>
+
+      <div class="plat ios">
+        <h3>iPhone &amp; iPad</h3>
+        <p class="note">
+          Apple only delivers notifications to a site that has been added to the
+          Home Screen. In Safari alone the bell will not work — this is Apple's rule,
+          not something you have set up wrong. It takes about twenty seconds:
+        </p>
+        <ol>
+          <li>Open this site in <b>Safari</b> (Chrome on iPhone cannot do this).</li>
+          <li>Tap the <b>Share</b> button — the square with an arrow pointing up.</li>
+          <li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+          <li>Close Safari and open the site again <b>from the new home screen icon</b>.</li>
+          <li>Pick your artist, tap <b>Notify me</b>, then <b>Allow</b>.</li>
+        </ol>
+      </div>
+
+      <div class="plat">
+        <h3>Android</h3>
+        <p class="note">Nothing to install.</p>
+        <ol>
+          <li>Open the artist you want to follow.</li>
+          <li>Tap <b>Notify me</b> in the header, then <b>Allow</b>.</li>
+        </ol>
+      </div>
+
+      <div class="plat">
+        <h3>Computer</h3>
+        <p class="note">Chrome, Edge and Firefox all work. Safari on Mac needs the site added to the Dock first, the same way iPhone does.</p>
+        <ol>
+          <li>Open the artist you want to follow.</li>
+          <li>Click <b>Notify me</b>, then <b>Allow</b>.</li>
+        </ol>
+      </div>
+
+      <div class="callout">
+        <b>What you get:</b> one notification per artist per day, sent when that
+        artist's new daily numbers land — not on a timer, so it arrives whenever
+        Spotify actually updates. You follow artists one at a time, so following
+        two means two notifications. Tap <b>Notify me</b> again on any artist to stop.
+        <br><br>
+        <b>No bell in the header?</b> Then the browser you are using cannot receive
+        notifications — on iPhone that almost always means the site was opened in
+        Safari instead of from the home screen icon.
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <h2>What else the site does</h2>
+
+      <div class="feature">
+        <h3>Favorites</h3>
+        <p>The star in the header pins an artist to the top of the list, above
+          everything else, so the ones you actually follow are the first thing you
+          see. Add as many as you like; the same button removes them. Kept in this
+          browser, so there is no account to make.</p>
+        <span class="where">Artist page → ★ Add to favorites</span>
+      </div>
+
+      <div class="feature">
+        <h3>Trending Now</h3>
+        <p>Songs gaining noticeably more than they usually do, measured against each
+          song's own recent average rather than a fixed number — so a catalogue track
+          waking up shows here even if a hit still out-streams it.</p>
+        <span class="where">Artist page, under the totals</span>
+      </div>
+
+      <div class="feature">
+        <h3>Time Machine</h3>
+        <p>Any past date, as the site recorded it that day: totals, daily gains and
+          the song order at that moment.</p>
+        <span class="where">Artist page → Time Machine</span>
+      </div>
+
+      <div class="feature">
+        <h3>Milestones</h3>
+        <p>Which songs are closest to their next round number, and how many days away
+          they are at the pace they are running now.</p>
+        <span class="where">Artist page → Milestones tab</span>
+      </div>
+
+      <div class="feature">
+        <h3>Compare</h3>
+        <p>Two artists side by side — totals, daily pace and monthly listeners.</p>
+        <span class="where">Artist list → Compare</span>
+      </div>
+
+      <div class="feature">
+        <h3>Share cards</h3>
+        <p>Save the day's numbers as an image — a whole catalogue, one album, or a
+          single song. Made for posting; the numbers are drawn in, not screenshotted.</p>
+        <span class="where">Artist page → Daily Card, or any song → Download</span>
+      </div>
+
+      <div class="feature">
+        <h3>Filters on the artist list</h3>
+        <p>Female, Male, K-pop and AI, with counts. Newly added artists announce
+          themselves at the top and wear a NEW badge for two weeks.</p>
+        <span class="where">Artist list</span>
+      </div>
+
+      <div class="feature">
+        <h3>Request an artist</h3>
+        <p>Anyone can ask for an artist to be tracked, or report a song that looks
+          wrong. Both go to the same place and get read.</p>
+        <span class="where">The chat bubble, bottom right</span>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <h2>About the numbers</h2>
+      <div class="feature">
+        <h3>Why a song sometimes shows no daily gain</h3>
+        <p>Spotify occasionally stops updating a single track's counter for a few
+          days. The site keeps reading it and shows what Spotify reports, so that
+          song sits at zero until the counter moves again — then the days it missed
+          arrive together.</p>
+      </div>
+      <div class="feature">
+        <h3>Why a total can go down</h3>
+        <p>Spotify removes plays it decides were not genuine. When that happens the
+          site follows Spotify rather than keeping a number that no longer exists,
+          and the correction is noted on the song.</p>
+      </div>
+      <div class="feature">
+        <h3>Different versions of a song</h3>
+        <p>Remixes, sped-up edits and live versions are counted as their own songs,
+          because on Spotify that is what they are. The same recording appearing on
+          several albums is only counted once.</p>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

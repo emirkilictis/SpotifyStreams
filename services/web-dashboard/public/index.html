@@ -58,6 +58,12 @@
         </button>
       </div>
 
+      <!-- Favoriler. Icerigi app.js dolduruyor; favori yoksa hic gorunmez. -->
+      <section id="favorites-section" class="favorites-section hidden">
+        <h2 class="favorites-title">Favorites</h2>
+        <div id="favorites-grid" class="picker-grid roster-ready favorites-grid"></div>
+      </section>
+
       <!-- Yeni eklenen sanatci duyurusu. Icerigi app.js dolduruyor; kimse yeni
            degilse hic gorunmuyor (bos bir kutu birakmaz). -->
       <div id="new-artists-note" class="new-artists-note hidden"></div>
@@ -185,6 +191,7 @@
       </div>
 
       <div class="picker-footer">
+        <a href="/guide.html" class="picker-logout-link" style="margin-right: 12px;">Guide</a>
         <a href="/admin.html" class="picker-logout-link" style="color: var(--accent-green); margin-right: 12px;">Admin Panel</a>
         <a href="/logout" class="picker-logout-link">Log Out</a>
         <div class="footer-credit">
@@ -243,12 +250,13 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15.5 14"></polyline></svg>
           <span>Time Machine</span>
         </button>
-        <!-- Bu sanatciyi acilis sayfasi yap. Tercih tarayicida (localStorage)
-             tutuluyor; sitenin hesabi yok ve bir favori icin hesap istemek
-             ozelligin kendisinden buyuk bir bedel olurdu. -->
-        <button id="home-artist-btn" class="btn-secondary btn-share" type="button" title="Open this artist when you visit the site">
+        <!-- Favorilere ekle. Favoriler sanatci listesinin en ustune
+             sabitleniyor. Tercih tarayicida (localStorage) tutuluyor; sitenin
+             hesabi yok ve bir favori listesi icin hesap istemek ozelligin
+             kendisinden buyuk bir bedel olurdu. -->
+        <button id="favorite-btn" class="btn-secondary btn-share" type="button" title="Pin this artist to the top of the artist list">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2.5 15 9 22 9.7 16.8 14.3 18.4 21 12 17.4 5.6 21 7.2 14.3 2 9.7 9 9"></polygon></svg>
-          <span id="home-artist-label">Make home</span>
+          <span id="favorite-btn-label">Add to favorites</span>
         </button>
         <button id="back-to-picker-btn" class="btn-secondary" title="Switch Artist"><span class="bp-arrow">←&nbsp;</span>Artists</button>
         <a href="/logout" class="btn-secondary">Log Out</a>

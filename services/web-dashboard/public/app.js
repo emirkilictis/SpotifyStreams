@@ -4034,39 +4034,44 @@ let artistSearchQuery = '';
 // koymaktansa filtresiz birakmak dogru.
 let artistCategoryFilter = 'all';
 
-// ===== Acilis sanatcisi ("home artist") =====
-// Ziyaretcilerin cogu tek bir sanatci icin geliyor ve her seferinde 57 kartlik
-// gridden onu bulmak zorunda kaliyordu. Bir kez secip her ziyarette dogrudan
-// oraya dusmeleri icin tercihi tarayicida tutuyoruz — sitenin hesap sistemi yok
-// ve bir favori icin hesap istemek ozellikten buyuk bir bedel olurdu.
+// ===== Favoriler =====
+// Ziyaretcilerin cogu birkac sanatci icin geliyor ve her seferinde 57 kartlik
+// gridden onlari ariyordu. Favoriler listenin EN USTUNE sabitleniyor, boylece
+// hicbir tiklama gerekmeden gorunuyorlar.
 //
-// UC KURAL, ucu de kullaniciyi kilitli hissettirmemek icin:
-//  1. Paylasilan /?artist=<id> linki HER ZAMAN kazanir. Biri sana bir sanatci
-//     yolladiysa kendi favorine dusmen sasirtici olur.
-//  2. Yonlendirme yalnizca SAYFA ILK ACILDIGINDA. "← Artists" ile gride donen
-//     biri hemen geri firlatilmaz — o zaman gridden cikis imkansiz olurdu.
-//  3. Ayni butondan kaldirilabilir; ikinci tiklama tercihi siler.
-const HOME_ARTIST_KEY = 'home-artist';
+// Once tek bir "acilis sanatcisi" yapmistim: site dogrudan o sanatciya
+// aciliyordu. Coklu favori daha iyi cikti — insanlar tek sanatci takip etmiyor,
+// ve otomatik yonlendirme gride donmeyi zorlastirdigi icin kilitli hissettiren
+// bir tarafi vardi. Burada yonlendirme yok; sadece erisim kisaliyor.
+//
+// Tercih tarayicida (localStorage) duruyor: sitenin hesap sistemi yok ve bir
+// favori listesi icin hesap istemek ozellikten buyuk bir bedel olurdu.
+const FAVORITES_KEY = 'favorite-artists';
 
-function getHomeArtist() {
-  try { return localStorage.getItem(HOME_ARTIST_KEY) || null; } catch { return null; }
+function getFavorites() {
+  try {
+    const ham = JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
+    return Array.isArray(ham) ? ham.filter(x => typeof x === 'string') : [];
+  } catch { return []; }
 }
-function setHomeArtist(id) {
-  try { id ? localStorage.setItem(HOME_ARTIST_KEY, id) : localStorage.removeItem(HOME_ARTIST_KEY); } catch {}
+function setFavorites(list) {
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...new Set(list)])); } catch {}
+}
+function isFavorite(id) { return getFavorites().includes(id); }
+function toggleFavorite(id) {
+  const f = getFavorites();
+  setFavorites(f.includes(id) ? f.filter(x => x !== id) : [...f, id]);
 }
 
-// Butonun etiketi her zaman GORUNTULENEN sanatciya gore: bu sanatci acilis
-// sayfasiysa "Home ✓", degilse "Make home".
-function syncHomeArtistBtn() {
-  const btn = document.getElementById('home-artist-btn');
-  const label = document.getElementById('home-artist-label');
+// Buton etiketi her zaman GORUNTULENEN sanatciya gore.
+function syncFavoriteBtn() {
+  const btn = document.getElementById('favorite-btn');
+  const label = document.getElementById('favorite-btn-label');
   if (!btn || !label || !currentArtist) return;
-  const aktif = getHomeArtist() === currentArtist;
-  btn.classList.toggle('home-active', aktif);
-  label.textContent = aktif ? 'Home ✓' : 'Make home';
-  btn.title = aktif
-    ? 'This artist opens when you visit. Click to clear.'
-    : 'Open this artist when you visit the site';
+  const fav = isFavorite(currentArtist);
+  btn.classList.toggle('fav-active', fav);
+  label.textContent = fav ? 'Favorited' : 'Add to favorites';
+  btn.title = fav ? 'Remove from your favorites' : 'Pin this artist to the top of the list';
 }
 
 const KATEGORI_ETIKET = { female: 'Female', male: 'Male', kpop: 'K-pop', ai: 'AI' };
@@ -4162,7 +4167,7 @@ async function enterDashboard(artistId, artistName) {
     if (statsGrid) statsGrid.classList.remove('hidden');
     setActiveView('songs');
   }
-  syncHomeArtistBtn();
+  syncFavoriteBtn();
   setDashboardLoading(true);
   try {
     await Promise.all([fetchData(), fetchAlbumsData()]);
@@ -4210,10 +4215,13 @@ const isArtistLocked = (id) => {
   return !!(a && a.locked) && !unlockedArtists.has(id);
 };
 
-// Picker card click handlers using event delegation
+// Picker card click handlers using event delegation.
+// Ayni isleyici IKI kaba baglaniyor: ana grid ve favoriler serisi. Favori
+// kartlari ayri bir kapta durdugu icin sadece grid'e baglamak onlari
+// tiklanamaz birakirdi.
 const pickerGridContainer = document.querySelector('.picker-grid');
-if (pickerGridContainer) {
-  pickerGridContainer.addEventListener('click', async (e) => {
+const pickerCardClick = (() => {
+  const handler = async (e) => {
     const card = e.target.closest('.picker-card');
     if (!card) return;
     const artistId = card.dataset.artist;
@@ -4247,16 +4255,93 @@ if (pickerGridContainer) {
       console.error('Error verifying access code:', err);
       alert('Could not reach the server.');
     }
-  });
-}
+  };
+  return handler;
+})();
+if (pickerGridContainer) pickerGridContainer.addEventListener('click', pickerCardClick);
+const favoritesGridContainer = document.getElementById('favorites-grid');
+if (favoritesGridContainer) favoritesGridContainer.addEventListener('click', pickerCardClick);
 
 // Build (or rebuild) the picker cards + dropdown from currentRoster, honouring
 // the admin `locked` flag and any artists unlocked this session. Called once by
 // applyRoster and again whenever an artist is unlocked.
+// Tek bir picker karti uretir. Iki yerde kart basiliyor (favoriler serisi
+// ve ana grid), bu yuzden ayri bir fonksiyon: ikisini kopyalayip birinde
+// duzeltme yapmayi unutmak, farkli davranan iki kart demek olurdu.
+function buildPickerCard(a, index) {
+    const locked = isArtistLocked(a.artist_id);
+    const card = document.createElement('button');
+    card.className = locked ? 'picker-card locked-card' : 'picker-card';
+    card.dataset.artist = a.artist_id;
+    card.dataset.realName = a.name;
+    card.dataset.name = locked ? 'Locked Artist' : a.name;
+    const accent = /^#[0-9a-f]{6}$/i.test(a.accent || '') ? a.accent : '#1ed760';
+    card.style.setProperty('--picker-artist-accent', locked ? '#a855f7' : accent);
+    // Without this the card is an unlabelled <button> — screen readers and
+    // keyboard users get "button" and nothing else.
+    card.setAttribute('aria-label', locked ? 'Locked artist' : a.name);
+
+    if (locked) {
+      card.innerHTML = `
+        <div class="picker-card-img-wrap locked-img-wrap">
+          <div class="lock-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lock-svg">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
+          <div class="picker-card-overlay"></div>
+        </div>
+        <div class="picker-card-info">
+          <span class="picker-card-accent" aria-hidden="true"></span>
+          <h3>Locked Artist</h3>
+        </div>
+      `;
+    } else {
+      // Only the first visible row is render-critical. With 40+ artists,
+      // eagerly downloading every avatar delays the picker for no benefit.
+      const loading = index < 6 ? 'eager' : 'lazy';
+      const fetchPriority = index < 6 ? 'high' : 'low';
+      card.innerHTML = `
+        <div class="picker-card-img-wrap">
+          <img src="${escHtml(a.image_url || '/images/default.jpg')}" alt="${escHtml(a.name)}" class="picker-card-img" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async">
+          <div class="picker-card-overlay"></div>
+          ${yeniMi(a) ? '<span class="picker-new-badge">NEW</span>' : ''}
+        </div>
+        <div class="picker-card-info">
+          <span class="picker-card-accent" aria-hidden="true"></span>
+          <h3>${escHtml(a.name)}</h3>
+        </div>
+      `;
+    }
+  return card;
+}
+
+// Favori serisi. Ana gridin USTUNDE duruyor ve arama/kategori filtresinden
+// etkilenmiyor: favoriler kisisel bir kisayol, gecici bir filtrenin altinda
+// kaybolmamali.
+function renderFavorites() {
+  const bolum = document.getElementById('favorites-section');
+  const grid = document.getElementById('favorites-grid');
+  if (!bolum || !grid) return;
+  const favler = getFavorites();
+  const roster = currentRoster || [];
+  // Kaldirilmis/pasif/kilitli favoriler sessizce dusuyor — kirik bir kayit
+  // yuzunden kimse tiklanamayan bir kart gormemeli.
+  const kartlar = favler
+    .map(id => roster.find(a => a.artist_id === id))
+    .filter(a => a && a.active !== false && !isArtistLocked(a.artist_id));
+  if (!kartlar.length) { bolum.classList.add('hidden'); grid.innerHTML = ''; return; }
+  bolum.classList.remove('hidden');
+  grid.innerHTML = '';
+  kartlar.forEach((a, i) => grid.appendChild(buildPickerCard(a, i)));
+}
+
 function renderPickerRoster() {
   const roster = currentRoster;
   // Cipler ve duyuru da roster'dan turuyor; ayni yerden guncellenince
   // sayilar listeyle her zaman tutarli kaliyor.
+  renderFavorites();
   renderPickerFilters();
   renderNewArtistsNote();
   const grid = document.querySelector('.picker-grid');
@@ -4280,52 +4365,7 @@ function renderPickerRoster() {
         : `<div class="picker-no-results">No artists in this category yet</div>`;
     } else {
       filteredRoster.forEach((a, index) => {
-        const locked = isArtistLocked(a.artist_id);
-        const card = document.createElement('button');
-        card.className = locked ? 'picker-card locked-card' : 'picker-card';
-        card.dataset.artist = a.artist_id;
-        card.dataset.realName = a.name;
-        card.dataset.name = locked ? 'Locked Artist' : a.name;
-        const accent = /^#[0-9a-f]{6}$/i.test(a.accent || '') ? a.accent : '#1ed760';
-        card.style.setProperty('--picker-artist-accent', locked ? '#a855f7' : accent);
-        // Without this the card is an unlabelled <button> — screen readers and
-        // keyboard users get "button" and nothing else.
-        card.setAttribute('aria-label', locked ? 'Locked artist' : a.name);
-
-        if (locked) {
-          card.innerHTML = `
-            <div class="picker-card-img-wrap locked-img-wrap">
-              <div class="lock-placeholder">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lock-svg">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                </svg>
-              </div>
-              <div class="picker-card-overlay"></div>
-            </div>
-            <div class="picker-card-info">
-              <span class="picker-card-accent" aria-hidden="true"></span>
-              <h3>Locked Artist</h3>
-            </div>
-          `;
-        } else {
-          // Only the first visible row is render-critical. With 40+ artists,
-          // eagerly downloading every avatar delays the picker for no benefit.
-          const loading = index < 6 ? 'eager' : 'lazy';
-          const fetchPriority = index < 6 ? 'high' : 'low';
-          card.innerHTML = `
-            <div class="picker-card-img-wrap">
-              <img src="${escHtml(a.image_url || '/images/default.jpg')}" alt="${escHtml(a.name)}" class="picker-card-img" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async">
-              <div class="picker-card-overlay"></div>
-              ${yeniMi(a) ? '<span class="picker-new-badge">NEW</span>' : ''}
-            </div>
-            <div class="picker-card-info">
-              <span class="picker-card-accent" aria-hidden="true"></span>
-              <h3>${escHtml(a.name)}</h3>
-            </div>
-          `;
-        }
-        grid.appendChild(card);
+        grid.appendChild(buildPickerCard(a, index));
       });
     }
   }
@@ -4350,18 +4390,16 @@ if (backToPickerBtn) {
   backToPickerBtn.addEventListener('click', showPicker);
 }
 
-// Acilis sanatcisi butonu. Ayni buton hem kurar hem kaldirir — ayri bir
-// "kaldir" kontrolu koymak, tercihi degistirmenin zor oldugu izlenimini verir.
-const homeArtistBtn = document.getElementById('home-artist-btn');
-if (homeArtistBtn) {
-  homeArtistBtn.addEventListener('click', () => {
+// Favori butonu. Ayni buton hem ekler hem cikarir — ayri bir "kaldir"
+// kontrolu, tercihi geri almanin zor oldugu izlenimini verir.
+const favoriteBtn = document.getElementById('favorite-btn');
+if (favoriteBtn) {
+  favoriteBtn.addEventListener('click', () => {
     if (!currentArtist) return;
-    const zatenHome = getHomeArtist() === currentArtist;
-    setHomeArtist(zatenHome ? null : currentArtist);
-    // Geri bildirim etiketin kendisi: "Make home" → "Home ✓". Ayri bir toast
-    // eklemedim, bu kod tabaninda toast altyapisi yok ve tek bir mesaj icin
-    // kurmak butonun anlattigi seyi tekrar etmekten baska ise yaramazdi.
-    syncHomeArtistBtn();
+    toggleFavorite(currentArtist);
+    // Geri bildirim etiketin kendisi: "Add to favorites" → "Favorited".
+    syncFavoriteBtn();
+    renderFavorites();   // gride donuldugunde seri guncel olsun
   });
 }
 
@@ -4506,16 +4544,7 @@ function deriveThemeFromAccent(hex) {
       .replace('spotify:artist:', '').trim();
     const a = want && byId[want];
     if (a && a.active !== false && !isArtistLocked(want)) {
-      enterDashboard(want, a.name);          // paylasilan link favoriyi ezer
-    } else if (!want) {
-      // Acilis sanatcisi. Silinmis/pasif/kilitlenmis bir favori sessizce
-      // yok sayilir ve ziyaretci gridde kalir — kirik bir tercih yuzunden
-      // kimse bos ekranda kalmamali.
-      const home = getHomeArtist();
-      const h = home && byId[home];
-      if (h && h.active !== false && !isArtistLocked(home)) {
-        enterDashboard(home, h.name);
-      }
+      enterDashboard(want, a.name);
     }
   } catch (_) { /* on any error the picker remains as the fallback */ }
 

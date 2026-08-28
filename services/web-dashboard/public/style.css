@@ -5883,12 +5883,37 @@ select.tc-input { cursor: pointer; }
   .new-artists-note { font-size: 12px; }
 }
 
-/* Acilis sanatcisi butonu aktifken: yildiz dolu ve vurgulu, boylece "bu
-   sanatci senin acilis sayfan" bilgisi tek bakista okunuyor. */
-#home-artist-btn.home-active {
+/* Favori butonu aktifken: yildiz dolu ve vurgulu, "bu sanatci favorilerinde"
+   bilgisi tek bakista okunuyor. */
+#favorite-btn.fav-active {
   color: var(--accent, #1ed760);
   border-color: rgba(30, 215, 96, 0.45);
   background: rgba(30, 215, 96, 0.12);
 }
 
-#home-artist-btn.home-active svg { fill: currentColor; }
+#favorite-btn.fav-active svg { fill: currentColor; }
+
+/* Favoriler serisi. Ana gridin ustunde, kendi basligiyla ayrilmis bir bolum:
+   kisisel kisayol oldugu icin listenin geri kalanindan gorsel olarak ayri
+   durmasi gerekiyor. */
+.favorites-section { margin: 0 auto 22px; }
+
+.favorites-title {
+  margin: 0 0 12px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.favorites-grid { margin-bottom: 0; }
+
+.favorites-section::after {
+  content: '';
+  display: block;
+  max-width: 340px;
+  margin: 22px auto 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
