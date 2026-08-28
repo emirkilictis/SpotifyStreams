@@ -2541,7 +2541,11 @@ app.delete('/api/feedback/:id', requireAdmin, async (req, res) => {
 app.get('/api/artists', cacheFor(CACHE_TTL_ROSTER_MS, () => 'artists'), async (req, res) => {
   try {
     const r = await dbQuery(
-      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked
+      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked,
+              categories,
+              -- Picker rozeti "yeni" derken tarihe bakar; created_at'i string
+              -- olarak veriyoruz ki tarayici saat dilimi gunu kaydirmasin.
+              to_char(created_at, 'YYYY-MM-DD') AS added_on
        FROM tracked_artists WHERE active = true ORDER BY sort_order, name`
     );
     if (r.rows.length) return res.json(r.rows);

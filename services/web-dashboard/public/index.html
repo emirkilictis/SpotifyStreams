@@ -58,6 +58,15 @@
         </button>
       </div>
 
+      <!-- Yeni eklenen sanatci duyurusu. Icerigi app.js dolduruyor; kimse yeni
+           degilse hic gorunmuyor (bos bir kutu birakmaz). -->
+      <div id="new-artists-note" class="new-artists-note hidden"></div>
+
+      <!-- Kategori filtreleri. Sanatci birden fazla etiket tasiyabiliyor
+           (LISA hem female hem kpop), o yuzden secim TEK secim: iki etiketin
+           kesisimi degil, tek bir kova gosteriliyor. -->
+      <div id="picker-filters" class="picker-filters" role="tablist" aria-label="Filter artists"></div>
+
       <div class="picker-grid">
         <button class="picker-card" data-artist="31TPClRtHm23RisEBtV3X7" data-name="Justin Timberlake">
           <div class="picker-card-img-wrap">

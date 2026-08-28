@@ -1403,7 +1403,7 @@ albumModal.addEventListener('click', (e) => {
 //
 // Kapatmak için metni boşaltmak yeterli.
 const SITE_NOTICE = {
-  text: 'Emir is away until 29 August. Updates continue automatically.',
+  text: '',   // bos = duyuru yok (tatil notu 2026-08-28'de kaldirildi)
   until: '2026-08-29',
   key: 'site-notice-vacation-2026-08',   // değişince kapatanlara tekrar gösterilir
 };
@@ -4027,6 +4027,71 @@ const artistSearchInput = document.getElementById('artist-search-input');
 const clearSearchBtn = document.getElementById('clear-search-btn');
 let artistSearchQuery = '';
 
+// ===== Picker kategori filtresi + "yeni eklendi" rozeti =====
+// Etiketler tracked_artists.categories'ten geliyor ve bir sanatci birden fazla
+// tasiyabiliyor (LISA hem female hem kpop). Filtre TEK secim: kesisim degil,
+// tek kova. Etiketsiz sanatcilar yalnizca "All"da gorunur — yanlis bir kovaya
+// koymaktansa filtresiz birakmak dogru.
+let artistCategoryFilter = 'all';
+
+const KATEGORI_ETIKET = { female: 'Female', male: 'Male', kpop: 'K-pop', ai: 'AI' };
+const KATEGORI_SIRA = ['female', 'male', 'kpop', 'ai'];
+
+// Kac gun "yeni" sayilir. Iki hafta: bir donusu kacirsan bile duyuruyu
+// goruyorsun, ama Eylul'de hala "yeni" diye durmuyor.
+const YENI_GUN = 14;
+
+function yeniMi(a) {
+  if (!a || !a.added_on) return false;
+  const eklendi = new Date(`${a.added_on}T12:00:00Z`).getTime();
+  if (!Number.isFinite(eklendi)) return false;
+  return (Date.now() - eklendi) < YENI_GUN * 864e5;
+}
+
+function renderPickerFilters() {
+  const wrap = document.getElementById('picker-filters');
+  if (!wrap) return;
+  // Yalnizca gercekten kullanilan etiketler icin cip cikar: bos bir "AI"
+  // sekmesi tiklandiginda bos ekran demek.
+  const mevcut = new Set();
+  (currentRoster || []).forEach(a => (a.categories || []).forEach(c => mevcut.add(c)));
+  const cipler = [['all', 'All']].concat(
+    KATEGORI_SIRA.filter(c => mevcut.has(c)).map(c => [c, KATEGORI_ETIKET[c] || c])
+  );
+  if (cipler.length < 2) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = cipler.map(([id, label]) => {
+    const say = id === 'all'
+      ? (currentRoster || []).length
+      : (currentRoster || []).filter(a => (a.categories || []).includes(id)).length;
+    const aktif = artistCategoryFilter === id;
+    return `<button type="button" role="tab" aria-selected="${aktif}" class="picker-filter${aktif ? ' active' : ''}" data-cat="${escHtml(id)}">${escHtml(label)}<span class="picker-filter-count">${say}</span></button>`;
+  }).join('');
+  wrap.querySelectorAll('.picker-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+      artistCategoryFilter = btn.dataset.cat;
+      renderPickerRoster();
+    });
+  });
+}
+
+function renderNewArtistsNote() {
+  const el = document.getElementById('new-artists-note');
+  if (!el) return;
+  const yeniler = (currentRoster || []).filter(yeniMi)
+    .sort((a, b) => String(b.added_on).localeCompare(String(a.added_on)));
+  if (!yeniler.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  // En fazla bes isim. Yogun bir haftada on iki isim tek satirda duvar oluyor
+  // ve duyuru olmaktan cikiyor; gerisi sayiya iniyor, hepsi zaten gridde NEW
+  // rozetiyle duruyor.
+  const GOSTER = 5;
+  const adlar = yeniler.slice(0, GOSTER).map(a => escHtml(a.name)).join(', ');
+  const kalan = yeniler.length - GOSTER;
+  el.classList.remove('hidden');
+  el.innerHTML = `<span class="new-artists-tag">NEW</span>` +
+    `<span>Just added: ${adlar}${kalan > 0 ? ` and ${kalan} more` : ''}</span>`;
+}
+
 // Enter dashboard for a specific artist
 async function enterDashboard(artistId, artistName) {
   currentArtist = artistId;
@@ -4154,12 +4219,18 @@ if (pickerGridContainer) {
 // applyRoster and again whenever an artist is unlocked.
 function renderPickerRoster() {
   const roster = currentRoster;
+  // Cipler ve duyuru da roster'dan turuyor; ayni yerden guncellenince
+  // sayilar listeyle her zaman tutarli kaliyor.
+  renderPickerFilters();
+  renderNewArtistsNote();
   const grid = document.querySelector('.picker-grid');
   if (grid) {
     grid.classList.add('roster-ready');   // reveal now that we have the live roster
     grid.innerHTML = '';
 
     const filteredRoster = roster.filter(a => {
+      if (artistCategoryFilter !== 'all' &&
+          !(a.categories || []).includes(artistCategoryFilter)) return false;
       const query = artistSearchQuery.toLowerCase().trim();
       if (!query) return true;
       const nameMatch = a.name.toLowerCase().includes(query);
@@ -4168,7 +4239,9 @@ function renderPickerRoster() {
     });
 
     if (filteredRoster.length === 0) {
-      grid.innerHTML = `<div class="picker-no-results">No artists found matching "${escHtml(artistSearchQuery)}"</div>`;
+      grid.innerHTML = artistSearchQuery.trim()
+        ? `<div class="picker-no-results">No artists found matching "${escHtml(artistSearchQuery)}"</div>`
+        : `<div class="picker-no-results">No artists in this category yet</div>`;
     } else {
       filteredRoster.forEach((a, index) => {
         const locked = isArtistLocked(a.artist_id);
@@ -4208,6 +4281,7 @@ function renderPickerRoster() {
             <div class="picker-card-img-wrap">
               <img src="${escHtml(a.image_url || '/images/default.jpg')}" alt="${escHtml(a.name)}" class="picker-card-img" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async">
               <div class="picker-card-overlay"></div>
+              ${yeniMi(a) ? '<span class="picker-new-badge">NEW</span>' : ''}
             </div>
             <div class="picker-card-info">
               <span class="picker-card-accent" aria-hidden="true"></span>
