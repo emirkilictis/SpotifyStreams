@@ -58,27 +58,38 @@ async function main() {
         if (!gruplar.has(r.bas)) gruplar.set(r.bas, { tepe: Number(r.tepe), uyeler: [] });
         gruplar.get(r.bas).uyeler.push({ id: r.id, title: r.title, sayi: Number(r.sayi) });
       }
+      // DIKKAT: uyeleri tek tek toplamak yanlis olur. "Summer Love"da dort ayri
+      // track id'nin hepsi 329,949,285 okuyor; dort farkli kaydin playcount'u
+      // haneye kadar ayni olamaz — Spotify ayni kayda ayni sayiyi servis
+      // ediyor. Onlari dort kez saymak kaybi uc kat sisirir.
+      //
+      // Dogru soru: grupta kac FARKLI sayi var. Her farkli sayi Spotify'da
+      // ayri dinlenmis bir kayittir ve Kworb'da ayri bir satirdir. Tepe disinda
+      // kalan her FARKLI deger, toplama girmeyen gercek stream'dir.
       let esit = 0, farkli = 0, kayip = 0, sifir = 0;
       const liste = [];
       for (const [bas, g] of gruplar) {
-        let grupKayip = 0;
+        const degerler = new Set();
         for (const u of g.uyeler) {
+          if (u.sayi === 0) { sifir++; continue; }
           if (u.sayi === g.tepe) { esit++; continue; }
-          if (u.sayi === 0) { sifir++; continue; }   // hic okunmamis: kayip diyemeyiz
-          farkli++; kayip += u.sayi; grupKayip += u.sayi;
+          degerler.add(u.sayi);
         }
-        if (grupKayip > 0) liste.push({ bas, tepe: g.tepe, grupKayip, uyeler: g.uyeler });
+        let grupKayip = 0;
+        for (const d of degerler) { farkli++; grupKayip += d; }
+        kayip += grupKayip;
+        if (grupKayip > 0) liste.push({ bas, tepe: g.tepe, grupKayip, uyeler: g.uyeler, ayriDeger: degerler.size });
       }
       liste.sort((a, b) => b.grupKayip - a.grupKayip);
       console.log(`\n=== ${nm.rows[0]?.name || id}`);
       console.log(`  birden fazla uyeli grup : ${fmt(gruplar.size)}`);
       console.log(`  tepe ile AYNI sayidaki uye : ${fmt(esit)}   (dogru birlestirilmis, kayip yok)`);
-      console.log(`  FARKLI sayidaki uye        : ${fmt(farkli)}   ← bunlarin stream'i toplama girmiyor`);
+      console.log(`  FARKLI sayi (benzersiz)    : ${fmt(farkli)}   ← her biri Spotify'da ayri bir kayit, toplama girmiyor`);
       console.log(`  hic okunmamis uye          : ${fmt(sifir)}`);
       console.log(`  TOPLAMA GIRMEYEN STREAM    : ${fmt(kayip)}`);
       console.log(`  --- en cok kaybettiren ${Math.min(10, liste.length)} grup`);
       for (const g of liste.slice(0, 10)) {
-        console.log(`      -${fmt(g.grupKayip).padStart(13)}   grup tepesi ${fmt(g.tepe)}`);
+        console.log(`      -${fmt(g.grupKayip).padStart(13)}   grup tepesi ${fmt(g.tepe)}  (${g.ayriDeger} farkli sayi)`);
         for (const u of g.uyeler.slice(0, 6)) {
           const im = u.sayi === g.tepe ? 'TEPE  ' : (u.sayi === 0 ? 'okunmamis' : 'ayri  ');
           console.log(`          ${im} ${fmt(u.sayi).padStart(13)}  ${u.title}  (${u.id})`);
