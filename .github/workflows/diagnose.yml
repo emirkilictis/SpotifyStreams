@@ -115,6 +115,16 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node diagnose-catalogue.js "ariana" "anitta" "timberlake"
 
+      # Kesif eksikse eksigin nerede oldugu ancak Spotify'a sorulunca bilinir.
+      - name: Discovery vs Spotify
+        continue-on-error: true
+        timeout-minutes: 8
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SP_DC: ${{ secrets.SP_DC }}
+        run: node diagnose-discovery.js 66CXWjxzNUsdJxJ2JdwvnR 7FNnA9vBm6EKceENgCGRMb
+
       - name: Check the served headline query
         if: false
         working-directory: services/web-dashboard
