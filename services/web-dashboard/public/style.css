@@ -5933,3 +5933,53 @@ select.tc-input { cursor: pointer; }
   margin: 22px auto 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
+
+/* Kart uzerindeki favori yildizi. Niyet LISTEDE olusuyor ("bunlari hep
+   ariyorum"), o yuzden favorileme de orada olmali — sanatci sayfasina girmeyi
+   sart kosmak ozelligi kimsenin bulamayacagi bir yere koyuyordu.
+   Masaustunde hover'da beliriyor, dokunmatikte hep gorunur: hover diye bir sey
+   olmayan bir cihazda gizli bir kontrol, olmayan bir kontroldur. */
+.picker-fav {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s ease, color .15s ease, background .15s ease;
+}
+
+.picker-card:hover .picker-fav,
+.picker-fav:focus-visible { opacity: 1; }
+
+.picker-fav:hover { background: rgba(0, 0, 0, 0.68); color: #fff; }
+
+/* Favorilenmis olan HER ZAMAN gorunur: durum bilgisi, hover'in arkasina
+   saklanmamali. */
+.picker-fav.is-fav {
+  opacity: 1;
+  color: var(--accent-green, #1ed760);
+}
+.picker-fav.is-fav svg { fill: currentColor; }
+
+@media (hover: none) {
+  .picker-fav { opacity: 1; background: rgba(0, 0, 0, 0.42); }
+}
+
+.favorites-empty {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.fav-inline-star { color: var(--accent-green, #1ed760); }

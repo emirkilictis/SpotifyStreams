@@ -4222,6 +4222,20 @@ const isArtistLocked = (id) => {
 const pickerGridContainer = document.querySelector('.picker-grid');
 const pickerCardClick = (() => {
   const handler = async (e) => {
+    // Yildiz karti ACMAZ. Ayni kabin icinde durdugu icin tiklama once buraya
+    // dusuyor; yakalayip durdurmazsak favorileme her seferinde sanatci
+    // sayfasina da girerdi.
+    const star = e.target.closest('.picker-fav');
+    if (star) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = star.closest('.picker-card')?.dataset.artist;
+      if (!id) return;
+      toggleFavorite(id);
+      syncFavoriteBtn();     // sanatci sayfasindaki buton da tutarli kalsin
+      renderPickerRoster();  // seri + kartlarin yildizi yeniden cizilsin
+      return;
+    }
     const card = e.target.closest('.picker-card');
     if (!card) return;
     const artistId = card.dataset.artist;
@@ -4258,9 +4272,21 @@ const pickerCardClick = (() => {
   };
   return handler;
 })();
-if (pickerGridContainer) pickerGridContainer.addEventListener('click', pickerCardClick);
+const pickerCardKeydown = (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if (!e.target.closest('.picker-fav')) return;
+  e.preventDefault();
+  pickerCardClick(e);
+};
+if (pickerGridContainer) {
+  pickerGridContainer.addEventListener('click', pickerCardClick);
+  pickerGridContainer.addEventListener('keydown', pickerCardKeydown);
+}
 const favoritesGridContainer = document.getElementById('favorites-grid');
-if (favoritesGridContainer) favoritesGridContainer.addEventListener('click', pickerCardClick);
+if (favoritesGridContainer) {
+  favoritesGridContainer.addEventListener('click', pickerCardClick);
+  favoritesGridContainer.addEventListener('keydown', pickerCardKeydown);
+}
 
 // Build (or rebuild) the picker cards + dropdown from currentRoster, honouring
 // the admin `locked` flag and any artists unlocked this session. Called once by
@@ -4307,6 +4333,13 @@ function buildPickerCard(a, index) {
           <img src="${escHtml(a.image_url || '/images/default.jpg')}" alt="${escHtml(a.name)}" class="picker-card-img" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async">
           <div class="picker-card-overlay"></div>
           ${yeniMi(a) ? '<span class="picker-new-badge">NEW</span>' : ''}
+          <span class="picker-fav${isFavorite(a.artist_id) ? ' is-fav' : ''}"
+                role="button" tabindex="0"
+                aria-pressed="${isFavorite(a.artist_id)}"
+                aria-label="${isFavorite(a.artist_id) ? 'Remove from favorites' : 'Add to favorites'}"
+                title="${isFavorite(a.artist_id) ? 'Remove from favorites' : 'Add to favorites'}">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2.5 15 9 22 9.7 16.8 14.3 18.4 21 12 17.4 5.6 21 7.2 14.3 2 9.7 9 9"></polygon></svg>
+          </span>
         </div>
         <div class="picker-card-info">
           <span class="picker-card-accent" aria-hidden="true"></span>
@@ -4331,8 +4364,18 @@ function renderFavorites() {
   const kartlar = favler
     .map(id => roster.find(a => a.artist_id === id))
     .filter(a => a && a.active !== false && !isArtistLocked(a.artist_id));
-  if (!kartlar.length) { bolum.classList.add('hidden'); grid.innerHTML = ''; return; }
+  // Favori YOKKEN de bolumu gosteriyoruz, tek satirlik bir ipucuyla. Eskiden
+  // gizleniyordu ve ozellik ancak zaten kullaniyorsan gorunur oluyordu: yeni
+  // gelen biri boyle bir sey oldugunu anlayamiyordu. Ilk favoriden sonra ipucu
+  // kendiliginden kayboluyor.
+  const ipucu = bolum.querySelector('.favorites-empty');
   bolum.classList.remove('hidden');
+  if (!kartlar.length) {
+    grid.innerHTML = '';
+    if (ipucu) ipucu.classList.remove('hidden');
+    return;
+  }
+  if (ipucu) ipucu.classList.add('hidden');
   grid.innerHTML = '';
   kartlar.forEach((a, i) => grid.appendChild(buildPickerCard(a, i)));
 }
