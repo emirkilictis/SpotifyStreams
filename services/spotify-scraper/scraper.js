@@ -848,7 +848,7 @@ async function run() {
           { id: '5L1lO4eRHmJ7a0Q6csE5cT', name: 'LISA', album_only: false },
           { id: '1HY2Jd0NmPuamShAr6KMms', name: 'Lady Gaga', album_only: true },
           { id: '6qqNVTkY8uBg9cP3Jd7DAH', name: 'Billie Eilish', album_only: false },
-          { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande', album_only: true },
+          { id: '66CXWjxzNUsdJxJ2JdwvnR', name: 'Ariana Grande', album_only: false },
           { id: '6Ff53KvcvAj5U7Z1vojB5o', name: '*NSYNC', album_only: false },
           { id: '3p3U04w2DaiBzuYMZnYr00', name: 'JC Chasez', album_only: false },
           { id: '3LHYvj5ZejV1NLqncEObSJ', name: 'Vaelis', album_only: false },

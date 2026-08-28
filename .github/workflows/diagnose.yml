@@ -115,6 +115,25 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node diagnose-catalogue.js "ariana" "anitta" "timberlake"
 
+      # Birlestirme yuzunden toplama girmeyen stream'ler. Ayni sayiyi tasiyan
+      # uyeler dogru birlestirilmis; FARKLI sayidakiler ayri kayitlar ve
+      # kucuk olanin stream'i hic sayilmiyor.
+      - name: Merge loss
+        continue-on-error: true
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node diagnose-merge-loss.js 66CXWjxzNUsdJxJ2JdwvnR 31TPClRtHm23RisEBtV3X7
+
+      # Ariana'nin album_only bayragini kapat: appears-on da kesfe girsin.
+      # Yalnizca commit mesajinda [roster] varsa calisir.
+      - name: Ariana full discography (one-off)
+        if: contains(github.event.head_commit.message, '[roster]')
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node set-album-only.js --apply 66CXWjxzNUsdJxJ2JdwvnR false
+
       # Kesif eksikse eksigin nerede oldugu ancak Spotify'a sorulunca bilinir.
       - name: Discovery vs Spotify
         continue-on-error: true
