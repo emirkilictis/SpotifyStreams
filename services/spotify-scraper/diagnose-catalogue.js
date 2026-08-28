@@ -30,7 +30,13 @@ async function main() {
       if (!a.rows.length) { console.log(`\n[!] "${isim}" tracked_artists'ta yok.`); continue; }
       const { artist_id: id, name } = a.rows[0];
       const uri = `spotify:artist:${id}`;
-      console.log(`\n=== ${name}  (${id})`);
+      const bayrak = await client.query(
+        `SELECT album_only, active FROM tracked_artists WHERE artist_id = $1`, [id]);
+      const f = bayrak.rows[0] || {};
+      console.log(`\n=== ${name}  (${id})   album_only=${f.album_only} · active=${f.active}`);
+      if (f.album_only) {
+        console.log(`  NOT: album_only acik → appears-on (baskasinin albumundeki feature'lar) HIC cekilmiyor.`);
+      }
 
       // Kesfedilen sarkilar: kendi primary'si olanlar + baskasinin albuminde
       // olup ona atfedilenler. Ikinci grup tam da kapinin goremedigi grup.

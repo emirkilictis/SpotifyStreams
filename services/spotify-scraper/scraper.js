@@ -273,21 +273,23 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
   // appears-on features flow through discovery like any other named artist.
   // (isCoverAlbum already strips tribute/karaoke junk upstream in discover.js.)
 
-  // Ariana Grande filters: official studio albums & singles
-  if (artistId === '66CXWjxzNUsdJxJ2JdwvnR') {
-    discoveredAlbums = discoveredAlbums.filter(a => {
-      const title = a.title.toLowerCase();
-      return title.includes('yours truly') ||
-             title.includes('my everything') ||
-             title.includes('dangerous woman') ||
-             title.includes('sweetener') ||
-             title.includes('thank u, next') ||
-             title.includes('positions') ||
-             title.includes('eternal sunshine') ||
-             title.includes('hate that i made you love me');
-    });
-    console.log(`[scraper] Ariana Grande filtered to studio albums & singles: ${discoveredAlbums.length} albums.`);
-  }
+  // Ariana Grande'nin elle yazilmis beyaz listesi KALDIRILDI.
+  //
+  // Sekiz baslik parcasina (yours truly / my everything / dangerous woman /
+  // sweetener / thank u, next / positions / eternal sunshine / hate that i made
+  // you love me) uymayan HER yayin kesifte atiliyordu. Spotify 126 yayin
+  // veriyor, filtre sonrasi 37 kaliyordu — 96 eksik.
+  //
+  // Yorumu "studio albums & singles" diyordu ama single'lari tutmuyordu: bir
+  // single ayri bir yayindir ve basligi albumun adini icermez. Boylece eternal
+  // sunshine albumu geliyor, ama "yes, and?", "we can't be friends", "the boy
+  // is mine" ve dort remixi atiliyordu. Wicked ve Wicked: For Good
+  // soundtrack'leri, "supernatural", "twilight zone", "Hotel Rock Bottom",
+  // "petal", "Just Look Up", Christmas single'lari ve butun feature'lari da.
+  //
+  // Roster'da bunun icin dogru mekanizma zaten var (album_only). Bir sanatciyi
+  // kisitlamak istiyorsak orasi; koda gomulu baslik listesi sessizce eskiyor ve
+  // sanatci yeni sarki cikardikca eksik buyuyor.
 
   // 1. Save all discovered albums to DB
   for (const a of discoveredAlbums) {

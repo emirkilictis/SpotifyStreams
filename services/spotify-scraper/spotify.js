@@ -513,7 +513,8 @@ async function fetchArtistAppearsOn(page, artistId) {
   console.log(`[fetchArtistAppearsOn] Querying paginated appearsOn using GraphQL inside browser...`);
   let offset = 0;
   const limit = 50;
-  
+  const benzersiz = new Set();
+
   while (true) {
     try {
       const data = await page.evaluate(async (token, artistId, offset, limit) => {
@@ -548,10 +549,13 @@ async function fetchArtistAppearsOn(page, artistId) {
       }
       
       const items = appearsOn.items;
+      const oncekiBenzersiz = benzersiz.size;
       for (const item of items) {
         const a = item.releases?.items?.[0];
         if (!a) continue;
         const primaryArtist = a.artists?.items?.[0]?.uri ?? null;
+        if (benzersiz.has(a.id)) continue;
+        benzersiz.add(a.id);
         allAlbums.push({
           id:             a.id,
           title:          a.name,
@@ -561,8 +565,23 @@ async function fetchArtistAppearsOn(page, artistId) {
         });
       }
       
-      console.log(`[fetchArtistAppearsOn]   Fetched ${items.length} releases (total: ${allAlbums.length}/${appearsOn.totalCount})`);
-      if (items.length === 0 || allAlbums.length >= appearsOn.totalCount) {
+      // ILERLEME KONTROLU. offset'i buyutmek bu sorguda yeni sayfa getirmiyor:
+      // Anitta'da 1.600 satir cekildi ama benzersiz yayin sayisi ~50'de kaldi,
+      // Ariana'da 850 satir ayni sekilde. Yani ayni ilk sayfa 32 kez geliyor ve
+      // dongu ancak allAlbums.length totalCount'u gecince duruyordu — bosa 32
+      // istek, ve "1.600 yayin bulundu" gibi yaniltici bir kayit.
+      //
+      // Sayfa yeni bir id getirmiyorsa duruyoruz. Bu, EKSIGI COZMUYOR: Spotify
+      // totalCount olarak cok daha buyuk bir sayi soyluyor ve biz yalnizca ilk
+      // sayfayi gorebiliyoruz. Ama eksigi GORUNUR yapiyor — sessizce dogru
+      // sayiyi almis gibi davranmak yerine ne kadarini alabildigimizi yaziyor.
+      const yeni = benzersiz.size - oncekiBenzersiz;
+      console.log(`[fetchArtistAppearsOn]   ${items.length} satir, ${yeni} yeni yayin (benzersiz ${benzersiz.size}, Spotify ${appearsOn.totalCount} diyor)`);
+      if (items.length === 0 || yeni === 0 || benzersiz.size >= appearsOn.totalCount) {
+        if (yeni === 0 && benzersiz.size < appearsOn.totalCount) {
+          console.warn(`[fetchArtistAppearsOn] ⚠ offset ilerlemiyor: ${benzersiz.size}/${appearsOn.totalCount} yayinda kaldik. ` +
+                       `Bu sanatcinin appears-on kataloğu EKSIK kesfediliyor.`);
+        }
         break;
       }
       offset += limit;
