@@ -139,8 +139,19 @@ async function reconcileArtist(client, artist, getPage) {
   // action (kworb_audit.unresolved) — otherwise every run re-pays for the same
   // permanently-unfixable rows.
   const priorRes = await client.query('SELECT unresolved FROM kworb_audit WHERE artist_id = $1', [artistId]);
+  // Only a real VERDICT earns a permanent skip. The unresolved list mixes two
+  // very different things: tracks Spotify answered about ("not-credited") and
+  // tracks no pass ever got to — over MAX_RESOLVE_PER_ARTIST, under MIN_STREAMS,
+  // or past the pin cap. Treating those the same froze them out forever: Ariana
+  // sat 4.6B under kworb for a week with 160 tracks stamped "prior-pass" that
+  // nothing had actually looked at, because the first pass could only take 40.
+  // Everything except a verdict stays eligible, so successive runs drain the
+  // backlog the way this tool was meant to.
+  const KALICI_ATLA = new Set(['not-credited']);
   const priorUnresolved = new Set(
-    FORCE ? [] : (priorRes.rows[0]?.unresolved || []).map((u) => (typeof u === 'string' ? u : u.trackId))
+    FORCE ? [] : (priorRes.rows[0]?.unresolved || [])
+      .filter((u) => typeof u === 'object' && u && KALICI_ATLA.has(u.why))
+      .map((u) => u.trackId)
   );
   const pinnedRes = await client.query('SELECT album_id FROM extra_scrape_albums WHERE artist_id = $1', [artistId]);
   const alreadyPinned = new Set(pinnedRes.rows.map((r) => r.album_id));
