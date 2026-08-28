@@ -5954,11 +5954,16 @@ select.tc-input { cursor: pointer; }
   backdrop-filter: blur(6px);
   color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
-  opacity: 0;
+  /* Hep gorunur, ama soluk. Bir sure "hover'da belir" seklindeydi ve amaci
+     baltaliyordu: ilk kez gelen masaustu kullanicisi de hover etmeden once
+     gormuyordu, yani ozellik yine gizliydi. Solukken kapaga karismiyor,
+     ustune gelince netlesiyor. */
+  opacity: 0.5;
   transition: opacity .15s ease, color .15s ease, background .15s ease;
 }
 
 .picker-card:hover .picker-fav,
+.picker-fav:hover,
 .picker-fav:focus-visible { opacity: 1; }
 
 .picker-fav:hover { background: rgba(0, 0, 0, 0.68); color: #fff; }
@@ -5972,7 +5977,7 @@ select.tc-input { cursor: pointer; }
 .picker-fav.is-fav svg { fill: currentColor; }
 
 @media (hover: none) {
-  .picker-fav { opacity: 1; background: rgba(0, 0, 0, 0.42); }
+  .picker-fav { opacity: 0.72; background: rgba(0, 0, 0, 0.42); }
 }
 
 .favorites-empty {
