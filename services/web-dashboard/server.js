@@ -809,7 +809,12 @@ const requireAuth = (req, res, next) => next();
 // instance from spinning down. Deliberately does NOT touch the DB so Neon can
 // still autosuspend and save its free compute hours.
 app.get('/healthz', (req, res) => {
-  res.status(200).send('ok');
+  // uptime, "site yavas" sikayetini teshis eden tek olcum. Render'in ucretsiz
+  // instance'i ~15 dakika trafiksiz kalinca uyuyor ve sonraki ilk ziyaretci
+  // konteynerin acilmasini bekliyor — sayfa da, sorgu da hizliyken ziyaretci
+  // dakikalarca bekleyebiliyor. Uptime kucukse yavasligin sebebi budur;
+  // buyukse yavaslik uygulamanin kendisindedir ve baska yerde aranmalidir.
+  res.status(200).json({ ok: true, uptime_s: Math.round(process.uptime()) });
 });
 
 // Public Routes
