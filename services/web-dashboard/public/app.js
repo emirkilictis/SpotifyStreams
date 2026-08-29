@@ -4085,8 +4085,8 @@ function syncFavoriteBtn() {
   btn.title = fav ? 'Remove from your favorites' : 'Pin this artist to the top of the list';
 }
 
-const KATEGORI_ETIKET = { female: 'Female', male: 'Male', kpop: 'K-pop', ai: 'AI' };
-const KATEGORI_SIRA = ['female', 'male', 'kpop', 'ai'];
+const KATEGORI_ETIKET = { female: 'Female', male: 'Male', kpop: 'K-pop', latin: 'Latin', ai: 'AI' };
+const KATEGORI_SIRA = ['female', 'male', 'kpop', 'latin', 'ai'];
 
 // Kac gun "yeni" sayilir. Iki hafta: bir donusu kacirsan bile duyuruyu
 // goruyorsun, ama Eylul'de hala "yeni" diye durmuyor.
