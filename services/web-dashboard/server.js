@@ -579,9 +579,13 @@ function artistBucketMatchSQL(s, a) {
       if (item.artist_id === '1HY2Jd0NmPuamShAr6KMms') {
         return `OR ($1 = 'spotify:artist:1HY2Jd0NmPuamShAr6KMms' AND (${a}.title ILIKE '%fame monster%' OR ${a}.title ILIKE '%mayhem%' OR ${a}.id = '5C7E6m8S9vJ36z0Z39O64L'))`;
       }
-      if (item.artist_id === '66CXWjxzNUsdJxJ2JdwvnR') {
-        return `OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (${a}.title ILIKE 'Yours Truly%' OR ${a}.title ILIKE 'My Everything%' OR ${a}.title ILIKE 'Dangerous Woman%' OR ${a}.title ILIKE 'Sweetener%' OR ${a}.title ILIKE 'thank u, next%' OR ${a}.title ILIKE 'Positions%' OR ${a}.title ILIKE 'eternal sunshine%'))`;
-      }
+      // Ariana kasten BURADA DEGIL. Eklendigi gun (2026-05-29) kovasi yedi
+      // studyo albumunun basligiyla sinirlanmisti ve o gecici daraltma oylece
+      // kaldi: her feature, derleme, soundtrack ve reconcile'in pinledigi 45+
+      // album siteye hic girmiyordu. DB'de 380 canonical bas varken sayfa 176
+      // sarki ve 52.1B gosteriyordu — 25.5 milyar, tamami toplanmis ve
+      // taranmis halde veritabaninda dururken. Artik herkesle ayni kurali
+      // kullaniyor.
       return `OR ($1 = 'spotify:artist:${item.artist_id}' AND (${s}.primary_artist = 'spotify:artist:${item.artist_id}' OR ${s}.id IN (${getExtraTrackIdsSql(item.artist_id)})))`;
     })
     .join('\n    ');
