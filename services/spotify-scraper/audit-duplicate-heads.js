@@ -178,6 +178,49 @@ const C_SQL = `
   WHERE COALESCE(x.hareket, 0) = 0
   ORDER BY s.daily_gain DESC`;
 
+
+// D — AYNI KOVADA iki kez sayilan kayit. A kurali "ayni primary_artist" ve
+// "biri digerinin uzun hali" arıyor; Bang Bang ikisine de takilmadi:
+// basliklar BIREBIR aynıydi (uzunluk esit) ve iki bas farkli sanatcilarin
+// primary_artist'indeydi. Ama Nicki'nin basi extra_artist_songs ile Ariana'nin
+// sayfasina da bagli oldugu icin Ariana 1.748 MILYARI iki kez sayiyordu.
+//
+// Dogru soru "iki bas ayni sanatciya mi ait" degil: BIR SANATCININ kovasinda
+// ayni deger iki kez gorunuyor mu. Ortak sarkinin iki sanatcinin ayri
+// sayfalarinda birer kez sayilmasi dogrudur ve bu kural ona dokunmaz.
+const D_SQL = `
+  WITH son AS (
+    SELECT DISTINCT ON (d.canonical_id) d.canonical_id AS head, d.cumulative AS val
+    FROM daily_streams_canonical d ORDER BY d.canonical_id, d.recorded_date DESC
+  ),
+  -- Kova IKI UCUZ PARCANIN birlesimi. Bir sure tek bir JOIN icinde korele
+  -- alt sorguyla kuruluyordu (her sanatci icin extra_artist_songs taramasi) ve
+  -- dusuk esiklerde sorgu zaman asimina ugruyordu — yani "0 bulgu" cikti bir
+  -- sonuc degil, sessiz bir hataydi.
+  bas AS (
+    SELECT s.id AS head, s.title, s.primary_artist, son.val
+    FROM songs s JOIN son ON son.head = s.id
+    WHERE s.canonical_id IS NULL AND son.val >= $1
+      AND s.id NOT IN (SELECT song_id FROM hidden_songs)
+  ),
+  kova AS (
+    SELECT ta.artist_id, ta.name AS sanatci, b.head, b.title, b.val
+    FROM tracked_artists ta
+    JOIN bas b ON b.primary_artist = 'spotify:artist:' || ta.artist_id
+    WHERE ta.active
+    UNION
+    SELECT ta.artist_id, ta.name, b.head, b.title, b.val
+    FROM tracked_artists ta
+    JOIN extra_artist_songs e ON e.artist_id = ta.artist_id
+    JOIN bas b ON b.head = e.song_id
+    WHERE ta.active
+  )
+  SELECT a.sanatci, a.title AS a_title, a.head AS a_id,
+         b.title AS b_title, b.head AS b_id, a.val
+  FROM kova a JOIN kova b
+    ON b.artist_id = a.artist_id AND b.head > a.head AND b.val = a.val
+  ORDER BY a.val DESC`;
+
 async function main() {
   const apply = process.argv.includes('--apply');
   const min = argNum('min', 5000000);
@@ -253,6 +296,17 @@ async function main() {
       } else {
         console.log(`      bu okuma başka bir şarkıya ait olabilir; repair-stream-drops.js ile canlı değeri teyit et`);
       }
+      bulgu++;
+    }
+
+    // ---- D ----
+    const d = (await client.query(D_SQL, [min])).rows;
+    console.log(`\n=== D — AYNI KOVADA ÇİFT SAYIM: ${d.length}`);
+    for (const r of d) {
+      console.log(`  ${r.sanatci} — ${fmt(r.val)} iki kez sayılıyor`);
+      console.log(`      ${r.a_title}  (${r.a_id})`);
+      console.log(`      ${r.b_title}  (${r.b_id})`);
+      console.log(`      aynı sanatçının sayfasında iki ayrı baş, aynı değer — biri diğerine bağlanmalı`);
       bulgu++;
     }
 
