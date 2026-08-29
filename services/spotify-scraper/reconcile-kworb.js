@@ -166,7 +166,17 @@ async function reconcileArtist(client, artist, getPage) {
   // Everything we chose not to resolve stays on the manual tail so it's visible
   // (and so we don't silently drop it from the record).
   for (const t of missing) {
-    if (!toResolve.includes(t)) unresolved.push({ trackId: t.trackId, title: t.title, streams: t.streams, why: priorUnresolved.has(t.trackId) ? 'prior-pass' : 'below-min' });
+    if (!toResolve.includes(t)) {
+      // Etiket dogru olmali: bu liste hem raporun hem de bir sonraki turun
+      // okudugu sey. Bir sure kapasiteye takilanlar da 'below-min' yaziyordu
+      // ve Ariana'nin kuyrugundaki 65 kaydin hepsi oyle gorunuyordu — oysa
+      // hicbiri esigin altinda degildi, en kucugu 7.7M'di. Yanlis etiket
+      // teshis sirasinda "bunlar zaten kucuk" dedirtiyor ve gercek sebebi
+      // (sira gelmedi) gizliyor.
+      const why = priorUnresolved.has(t.trackId) ? 'prior-pass'
+        : (t.streams < MIN_STREAMS ? 'below-min' : 'resolve-cap');
+      unresolved.push({ trackId: t.trackId, title: t.title, streams: t.streams, why });
+    }
   }
 
   if (toResolve.length) {
