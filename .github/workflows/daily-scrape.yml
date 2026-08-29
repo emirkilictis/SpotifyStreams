@@ -15,11 +15,22 @@ on:
         default: ''
 
 # Saatlik cron-job.org tetiklemeleri gercek bir tarama (yeni gun / yeni sanatci)
-# 20-30 dk surdugunde cakisabiliyor. Tek bir kuyruk: bir run devam ederken yeni
-# tetikleme IPTAL ETMEZ, sira bekler (cancel-in-progress: false) — boylece iki
-# run ayni anda DB'ye yazip birbirini ezmez.
+# 20-30 dk surdugunde cakisabiliyor. cancel-in-progress: false ile devam eden
+# run iptal edilmiyor, yenisi sira bekliyor — iki run ayni anda DB'ye yazip
+# birbirini ezmesin diye.
+#
+# AMA tek kuyruk, elle tetiklenen hedefli senkronlari yiyordu. GitHub bir grupta
+# yalnizca BIR bekleyen run tutuyor: siradaki yeni bir tetikleme geldiginde
+# onceki BEKLEYEN run iptal ediliyor. Madonna eklendikten 23 saniye sonra
+# tetiklenen senkron, uzun suren saatlik taramanin arkasinda 55 dakika bekledi
+# ve calismadan iptal oldu — sanatci uc sarkiyla kaldi.
+#
+# Sanatciya OZEL run'lar artik kendi seridinde: kisalar, tek bir sanatciya
+# dokunurlar ve saatlik tarama onlari bir daha kuyrukta oldurmez. Yazim
+# guvenli kaliyor cunku playcount upsert'i GREATEST ile yaziyor — ayni satira
+# iki taraftan gelen yazim daha dusuk olani asla kabul etmiyor.
 concurrency:
-  group: spotify-scrape
+  group: spotify-scrape-${{ inputs.artists && 'manual' || 'auto' }}
   cancel-in-progress: false
 
 jobs:
