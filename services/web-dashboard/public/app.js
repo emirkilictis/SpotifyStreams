@@ -1840,12 +1840,23 @@ function cleanTrackTitle(title) {
     // The credit keyword must be followed by whitespace so real words like
     // "With" inside a title (e.g. "Die With a Smile") are never touched.
     .replace(/\s*[\(\[](?:feat|featuring|ft|with)\.?\s[^)\]]*[\)\]]/gi, '')
-    // Strip trailing " - <version>" descriptors.
-    // NOTE: "Instrumental" is intentionally NOT stripped — it distinguishes a
-    // real alternate version and must stay visible (e.g. "Rockstar - Instrumental").
-    .replace(/\s*-\s*(?:Radio\s+Edit|Radio\s+Version|Radio\s+Mix|Single\s+Version|Edit|Remastered(?:\s+\d{4})?|\d{4}\s+Remaster|Main\s+Version)\b.*$/gi, '')
-    // Strip trailing parenthetical version descriptors (Instrumental kept on purpose)
-    .replace(/\s*[\(\[](?:Radio\s+Edit|Remastered|Live|Main\s+Version|Deluxe(?:\s+Version)?)[\)\]]/gi, '')
+    // Strip ONLY what does not change which recording this is.
+    //
+    // A radio edit is a different cut with its own playcount, and so are the
+    // single/main versions — stripping those made two separate rows read the
+    // same. On JT's card six pairs collapsed into one line each: Mirrors and
+    // "Mirrors - Radio Edit" (1.6B and 135M) both showed as "Mirrors", and the
+    // same for Señorita, Not a Bad Thing, TKO, LoveStoned and Falling Down.
+    // A card that prints two different numbers under one name is worse than a
+    // card with a longer name, so the version tag stays.
+    //
+    // Remastered stays stripped: it is the same performance, remastered, and
+    // showing it would add noise without telling anyone anything new.
+    // "Instrumental" was already kept for exactly this reason.
+    .replace(/\s*-\s*(?:Remastered(?:\s+\d{4})?|\d{4}\s+Remaster)\b.*$/gi, '')
+    // Bracketed: only album packaging goes. "(Live)" identifies a recording —
+    // "Mirrors (Live)" is not "Mirrors" — so it stays too.
+    .replace(/\s*[\(\[](?:Remastered|Deluxe(?:\s+Version)?)[\)\]]/gi, '')
     // Medley / prelude / interlude cleanups (JT tracklist)
     .replace(/Medley:\s*/gi, '')
     .replace(/\s*\((?:Prelude|Interlude)\)/gi, '');
