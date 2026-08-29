@@ -159,6 +159,10 @@
 
     /* Artist management */
     .artist-form { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .af-cats { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .af-cats-label { font-size: 12px; opacity: .6; margin-right: 2px; }
+    .af-cat { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
+    .ar-tag.cat { background: rgba(30,215,96,.14); color: #1ed760; }
     .artist-list-controls { align-items: center; margin-bottom: 14px; }
     .artist-list-controls .search { min-width: 220px; }
     .artist-result-count {
@@ -655,6 +659,9 @@
           <input id="af-accent" class="search" placeholder="#theme color (or pick →)" autocomplete="off" style="max-width:170px">
           <div class="af-swatches" id="af-swatches" aria-label="Quick theme colors"></div>
         </div>
+        <!-- Kategoriler. Bunlar acilis sayfasindaki filtre cipleri; bir sanatci
+             birden fazlasini tasiyabilir (LISA hem female hem kpop). -->
+        <div class="af-row af-cats" id="af-cats" aria-label="Categories"></div>
         <div class="af-row af-checks">
           <label><input type="checkbox" id="af-albumonly"> Album-only</label>
           <label title="Hides this artist on the public site behind the access passcode. Unchecking unlocks it for everyone."><input type="checkbox" id="af-locked"> Locked</label>
@@ -1952,6 +1959,7 @@
       artistsListEl.innerHTML = visibleArtists.map(a => {
         const tags = [];
         if (a.album_only) tags.push('<span class="ar-tag album">album-only</span>');
+        (a.categories || []).forEach(c => tags.push(`<span class="ar-tag cat">${KATEGORI_ADI[c] || c}</span>`));
         if (a.locked) tags.push('<span class="ar-tag locked" title="Hidden on the public site behind the access passcode. Edit → uncheck Locked to unlock.">🔒 locked</span>');
         if (!a.active) tags.push('<span class="ar-tag">inactive</span>');
         const img = a.image_url || `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'/>`;
@@ -1987,6 +1995,10 @@
       else { setAccent(''); af.accentPicker.value = '#1ed760'; }
       af.order.value = artist ? artist.sort_order
         : (artists.reduce((m, a) => Math.max(m, Number(a.sort_order) || 0), 0) + 1);
+      // Kategori kutucuklari her acilista yeniden ciziliyor: listeyi rosterdan
+      // turetiyoruz, boylece ileride DB'ye eklenen yeni bir etiket kod
+      // degistirmeden burada da beliriyor.
+      renderCatChecks(artist ? (artist.categories || []) : []);
       af.albumonly.checked = artist ? !!artist.album_only : false;
       af.locked.checked = artist ? !!artist.locked : false;
       af.active.checked = artist ? !!artist.active : true;
@@ -1995,6 +2007,30 @@
       danger.classList.toggle('hidden', !artist || artist.artist_id === '31TPClRtHm23RisEBtV3X7');
       artistForm.classList.remove('hidden');
       af.name.focus();
+    }
+
+    // Bilinen etiketler + rosterda gecen her sey. Sabit liste tutmuyoruz ki
+    // yeni bir kategori eklendiginde admin paneli geride kalmasin.
+    const BILINEN_KATEGORI = ['female', 'male', 'kpop', 'latin', 'ai'];
+    const KATEGORI_ADI = { female: 'Female', male: 'Male', kpop: 'K-pop', latin: 'Latin', ai: 'AI' };
+
+    function tumKategoriler() {
+      const set = new Set(BILINEN_KATEGORI);
+      (artists || []).forEach(a => (a.categories || []).forEach(c => set.add(c)));
+      return [...set];
+    }
+
+    function renderCatChecks(secili) {
+      const wrap = document.getElementById('af-cats');
+      if (!wrap) return;
+      const sec = new Set(secili || []);
+      wrap.innerHTML = '<span class="af-cats-label">Categories</span>' + tumKategoriler().map(c =>
+        `<label class="af-cat"><input type="checkbox" value="${c}"${sec.has(c) ? ' checked' : ''}> ${KATEGORI_ADI[c] || c}</label>`
+      ).join('');
+    }
+
+    function seciliKategoriler() {
+      return [...document.querySelectorAll('#af-cats input[type=checkbox]:checked')].map(i => i.value);
     }
 
     document.getElementById('artist-add-btn').addEventListener('click', () => showForm(null));
@@ -2043,6 +2079,7 @@
         album_only: af.albumonly.checked,
         locked: af.locked.checked,
         active: af.active.checked,
+        categories: seciliKategoriler(),
       };
       if (!/^[A-Za-z0-9]{22}$/.test(body.artist_id)) { af.err.textContent = 'Invalid Spotify artist id (22 chars).'; return; }
       if (!body.name) { af.err.textContent = 'Name is required.'; return; }

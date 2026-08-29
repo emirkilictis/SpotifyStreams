@@ -4106,8 +4106,14 @@ function renderPickerFilters() {
   // sekmesi tiklandiginda bos ekran demek.
   const mevcut = new Set();
   (currentRoster || []).forEach(a => (a.categories || []).forEach(c => mevcut.add(c)));
+  // Bilinenler once ve sabit sirada; rosterda gecen ama burada tanimli olmayan
+  // etiketler arkadan alfabetik. Admin panelinden yeni bir kategori eklendiginde
+  // cip kod degistirmeden beliriyor — aksi halde etiket DB'de olur, sitede
+  // gorunmezdi.
+  const bilinen = KATEGORI_SIRA.filter(c => mevcut.has(c));
+  const digerleri = [...mevcut].filter(c => !KATEGORI_SIRA.includes(c)).sort();
   const cipler = [['all', 'All']].concat(
-    KATEGORI_SIRA.filter(c => mevcut.has(c)).map(c => [c, KATEGORI_ETIKET[c] || c])
+    [...bilinen, ...digerleri].map(c => [c, KATEGORI_ETIKET[c] || c])
   );
   if (cipler.length < 2) { wrap.classList.add('hidden'); return; }
   wrap.classList.remove('hidden');

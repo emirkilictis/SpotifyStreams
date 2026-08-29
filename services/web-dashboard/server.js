@@ -2624,10 +2624,25 @@ app.get('/api/img-proxy', async (req, res) => {
 });
 
 // Admin: full roster incl. inactive, for management.
+// Admin'den gelen etiketleri temizler. Beyaz liste KOYMUYORUZ: yeni bir
+// kategori (latin, ai...) bugune kadar hep bir kod degisikligi olmadan
+// eklenebildi ve oyle kalsin. Sadece sekli zorluyoruz — kucuk harf, slug,
+// makul uzunluk ve sayi — ki bir yazim hatasi olu bir kategori yaratmasin.
+function temizEtiketler(x) {
+  if (!Array.isArray(x)) return null;
+  const out = [];
+  for (const raw of x) {
+    const t = String(raw || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
+    if (t && !out.includes(t)) out.push(t);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 app.get('/api/admin/artists', requireAdmin, async (req, res) => {
   try {
     const r = await dbQuery(
-      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked, active, created_at
+      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked, active, created_at, categories
        FROM tracked_artists ORDER BY sort_order, name`
     );
     res.json(r.rows);
@@ -2651,13 +2666,18 @@ app.post('/api/admin/artists', requireAdmin, async (req, res) => {
     if (!/^[A-Za-z0-9]{22}$/.test(artistId)) return res.status(400).json({ error: 'Invalid Spotify artist id.' });
     if (!name) return res.status(400).json({ error: 'Name is required.' });
     await dbQuery(
-      `INSERT INTO tracked_artists (artist_id, name, image_url, accent, sort_order, album_only, locked, active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO tracked_artists (artist_id, name, image_url, accent, sort_order, album_only, locked, active, categories)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, '{}'))
        ON CONFLICT (artist_id) DO UPDATE SET
-         name=$2, image_url=$3, accent=$4, sort_order=$5, album_only=$6, locked=$7, active=$8`,
+         name=$2, image_url=$3, accent=$4, sort_order=$5, album_only=$6, locked=$7, active=$8,
+         -- Etiket gonderilmediyse mevcut olan KORUNUR. Aksi halde etiket alani
+         -- olmayan eski bir istemci kaydi guncelleyince butun etiketleri
+         -- sessizce silerdi.
+         categories=COALESCE($9, tracked_artists.categories)`,
       [artistId, name, b.image_url || null, b.accent || null,
        Number.isFinite(+b.sort_order) ? +b.sort_order : 100,
-       !!b.album_only, !!b.locked, b.active === undefined ? true : !!b.active]
+       !!b.album_only, !!b.locked, b.active === undefined ? true : !!b.active,
+       temizEtiketler(b.categories)]
     );
     await refreshActiveArtistsCache();
     res.json({ success: true, artist_id: artistId });
@@ -2681,6 +2701,10 @@ app.patch('/api/admin/artists/:id', requireAdmin, async (req, res) => {
     const sets = [], vals = [];
     for (const k of allowed) {
       if (req.body[k] !== undefined) { vals.push(req.body[k]); sets.push(`${k} = $${vals.length}`); }
+    }
+    if (req.body.categories !== undefined) {
+      const t = temizEtiketler(req.body.categories);
+      if (t) { vals.push(t); sets.push(`categories = $${vals.length}`); }
     }
     if (!sets.length) return res.status(400).json({ error: 'No fields to update.' });
     vals.push(id);
