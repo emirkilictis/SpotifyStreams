@@ -6538,7 +6538,12 @@ async function pushSaveFollows() {
 async function toggleNotify() {
   if (!pushConfig || !pushConfig.enabled || !currentArtist) return;
   if (iosNeedsInstall()) {
-    alert('On iPhone and iPad, notifications need the site added to your home screen first: tap Share → Add to Home Screen, then open it from there.');
+    // Kilavuz tam bu an icin yazildi: adimlar orada, ekran goruntusuz ama
+    // sirasiyla. Uyariyi okuyup ne yapacagini bilemeyen kisiyi bos birakmak
+    // yerine dogrudan oraya goturuyoruz.
+    if (confirm('On iPhone and iPad, notifications only work once the site is added to your home screen.\n\nOpen the guide for the steps?')) {
+      window.location.href = '/guide.html#notifications';
+    }
     return;
   }
   notifyBtn.disabled = true;

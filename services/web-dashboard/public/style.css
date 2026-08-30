@@ -5988,3 +5988,35 @@ select.tc-input { cursor: pointer; }
 }
 
 .fav-inline-star { color: var(--accent-green, #1ed760); }
+
+/* Kilavuz baglantisi. Aramanin hemen altinda, sayfanin ustunde: footer'daki
+   kopyasi teknik olarak vardi ama kimsenin bakmadigi yerdeydi. Yine de sessiz
+   bir hap — rakamlarin onune gecmemeli. */
+.picker-guide-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 auto 20px;
+  padding: 7px 15px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.picker-guide-link:hover {
+  background: rgba(30, 215, 96, 0.10);
+  border-color: rgba(30, 215, 96, 0.35);
+  color: #1ed760;
+}
+
+/* Ortalamak icin: picker-container flex degil, bu yuzden blok olarak ortala. */
+.picker-container > .picker-guide-link { display: flex; width: fit-content; }
+
+@media (max-width: 560px) {
+  .picker-guide-link { font-size: 12px; padding: 6px 12px; }
+}
