@@ -6,7 +6,12 @@
  *   - Track playcount → web player pathfinder (sp_dc cookie + headless Chrome)
  */
 
-require('dotenv').config({ path: '../../.env' });
+// __dirname tabanli: goreli yol calisma dizinine gore cozuluyordu, yani
+// scraper yalnizca services/spotify-scraper icinden calistirilinca .env'i
+// buluyordu. CI zaten oradan calistiriyor (working-directory), o yuzden
+// fark edilmemis; baska bir dizinden calistirinca "SP_DC eksik" diyip
+// cikiyordu. Kardes scriptlerin hepsi zaten __dirname kullaniyor.
+require('dotenv').config({ path: __dirname + '/../../.env' });
 
 const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAvatar } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
