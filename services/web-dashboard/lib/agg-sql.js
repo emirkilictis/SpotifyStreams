@@ -59,9 +59,27 @@ function artistLatestAggCTE(songFilter) {
       -- from the previous row, and give every day in between its share. Same
       -- rule as the date-gap division, applied to the case where the dates are
       -- present but the number is standing still.
+      --
+      -- Bir sarkinin ILK satiri da yukselis sayilir. Kendisi bir yukselis
+      -- degil (oncesi yok), ama SONRAKI yukselisin olculecegi taban o: 08-29 ve
+      -- 08-30'u bir gun arayla biz okuduysak, aradaki fark gercek ve tam bir
+      -- gunluk kazanctir. LAG NULL oldugu icin ilk satir is_step=0 kaliyordu ve
+      -- geriye bakan pencere hicbir taban bulamiyordu, yani yeni bir sarki
+      -- birinci gun (dogru olarak) VE ikinci gun (yanlis olarak) NULL uretip
+      -- ancak ucuncu gun sayilmaya basliyordu.
+      --
+      -- Madonna'nin katalogu 08-29'da inince 949 head'in 934'u tam da bu
+      -- yuzden gunluge hic katilmadi: site 8.1M yerine 555K gosterdi. Ayni sey
+      -- her yeni sanatcida ve her yeni eklenen sarkida tekrarliyordu.
+      --
+      -- Ilk satirin kendi daily_gain'i NULL kalmaya devam ediyor (geriye bakan
+      -- pencere bos), yani yeni katalog hala ilk gun ortalamayi sisirmiyor.
+      -- Yerlesik sanatcilarda sonuc birebir ayni: JT 7,336,835 ve Taylor
+      -- 42,248,513 degismedi; degisen yalnizca isinma penceresindeki sarkilar.
       agg_steps AS (
         SELECT canonical_id, recorded_date, cumulative, stream_count,
-               CASE WHEN cumulative > LAG(cumulative) OVER w THEN 1 ELSE 0 END AS is_step,
+               CASE WHEN cumulative > LAG(cumulative) OVER w
+                      OR LAG(cumulative) OVER w IS NULL THEN 1 ELSE 0 END AS is_step,
                (stream_count - LAG(stream_count) OVER w)::bigint AS real_change
         FROM agg_runmax
         WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
