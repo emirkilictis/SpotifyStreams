@@ -174,10 +174,29 @@ async function processAlbum(page, client, album, artistUri, stats, backdateFirst
   const songRows = [];
   const streamRows = [];
   for (const track of tracks) {
-    // Skip blacklisted tracks
+    // Kara liste, JT tek sanatciyken yazildi ve IKI ayri isi birden yapiyor:
+    //   1. Baskasinin sarkisini JT'nin CATCH-ALL kovasindan uzak tutmak
+    //      (TROLLS soundtrack'indeki Anna Kendrick, Zooey Deschanel, Red
+    //      Velvet, The O'Jays... — JT kovasi "baska hicbir sanatciya ait
+    //      olmayan her sey" oldugu icin bunlar ona yaziliyordu).
+    //   2. JT'nin KENDI sarkilarindan bilerek disarida birakilanlar
+    //      (LoveStoned radio edit'leri, SexyBack DJ remix'i) — kuratorluk.
+    //
+    // Birinci is, o sanatci ARTIK TAKIP EDILIYORSA gecersiz: Ariana eklendikten
+    // sonra "They Don't Know" (114.9M) hala eleniyordu, cunku liste kuresel
+    // calisiyordu. Kendi kovasi varken sarkisi kataloguna hic girmiyordu.
+    //
+    // Bu yuzden kontrol artik kapsamli: JT taramasinda liste aynen gecerli
+    // (her iki is de korunur), baska bir sanatcinin taramasinda ise Spotify o
+    // sanatciyi sarkida kredilendiriyorsa liste onu engellemiyor.
     if (BLACKLISTED_TRACK_IDS.has(track.id)) {
-      console.log(`           [skip blacklist] "${track.title}" (${track.id})`);
-      continue;
+      const jtTaramasi = artistUri === 'spotify:artist:31TPClRtHm23RisEBtV3X7';
+      const buSanatciKredili = !!track.artistUris?.includes(artistUri);
+      if (jtTaramasi || !buSanatciKredili) {
+        console.log(`           [skip blacklist] "${track.title}" (${track.id})`);
+        continue;
+      }
+      console.log(`           [blacklist bypass] "${track.title}" — Spotify bu sanatçıyı kredilendiriyor`);
     }
     const artistId = artistUri.split(':')[2];
     const searchNames = ARTIST_SEARCH_NAMES[artistId] || [];
