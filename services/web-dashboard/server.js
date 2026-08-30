@@ -2088,16 +2088,6 @@ app.get('/api/albums', requireAuth, validateArtistAccess,
             OR title ILIKE '%mayhem%'
             OR id = '5C7E6m8S9vJ36z0Z39O64L'
           ))
-          OR ($1 = 'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR' AND (
-            title ILIKE 'Yours Truly%'
-            OR title ILIKE 'My Everything%'
-            OR title ILIKE 'Dangerous Woman%'
-            OR title ILIKE 'Sweetener%'
-            OR title ILIKE 'thank u, next%'
-            OR title ILIKE 'Positions%'
-            OR title ILIKE 'eternal sunshine%'
-            OR title ILIKE 'hate that i made you love me%'
-          ))
           OR ($1 = 'spotify:artist:2dIgFjalVxs4ThymZ67YCE')
           OR ($1 = 'spotify:artist:4UIOuc84ExWojcUzFGtb8W')
           -- Generic fallback for any OTHER artist (incl. ones added later from the
@@ -2105,8 +2095,19 @@ app.get('/api/albums', requireAuth, validateArtistAccess,
           -- there's no missing-tab bug, but skip compilations / "featured on"
           -- various-artists albums (Hits of 2024, Party Hits, …) by requiring the
           -- album to hold at least one of the artist's OWN lead (non-featured)
-          -- canonical songs. The 10 explicitly-branched artists above are excluded
+          -- canonical songs. The 8 explicitly-branched artists above are excluded
           -- from this clause, so their lists stay byte-for-byte unchanged.
+          --
+          -- Ariana USED to be branched here, with an allowlist of eight title
+          -- patterns (Yours Truly / My Everything / Dangerous Woman / Sweetener /
+          -- thank u, next / Positions / eternal sunshine / hate that i made you
+          -- love me). That list was written when she was added and never revisited,
+          -- so it silently hid everything that did not match a pattern: petal, all
+          -- three Wicked soundtracks, One Wonderful Night, The Remix, The Best,
+          -- Christmas Kisses, Christmas & Chill, k bye for now, yes and?, the boy
+          -- is mine. 17 albums rendered out of 57. She uses the fallback now, which
+          -- is the same rule every artist added from the admin panel already gets —
+          -- an allowlist only ages into a bug as the catalogue grows.
           OR (
             $1 <> ALL(ARRAY[
               'spotify:artist:31TPClRtHm23RisEBtV3X7',
@@ -2115,7 +2116,6 @@ app.get('/api/albums', requireAuth, validateArtistAccess,
               'spotify:artist:3p3U04w2DaiBzuYMZnYr00',
               'spotify:artist:3LHYvj5ZejV1NLqncEObSJ',
               'spotify:artist:1HY2Jd0NmPuamShAr6KMms',
-              'spotify:artist:66CXWjxzNUsdJxJ2JdwvnR',
               'spotify:artist:2dIgFjalVxs4ThymZ67YCE',
               'spotify:artist:4UIOuc84ExWojcUzFGtb8W'
             ])
