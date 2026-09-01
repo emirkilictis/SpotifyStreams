@@ -3650,6 +3650,68 @@ select.tc-input { cursor: pointer; }
   border: 1px solid rgba(139, 92, 246, 0.15);
 }
 
+/* ===== Artist-total milestone share card =====
+   Sarki kartiyla ayni iskelet (daily-card) uzerine kuruluyor; farki, kapak
+   yerine sanatci fotografi ve tek buyuk hedef rakami. */
+.milestone-share-card .mc-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.milestone-share-card .mc-avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  border: 2px solid var(--dc-accent, #1ed760);
+  box-shadow: 0 0 22px rgba(var(--dc-accent-rgb, 30, 215, 96), 0.35);
+}
+
+.milestone-share-card .mc-target {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--dc-accent, #1ed760);
+  margin-top: 2px;
+}
+
+.milestone-share-card .mc-progress-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  margin-top: 7px;
+  opacity: 0.75;
+}
+
+.milestone-share-card .mc-eta {
+  margin-top: 14px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: center;
+  color: var(--dc-accent, #1ed760);
+}
+
+/* Izgaradaki sanatci kartindaki "Card" dugmesi */
+.mc-share-btn {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  color: #f5c542;
+  background: rgba(245, 197, 66, 0.07);
+  border: 1px solid rgba(245, 197, 66, 0.22);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.mc-share-btn:hover {
+  background: rgba(245, 197, 66, 0.16);
+}
+
 /* Sanatci toplami: izgaranin basinda sabit duran tek kart. Sarki/album
    kartlarindan ayrilmasi gerekiyor, cunku bir digerinin yaninda ayni gorunurse
    "bir sarki" sanilir — altin kenar onu katalogun tamami olarak isaretliyor. */

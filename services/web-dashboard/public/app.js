@@ -1755,6 +1755,7 @@ function refreshCardThemes() {
   const theme = resolveCardTheme(cardThemeId);
   applyCardTheme(dailyCardEl, theme);
   applyCardTheme(songCardEl, theme);
+  applyCardTheme(milestoneCardEl, theme);
   document.querySelectorAll('.dc-theme-swatch').forEach((b) => {
     b.classList.toggle('active', b.dataset.theme === cardThemeId);
     if (b.dataset.theme === 'artist') {
@@ -3147,6 +3148,128 @@ function effectiveDailyRate(obj) {
   return Number(obj.daily_gain) || 0;
 }
 
+// ===== Artist-total milestone share card =====
+const milestoneCardModal = document.getElementById('milestone-card-modal');
+const milestoneCardEl = document.getElementById('milestone-card');
+
+// Uzak gorseller ayni-origin proxy uzerinden geciyor: html2canvas cross-origin
+// bir gorsel cizince canvas "tainted" oluyor ve export sessizce bos PNG veriyor.
+// Compare modulundeki proxied() ile ayni gerekce.
+function cardImgSrc(url) {
+  if (!url) return '';
+  if (url.startsWith('/') || url.startsWith('data:') || url.startsWith(location.origin)) return url;
+  return '/api/img-proxy?u=' + encodeURIComponent(url);
+}
+
+function openMilestoneCard() {
+  const subj = artistTotalSubject();
+  if (!subj || !milestoneCardEl) return;
+  const target = getNextMilestone(subj.cumulative);
+  const kalan = Math.max(0, target - subj.cumulative);
+  const gun = subj.dailyGain > 0 ? Math.max(1, Math.ceil(kalan / subj.dailyGain)) : null;
+  const percent = Math.min(100, (subj.cumulative / target) * 100);
+
+  // Sayfadaki hero avatarinin AYNI kaynagi: zaten yuklenmis, yani karta cizilecegi
+  // kesin. Sanatci temasi yerel bir gorsel tasiyorsa o kullaniliyor.
+  const foto = cardImgSrc(artistHeroAvatar && artistHeroAvatar.src ? artistHeroAvatar.src : '');
+  const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const ad = currentArtistName || 'Artist';
+
+  let etaSatir;
+  if (gun === null) etaSatir = 'no recent growth to project from';
+  else {
+    const d = new Date();
+    d.setDate(d.getDate() + gun);
+    const tarih = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    etaSatir = `${gun === 1 ? '1 day' : gun + ' days'} away · around ${tarih}`;
+  }
+
+  milestoneCardModal.classList.remove('hidden');
+  buildCardThemePickers();
+
+  milestoneCardEl.innerHTML = `
+    <div class="mc-top">
+      ${foto ? `<img class="mc-avatar" src="${esc(foto)}" crossorigin="anonymous" alt="">` : ''}
+      <div class="dc-head-text">
+        <div class="dc-artist">${esc(ad.toUpperCase())}</div>
+        <div class="dc-date">${formatCardDate(currentArtistRawStats && currentArtistRawStats.last_update)}</div>
+      </div>
+    </div>
+    <div class="dc-divider"></div>
+    <div class="dc-big-label">NEXT MILESTONE</div>
+    <div class="mc-target">${formatMilestoneName(target)}</div>
+    <div class="sc-progress-bar-container" style="margin-top: 14px;">
+      <div class="sc-progress-bar" style="width: ${percent.toFixed(1)}%;"></div>
+    </div>
+    <div class="mc-progress-row">
+      <span>${formatNumber(subj.cumulative)}</span>
+      <span>${percent.toFixed(1)}%</span>
+    </div>
+    <div class="sc-stats-grid" style="margin-top: 18px;">
+      <div class="sc-stat-box">
+        <span class="sc-stat-label">Streams To Go</span>
+        <span class="sc-stat-val">${formatNumber(kalan)}</span>
+      </div>
+      <div class="sc-stat-box">
+        <span class="sc-stat-label">7D Avg Pace</span>
+        <span class="sc-stat-val">+${formatNumber(Math.round(subj.dailyGain))}</span>
+      </div>
+    </div>
+    <div class="mc-eta">${esc(etaSatir)}</div>
+    <div class="dc-footer" style="margin-top: 22px;"><span class="dc-dot"></span><b>${esc(ad)}</b> Spotify Streams — Fan Dashboard</div>
+  `;
+  refreshCardThemes();
+}
+
+async function downloadMilestoneCard() {
+  if (!milestoneCardEl) return;
+  const img = milestoneCardEl.querySelector('.mc-avatar');
+  if (img && img.src) {
+    try { await img.decode(); } catch (e) { img.style.visibility = 'hidden'; }
+    if (img.style.visibility !== 'hidden' && !img.naturalWidth) img.style.visibility = 'hidden';
+  }
+  try {
+    const canvas = await html2canvas(milestoneCardEl, {
+      ignoreElements: ignoreOutside(milestoneCardEl.closest('.modal-backdrop') || milestoneCardEl),
+      backgroundColor: resolveCardTheme(cardThemeId).page || '#080c14',
+      scale: 2, useCORS: true, imageTimeout: 15000, logging: false,
+      width: 600, windowWidth: 700,
+      onclone: (clonedDoc) => {
+        const card = clonedDoc.getElementById('milestone-card');
+        if (card) {
+          card.style.setProperty('width', '600px', 'important');
+          card.style.setProperty('max-width', '600px', 'important');
+          card.style.setProperty('padding', '26px 28px', 'important');
+        }
+      }
+    });
+    const subj = artistTotalSubject();
+    const hedef = subj ? formatMilestoneName(getNextMilestone(subj.cumulative)) : 'milestone';
+    const isim = `${(currentArtistName || 'artist')}_${hedef}`.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+    let url = null;
+    if (canvas.toBlob) {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (blob) url = URL.createObjectURL(blob);
+    }
+    if (!url) url = canvas.toDataURL('image/png');
+    if (/Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)) {
+      showMobileImageOverlay(url, `${currentArtistName || 'Artist'} milestone`);
+    } else {
+      const a = document.createElement('a');
+      a.href = url; a.download = `${isim}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+      if (url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  } catch (err) {
+    console.error('Milestone card export failed:', err);
+  }
+}
+
+document.getElementById('milestone-card-download-btn')?.addEventListener('click', downloadMilestoneCard);
+document.getElementById('milestone-card-close-btn')?.addEventListener('click', () => milestoneCardModal?.classList.add('hidden'));
+milestoneCardModal?.addEventListener('click', (e) => { if (e.target === milestoneCardModal) milestoneCardModal.classList.add('hidden'); });
+window.openMilestoneCard = openMilestoneCard;
+
 // Sanatcinin TUM katalogu, tek bir milestone oznesi olarak.
 //
 // Milestones bugune kadar yalnizca tek tek sarkilari ve albumleri biliyordu, ama
@@ -3306,6 +3429,7 @@ function renderMilestones() {
         </div>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: -4px;">
           ${badgeHtml}
+          ${isArtist ? `<button type="button" class="mc-share-btn" onclick="openMilestoneCard()" title="Create a shareable image">📸 Card</button>` : ''}
         </div>
         <div class="milestone-target">
           Target: <strong>${formatMilestoneName(item.nextMilestone)}</strong>
