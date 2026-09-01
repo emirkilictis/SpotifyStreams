@@ -3147,6 +3147,28 @@ function effectiveDailyRate(obj) {
   return Number(obj.daily_gain) || 0;
 }
 
+// Sanatcinin TUM katalogu, tek bir milestone oznesi olarak.
+//
+// Milestones bugune kadar yalnizca tek tek sarkilari ve albumleri biliyordu, ama
+// insanlarin asil takip ettigi sayi bu: JT'nin 19 milyari. Hedefe kac gun
+// kaldigini sormanin hicbir yolu yoktu.
+//
+// Rakam /api/stats'in zaten cekilmis cevabindan okunuyor (currentArtistRawStats)
+// — sayfanin ustundeki Total Streams ile AYNI kaynak, yani kart basligin
+// gosterdigi sayiyla celisemez. Hiz icin effectiveDailyRate: 7 gunluk yumusatilmis
+// ortalama, yoksa son gunun kazanci.
+function artistTotalSubject() {
+  const st = currentArtistRawStats;
+  if (!st) return null;
+  const cumulative = Number(st.total_streams);
+  if (!Number.isFinite(cumulative) || cumulative <= 0) return null;
+  return {
+    cumulative,
+    dailyGain: effectiveDailyRate(st),
+    name: currentArtistName ? `${currentArtistName} — all songs` : 'All songs',
+  };
+}
+
 function renderMilestones() {
   // Keep the target calculator's picker in sync with the current artist's data.
   populateTargetCalc();
@@ -3221,6 +3243,27 @@ function renderMilestones() {
   // Dedicated tab now, so show a fuller list of the closest milestones.
   const topMilestones = mergedMilestones.slice(0, 18);
 
+  // Sanatci toplami yuzdeye gore siralanmiyor, EN BASA sabitleniyor: bu sayfanin
+  // headline rakami ve bandinin basinda duran bir sanatcida yuzdesi dusuk cikip
+  // 18'lik kesigin disina dusebilirdi. Songs/Albums filtreleri secildiyse
+  // gosterilmiyor — o filtreler "yalnizca sarkilar / yalnizca albumler" demek.
+  const artistSubject = milestoneFilter === 'all' ? artistTotalSubject() : null;
+  if (artistSubject) {
+    const nextMilestone = getNextMilestone(artistSubject.cumulative);
+    topMilestones.unshift({
+      id: currentArtist,
+      title: artistSubject.name,
+      cumulative: artistSubject.cumulative,
+      daily_gain: artistSubject.dailyGain,
+      nextMilestone,
+      percent: (artistSubject.cumulative / nextMilestone) * 100,
+      daysRemaining: artistSubject.dailyGain > 0
+        ? Math.max(1, Math.ceil((nextMilestone - artistSubject.cumulative) / artistSubject.dailyGain))
+        : null,
+      type: 'artist',
+    });
+  }
+
   if (topMilestones.length === 0) {
     milestonesGrid.innerHTML = emptyState('No upcoming milestones', 'Nothing matches this filter right now.');
     return;
@@ -3239,17 +3282,24 @@ function renderMilestones() {
     }
     
     const isAlbum = item.type === 'album';
-    const badgeHtml = isAlbum
-      ? `<span class="milestone-type-badge type-album">💿 Album</span>`
-      : `<span class="milestone-type-badge type-song">🎵 Song</span>`;
-      
-    const clickHandler = isAlbum
-      ? `openAlbumById('${item.id}', '${escJs(item.title)}', '${item.release_date}', '${escJs(item.image_url)}')`
-      : `openSongById('${item.id}')`;
+    const isArtist = item.type === 'artist';
+    const badgeHtml = isArtist
+      ? `<span class="milestone-type-badge type-artist">⭐ Artist Total</span>`
+      : isAlbum
+        ? `<span class="milestone-type-badge type-album">💿 Album</span>`
+        : `<span class="milestone-type-badge type-song">🎵 Song</span>`;
+
+    // Sanatci kartinin acacagi bir detay yok — sarki/album modali gibi bir
+    // karsiligi olmadigi icin tiklanabilir gostermek yanlis vaat olurdu.
+    const clickHandler = isArtist
+      ? ''
+      : isAlbum
+        ? `openAlbumById('${item.id}', '${escJs(item.title)}', '${item.release_date}', '${escJs(item.image_url)}')`
+        : `openSongById('${item.id}')`;
 
     const projectedVal = getYearEndProjection(item.cumulative, item.daily_gain);
     return `
-      <div class="milestone-card glass" onclick="${escHtml(clickHandler)}" style="cursor: pointer;">
+      <div class="milestone-card glass${isArtist ? ' milestone-card-artist' : ''}"${clickHandler ? ` onclick="${escHtml(clickHandler)}" style="cursor: pointer;"` : ''}>
         <div class="milestone-card-header">
           <h4 title="${escHtml(item.title)}">${escHtml(item.title)}</h4>
           <span class="eta-badge">${etaText}</span>
@@ -3308,7 +3358,13 @@ function populateTargetCalc() {
     .sort((a, b) => Number(b.cumulative) - Number(a.cumulative));
   const albums = (allAlbums || []).filter(a => Number(a.total_streams) > 0)
     .sort((a, b) => Number(b.total_streams) - Number(a.total_streams));
+  // Sanatci toplami listenin BASINDA: "19B'a kac gun kaldi" sorusu tek tek
+  // sarkilardan cok daha sik soruluyor, aramadan gorunur olmali.
+  const artistSubject = artistTotalSubject();
   tcItems = [
+    ...(artistSubject
+      ? [{ value: `artist:${currentArtist}`, title: artistSubject.name, kind: 'artist', streams: artistSubject.cumulative }]
+      : []),
     ...songs.map(s => ({ value: `song:${s.id}`, title: s.title, kind: 'song', streams: Number(s.cumulative) })),
     ...albums.map(a => ({ value: `album:${a.album_id}`, title: a.album_title, kind: 'album', streams: Number(a.total_streams) })),
   ];
@@ -3327,11 +3383,11 @@ function renderTcOptions(query) {
   tcOptionsEl._matches = matches;
   tcActiveIdx = -1;
   if (!matches.length) {
-    tcOptionsEl.innerHTML = `<div class="tc-opt-empty">No song or album matches “${tcEsc(query)}”.</div>`;
+    tcOptionsEl.innerHTML = `<div class="tc-opt-empty">Nothing matches “${tcEsc(query)}”.</div>`;
   } else {
     tcOptionsEl.innerHTML = matches.map((it, i) => `
       <div class="tc-opt${it.value === tcSelected ? ' selected' : ''}" role="option" data-idx="${i}">
-        <span class="tc-opt-icon">${it.kind === 'song' ? '🎵' : '💿'}</span>
+        <span class="tc-opt-icon">${it.kind === 'song' ? '🎵' : it.kind === 'album' ? '💿' : '⭐'}</span>
         <span class="tc-opt-title">${tcEsc(it.title)}</span>
         <span class="tc-opt-streams">${formatShortNumber(it.streams)}</span>
       </div>`).join('');
@@ -3375,7 +3431,10 @@ function computeTargetEta() {
   const [type, id] = sel.split(/:(.+)/);
 
   let cumulative = 0, dailyGain = 0, name = '';
-  if (type === 'song') {
+  if (type === 'artist') {
+    const subj = artistTotalSubject();
+    if (subj) { cumulative = subj.cumulative; dailyGain = subj.dailyGain; name = subj.name; }
+  } else if (type === 'song') {
     const s = (allSongs || []).find(x => x.id === id);
     if (s) { cumulative = Number(s.cumulative); dailyGain = effectiveDailyRate(s); name = s.title; }
   } else {
