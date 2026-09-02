@@ -22,6 +22,14 @@
  * durumlarda bozan şey çoğu zaman albüm sayfasının kendisi oluyor, onu tekrar
  * okumak aynı bozuk sayıyı geri getirir.
  *
+ * --force YALNIZCA AI SANATÇILARINDA GEÇERLİ (kategorisinde 'ai' olanlar:
+ * Vaelis, Mark wins, Floalis, Lalisatto, Livia Woods, Nick Carter, Utopic
+ * Records). Başka bir sanatçının track'ine verilirse yok sayılır ve koruma
+ * yerinde kalır. Sebep ölçek: bu sanatçılarda sayılar binlerle ifade ediliyor
+ * ve Spotify sahte dinlemeleri temizleyince %50-70 düşüş GERÇEK oluyor. Gerçek
+ * bir sanatçıda milyonluk bir katalogda aynı büyüklükte bir düşüş neredeyse her
+ * zaman bozuk okumadır — orada korumayı kapatmak sağlam veriyi tıraşlar.
+ *
  * --force yalnızca komut satırında ADIYLA verilen track'lerin başına, yalnızca
  * o çalıştırma için %25 düşüş korumasını kapatır. Koruma normalde doğru:
  * büyük bir düşüş genellikle CANLI okumanın bozuk olduğunu gösterir. Tersinin
@@ -53,8 +61,13 @@ async function main() {
       `SELECT s.id, s.title, s.album_id, COALESCE(s.canonical_id, s.id) AS head,
               (SELECT MAX(ss.stream_count) FROM stream_stats ss
                JOIN songs s2 ON s2.id = ss.song_id
-               WHERE COALESCE(s2.canonical_id, s2.id) = COALESCE(s.canonical_id, s.id)) AS stored
-       FROM songs s WHERE s.id = ANY($1)`, [trackIds]
+               WHERE COALESCE(s2.canonical_id, s2.id) = COALESCE(s.canonical_id, s.id)) AS stored,
+              COALESCE(ta.name, '?') AS artist_name,
+              COALESCE('ai' = ANY(ta.categories), false) AS is_ai
+       FROM songs s
+       LEFT JOIN tracked_artists ta
+              ON 'spotify:artist:' || ta.artist_id = s.primary_artist
+       WHERE s.id = ANY($1)`, [trackIds]
     );
     if (!meta.rows.length) { console.error('Bu id\'ler songs tablosunda yok.'); return; }
 
@@ -74,7 +87,8 @@ async function main() {
       const diff = live - stored;
       console.log(`[repair] ${row.title}\n         bizde: ${stored}   Spotify: ${live}   fark: ${diff > 0 ? '+' : ''}${diff}`);
       if (diff >= 0) { console.log('         → düşüş yok, atlandı.'); continue; }
-      observed.push({ songId: row.id, head: row.head, count: live, stored });
+      observed.push({ songId: row.id, head: row.head, count: live, stored,
+                      isAi: row.is_ai === true, artistName: row.artist_name });
     }
     if (!observed.length) { console.log('\nDüzeltilecek bir şey yok.'); return; }
     if (!apply) { console.log('\n(dry-run — yazmak için --apply)'); return; }
@@ -95,8 +109,22 @@ async function main() {
     // bekleyenleri de içeri alır: 2026-08-23'te tek şarkı için çalıştırılan bir
     // koşu böyle 40 kaydı birden düzeltti.
     const heads = new Set(observed.map(o => o.head));
-    // Oran koruması yalnızca --force ile ve yalnızca adı geçen başlar için kalkar.
-    const forceHeads = force ? heads : new Set();
+    // Oran koruması yalnızca --force ile, yalnızca adı geçen başlar için VE
+    // yalnızca AI sanatçılarında kalkar. Gerçek bir sanatçıda milyonluk bir
+    // şarkının %50 düşmesi neredeyse her zaman bozuk okumadır; orada korumayı
+    // kapatmak sağlam geçmişi tıraşlar. AI sanatçılarında sayılar binlerle
+    // ifade ediliyor ve Spotify sahte dinlemeleri sildiğinde düşüş gerçekten o
+    // büyüklükte oluyor — Vaelis'in "Something I Can't Find"ı 10.203'ten
+    // 2.963'e (%71) indi ve bu doğru okumaydı.
+    const forceHeads = new Set();
+    if (force) {
+      for (const o of observed) {
+        if (o.isAi) { forceHeads.add(o.head); continue; }
+        const oran = o.stored > 0 ? (((o.stored - o.count) / o.stored) * 100).toFixed(1) : '?';
+        console.warn(`[repair] --force YOK SAYILDI: ${o.artistName} AI sanatçısı değil ` +
+                     `(${oran}% düşüş). Koruma yerinde; gerçekten doğruysa önce canlı değeri teyit et.`);
+      }
+    }
     // --only-listed: tıraşlama yalnızca komut satırındaki id'lere. Ailede doğru
     // değeri taşıyan bir üye varsa şart.
     const clampIds = onlyListed ? new Set(observed.map(o => o.songId)) : null;
