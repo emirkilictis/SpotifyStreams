@@ -141,14 +141,40 @@ function artistLatestAggCTE(songFilter) {
         WHERE heads >= GREATEST((SELECT MAX(heads) FROM agg_days) / 4, 1)
         ORDER BY recorded_date DESC LIMIT 1
       ),
+      -- Okumasi BAYAT olan bir basin hareket alanlari yayinlanmaz.
+      --
+      -- daily_gain "bu basin EN SON kazanci, ne zaman kaydedilmisse" demek. Bir
+      -- sarki taranmayi birakinca o son kazanc sonsuza kadar "bugunku gunluk"
+      -- gibi gorunuyordu. Christina'nin "Do What U Want"i 2026-08-18'de
+      -- 74,6M'den 194,5M'ye sicradi ve o gunden sonra hic okunmadi; site
+      -- haftalardir onun icin +119,865,151 gunluk gosteriyordu. Ayni sey 30
+      -- kayitta vardi (Stray Kids, Celine, Dua Lipa).
+      --
+      -- Sanatci toplaminda bu zaten cozulmustu (agg_day + day_gain), ama sarki
+      -- listesi, album kartlari ve milestone ETA'lari hala ham daily_gain'i
+      -- okuyordu.
+      --
+      -- Esik 7 gun: soguk kadanslı sarkilar COLD_STALE_DAYS (varsayilan 3) ile
+      -- taraniyor, yani normal bir katalog sarkisi asla bayat sayilmiyor; 7
+      -- gundur hic okunmamis bir sarkinin ise guncel bir gunlugu YOK, ve
+      -- eskisini basmak uydurma. cumulative BIRAKILIYOR — o hala bilinen son
+      -- gercek toplam.
       agg AS (
         SELECT canonical_id,
                MAX(recorded_date) FILTER (WHERE rn = 1) AS recorded_date,
                MAX(cumulative)    FILTER (WHERE rn = 1) AS cumulative,
-               MAX(daily_gain)    FILTER (WHERE rn = 1) AS daily_gain,
-               MAX(daily_gain)    FILTER (WHERE rn = 2) AS prev_daily_gain,
-               ROUND(AVG(daily_gain) FILTER (WHERE rn <= 7))::bigint AS daily_avg_7d,
-               MAX(real_change)   FILTER (WHERE rn = 1) AS real_change,
+               CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
+                         < (SELECT recorded_date FROM agg_day) - 7
+                    THEN NULL ELSE MAX(daily_gain) FILTER (WHERE rn = 1) END AS daily_gain,
+               CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
+                         < (SELECT recorded_date FROM agg_day) - 7
+                    THEN NULL ELSE MAX(daily_gain) FILTER (WHERE rn = 2) END AS prev_daily_gain,
+               CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
+                         < (SELECT recorded_date FROM agg_day) - 7
+                    THEN NULL ELSE ROUND(AVG(daily_gain) FILTER (WHERE rn <= 7))::bigint END AS daily_avg_7d,
+               CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
+                         < (SELECT recorded_date FROM agg_day) - 7
+                    THEN NULL ELSE MAX(real_change) FILTER (WHERE rn = 1) END AS real_change,
                -- NULL when this head has no row on the headline day.
                MAX(daily_gain) FILTER (
                  WHERE recorded_date = (SELECT recorded_date FROM agg_day)
