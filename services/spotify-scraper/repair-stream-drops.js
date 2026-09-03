@@ -22,6 +22,14 @@
  * durumlarda bozan şey çoğu zaman albüm sayfasının kendisi oluyor, onu tekrar
  * okumak aynı bozuk sayıyı geri getirir.
  *
+ * --approved-nonai, --force'un AI kısıtını TEK ÇALIŞTIRMA için kaldırır ve
+ * yalnızca kullanıcının o olay için açık onayıyla kullanılır. Var oluş sebebi:
+ * 2026-08-18'de bir koşu grup üyelerinin TOPLAMINI her üyeye yazdı (Social Path
+ * 95,451,018 + 42,131,309 = bizdeki 137,655,221; canlı değer 42,555,313).
+ * Orada tıraşlamak doğruyu yazmak demekti, ama düşüş %25'i aştığı için koruma
+ * reddediyordu. Varsayılan davranış değişmedi: onaysız --force hâlâ AI dışına
+ * dokunmuyor.
+ *
  * --force YALNIZCA AI SANATÇILARINDA GEÇERLİ (kategorisinde 'ai' olanlar:
  * Vaelis, Mark wins, Floalis, Lalisatto, Livia Woods, Nick Carter, Utopic
  * Records). Başka bir sanatçının track'ine verilirse yok sayılır ve koruma
@@ -46,6 +54,8 @@ async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes('--apply');
   const force = args.includes('--force');
+  // AI kisitini kaldirir — kullanicinin o olay icin acik onayi sart.
+  const nonAiOnay = args.includes('--approved-nonai');
   const onlyListed = args.includes('--only-listed');
   const trackIds = args.filter(a => !a.startsWith('--'));
   if (!trackIds.length) {
@@ -120,6 +130,11 @@ async function main() {
     if (force) {
       for (const o of observed) {
         if (o.isAi) { forceHeads.add(o.head); continue; }
+        if (nonAiOnay) {
+          forceHeads.add(o.head);
+          console.warn(`[repair] ONAYLI ISTISNA: ${o.artistName} AI degil, --approved-nonai ile tirasliyor.`);
+          continue;
+        }
         const oran = o.stored > 0 ? (((o.stored - o.count) / o.stored) * 100).toFixed(1) : '?';
         console.warn(`[repair] --force YOK SAYILDI: ${o.artistName} AI sanatçısı değil ` +
                      `(${oran}% düşüş). Koruma yerinde; gerçekten doğruysa önce canlı değeri teyit et.`);
