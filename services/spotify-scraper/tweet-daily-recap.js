@@ -23,7 +23,7 @@
  *
  * Gün başına tek tweet (tweet_log, kind='daily_recap'). Her hata yutulur.
  */
-const { postTweet, credsFromEnv, credsComplete, ensureTweetLog } = require('./x-client');
+const { postTweetWithPhoto, credsFromEnv, credsComplete, ensureTweetLog } = require('./x-client');
 const { getPool, closePool } = require('./db');
 require('dotenv').config({ path: __dirname + '/../../.env' });
 
@@ -133,7 +133,9 @@ async function main() {
     console.log(`--- tweet (${metin.length} karakter) ---\n${metin}\n-------------`);
     if (dryRun) return console.log('[recap] DRY-RUN — gönderilmedi.');
 
-    const sonuc = await postTweet(metin, creds);
+    // media/jt icinden rastgele bir kareyle gonderiliyor; fotograf tutmazsa
+    // gonderi metinle gidiyor (bkz. postTweetWithPhoto).
+    const sonuc = await postTweetWithPhoto(metin, creds, 'recap');
     const id = sonuc?.data?.id ?? null;
     await client.query(
       `INSERT INTO tweet_log (post_date, kind, tweet_id, value)

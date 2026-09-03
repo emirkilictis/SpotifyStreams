@@ -11,6 +11,8 @@
  * eklersen imzaya onları da katman gerekir, yoksa 401 alırsın.
  */
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const rfc3986 = s => encodeURIComponent(s).replace(/[!'()*]/g, c =>
   '%' + c.charCodeAt(0).toString(16).toUpperCase());
@@ -44,19 +46,88 @@ function oauthHeader(method, url, creds) {
     .map(k => `${rfc3986(k)}="${rfc3986(params[k])}"`).join(', ');
 }
 
-async function postTweet(text, creds = credsFromEnv()) {
+// Gorsel yukler ve media_id dondurur.
+//
+// MULTIPART OLMASI SART. Bu dosyanin imzalayicisi yalnizca oauth_* parametrelerini
+// kapsiyor; form-urlencoded bir govdede (media_data=<base64>) OAuth 1.0a govde
+// alanlarini da imzaya katmayi sart kosar ve imza tutmaz — 401 alinir. Multipart
+// govde ise, JSON gibi, imzanin disinda kalir. Bu yuzden imzalayiciya
+// dokunmadan gorsel yuklenebiliyor.
+//
+// Yukleme ucu tweet ucundan AYRI bir host'ta (upload.x.com). Media 24 saat
+// yasiyor ve kullanilmazsa kendiliginden dusuyor, yani yuklemek tek basina
+// hicbir sey yayinlamiyor.
+const MEDIA_UPLOAD_URL = 'https://upload.x.com/1.1/media/upload.json';
+
+async function uploadMedia(filePath, creds = credsFromEnv()) {
+  const bytes = fs.readFileSync(filePath);
+  const form = new FormData();
+  form.append('media', new Blob([bytes]), path.basename(filePath));
+  const res = await fetch(MEDIA_UPLOAD_URL, {
+    method: 'POST',
+    headers: { Authorization: oauthHeader('POST', MEDIA_UPLOAD_URL, creds) },
+    body: form,
+  });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`X media ${res.status}: ${body.slice(0, 300)}`);
+  const json = JSON.parse(body);
+  const id = json.media_id_string || (json.data && json.data.id);
+  if (!id) throw new Error(`X media: cevapta media_id yok — ${body.slice(0, 200)}`);
+  return id;
+}
+
+// media/jt icinden rastgele bir kare. Klasor bos ya da yoksa null doner ve
+// tweet metinle atilir — gorsel bir suslemesi, gonderinin sarti degil.
+function pickArtistPhoto(dir = path.join(__dirname, 'media', 'jt')) {
+  let files = [];
+  try {
+    files = fs.readdirSync(dir).filter(f => /\.(jpe?g|png|webp)$/i.test(f));
+  } catch { return null; }
+  if (!files.length) return null;
+  return path.join(dir, files[Math.floor(Math.random() * files.length)]);
+}
+
+async function postTweet(text, creds = credsFromEnv(), mediaIds = []) {
   const url = 'https://api.x.com/2/tweets';
+  const payload = { text };
+  if (mediaIds && mediaIds.length) payload.media = { media_ids: mediaIds };
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: oauthHeader('POST', url, creds),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(payload),
   });
   const body = await res.text();
   if (!res.ok) throw new Error(`X API ${res.status}: ${body.slice(0, 300)}`);
   return JSON.parse(body);
+}
+
+// Tweet'i fotografla atar; fotograf bir sebeple tutmazsa METINLE atar.
+//
+// Iki ayri yerde dusebilir ve ikisi de gonderiyi oldurmemeli: yukleme
+// basarisiz olabilir, ya da yukleme tutup /2/tweets media_id'yi reddedebilir.
+// Bot gozetimsiz calisiyor — bir fotograf yuzunden gunun postunu kaybetmek,
+// fotografsiz post atmaktan çok daha kötü.
+async function postTweetWithPhoto(text, creds = credsFromEnv(), etiket = 'x') {
+  let mediaIds = [];
+  const file = pickArtistPhoto();
+  if (file) {
+    try {
+      mediaIds = [await uploadMedia(file, creds)];
+      console.log(`[${etiket}] görsel: ${path.basename(file)}`);
+    } catch (err) {
+      console.warn(`[${etiket}] görsel yüklenemedi (${err.message}) — metinle gidiyor.`);
+    }
+  }
+  if (!mediaIds.length) return postTweet(text, creds, []);
+  try {
+    return await postTweet(text, creds, mediaIds);
+  } catch (err) {
+    console.warn(`[${etiket}] görselli gönderim reddedildi (${err.message}) — metinle tekrar deneniyor.`);
+    return postTweet(text, creds, []);
+  }
 }
 
 // Tweet defterini iki post tipinin paylaşabilmesi için kind kolonuyla kurar.
@@ -76,4 +147,5 @@ async function ensureTweetLog(client) {
     `CREATE UNIQUE INDEX IF NOT EXISTS tweet_log_gun_tip ON tweet_log (post_date, kind)`);
 }
 
-module.exports = { postTweet, credsFromEnv, credsComplete, ensureTweetLog };
+module.exports = { postTweet, postTweetWithPhoto, uploadMedia, pickArtistPhoto,
+                   credsFromEnv, credsComplete, ensureTweetLog };
