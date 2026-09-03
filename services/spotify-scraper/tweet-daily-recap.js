@@ -16,10 +16,14 @@
  * tweetlemek birkaç dakika sonra yanlışa dönebilir, o yüzden JT'nin
  * şarkılarının en az %90'ı o güne yazılmadan hiçbir şey gönderilmez.
  *
- * 280 KARAKTER. Şarkı adları uzun ("CAN'T STOP THE FEELING! (from DreamWorks
- * Animation's "TROLLS")"), o yüzden başlıklar parantez/tire öncesinden kesilir
- * ve metin hâlâ sığmıyorsa liste 5'ten 4'e, 3'e inerek küçültülür. Hiçbir
- * durumda X'e sığmayacak bir metin gönderilmez.
+ * KARAKTER SINIRI. Hesap X Premium olduğu için sınır 280 değil; TOP_N kadar
+ * şarkı rahatça sığıyor. Şarkı adları uzun ("CAN'T STOP THE FEELING! (from
+ * DreamWorks Animation's "TROLLS")"), o yüzden başlıklar parantez/tire
+ * öncesinden kesilir ve metin yine de sığmazsa liste birer birer küçültülür.
+ * Hiçbir durumda sınırı aşan bir metin gönderilmez.
+ *
+ * Sınır env'den ayarlanır (TWEET_CHAR_LIMIT). Premium biterse 280 yazmak
+ * yeterli: liste kendiliğinden sığacak boya iner, kod değişikliği gerekmez.
  *
  * Gün başına tek tweet (tweet_log, kind='daily_recap'). Her hata yutulur.
  */
@@ -31,7 +35,8 @@ const JT = '31TPClRtHm23RisEBtV3X7';
 const ESIK = Number(process.env.DAILY_TWEET_THRESHOLD || 9000000);
 const MIN_KAPSAMA = 0.90;
 const SITE = process.env.DASHBOARD_URL || 'https://spotify-streams-dashboard.onrender.com';
-const LIMIT = 280;
+const LIMIT = Number(process.env.TWEET_CHAR_LIMIT || 4000);
+const TOP_N = Number(process.env.TWEET_TOP_N || 10);
 
 const fmt = n => Number(n).toLocaleString('en-US');
 
@@ -49,7 +54,8 @@ function tweetMetni({ daily, sarkilar, tarih, footer }) {
     { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
   const kur = n => {
-    const satirlar = [`Justin Timberlake — ${fmt(daily)} daily streams`, ''];
+    const satirlar = [`Justin Timberlake — ${fmt(daily)} daily streams`, '',
+                      `Top ${n} songs today:`];
     sarkilar.slice(0, n).forEach((s, i) => {
       satirlar.push(`${i + 1}. ${kisaBaslik(s.title)} — ${fmt(s.daily)}`);
     });
@@ -58,9 +64,9 @@ function tweetMetni({ daily, sarkilar, tarih, footer }) {
     return satirlar.join('\n');
   };
 
-  // 5'ten başlayıp sığana kadar kısalt. 1 şarkıyla bile sığmıyorsa (footer çok
-  // uzun demektir) çağıran taraf atlar.
-  for (let n = Math.min(5, sarkilar.length); n >= 1; n--) {
+  // TOP_N'den başlayıp sığana kadar kısalt. 1 şarkıyla bile sığmıyorsa (footer
+  // çok uzun demektir) çağıran taraf atlar.
+  for (let n = Math.min(TOP_N, sarkilar.length); n >= 1; n--) {
     const m = kur(n);
     if (m.length <= LIMIT) return m;
   }
