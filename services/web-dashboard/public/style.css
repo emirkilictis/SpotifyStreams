@@ -3228,7 +3228,7 @@ body.modal-open {
   gap: 2px;
 }
 
-.chart-toggle-btn, .range-toggle-btn, .album-range-toggle-btn {
+.chart-toggle-btn, .range-toggle-btn, .album-range-toggle-btn, .album-chart-toggle-btn {
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-secondary);
@@ -3241,12 +3241,12 @@ body.modal-open {
   transition: var(--transition-smooth);
 }
 
-.chart-toggle-btn:hover, .range-toggle-btn:hover, .album-range-toggle-btn:hover {
+.chart-toggle-btn:hover, .range-toggle-btn:hover, .album-range-toggle-btn:hover, .album-chart-toggle-btn:hover {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.04);
 }
 
-.chart-toggle-btn.active, .range-toggle-btn.active, .album-range-toggle-btn.active {
+.chart-toggle-btn.active, .range-toggle-btn.active, .album-range-toggle-btn.active, .album-chart-toggle-btn.active {
   color: var(--album-accent, var(--accent-green)) !important;
   background: rgba(var(--album-accent-rgb, 30, 215, 96), 0.1) !important;
   border-color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.2) !important;
@@ -3256,6 +3256,67 @@ body.modal-open {
 .chart-container {
   min-height: 280px;
   width: 100%;
+}
+
+/* Week-over-week strip above the chart. The chart shows shape; these four
+   tiles carry the number a fan actually repeats out loud. */
+.trend-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.trend-tile {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.trend-tile-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.trend-tile-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trend-tile-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trend-empty {
+  grid-column: 1 / -1;
+  padding: 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* Four tiles across is unreadable on a phone; two rows of two is not. */
+@media (max-width: 600px) {
+  .trend-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* Song Title cursor hover indicator */
@@ -3358,7 +3419,7 @@ body.modal-open {
     justify-content: center;
   }
 
-  .chart-toggle-btn, .range-toggle-btn, .album-range-toggle-btn {
+  .chart-toggle-btn, .range-toggle-btn, .album-range-toggle-btn, .album-chart-toggle-btn {
     flex: 1;
     font-size: 0.75rem;
     text-align: center;

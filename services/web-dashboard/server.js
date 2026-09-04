@@ -2355,7 +2355,11 @@ app.get('/api/albums/:id/history', requireAuth,
     const query = `
       WITH ${artistLatestAggCTE(gecmisUyelikSql)}
       SELECT
-        g.recorded_date,
+        -- ::text for the same reason /api/songs/:id/history casts: node-postgres
+        -- turns a DATE into a JS Date at the SERVER's local midnight, which
+        -- JSON-serialises as the previous day east of UTC. Every album chart
+        -- label was a day early until this cast was added.
+        g.recorded_date::text AS recorded_date,
         SUM(g.cumulative)::bigint AS cumulative,
         SUM(g.daily_gain)::bigint AS daily_gain
       -- daily_streams_canonical YERINE agg_gains. O view her cagrida TUM

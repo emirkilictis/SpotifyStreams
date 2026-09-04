@@ -22,7 +22,11 @@ let activeAlbumChart = null;
 let activeSongHistory = [];
 let activeAlbumHistory = [];
 let activeAlbumId = null;
-let songChartType = 'cumulative'; // 'cumulative' | 'daily'
+// Default is 'weekly', not 'cumulative'. A cumulative line only ever goes up,
+// so it cannot answer the one question a fan actually asks of it — "is this
+// week better than last week?". Weekly bars answer it at a glance.
+let songChartType = 'weekly'; // 'weekly' | 'daily' | 'cumulative'
+let albumChartType = 'weekly'; // 'weekly' | 'daily' | 'cumulative'
 let songChartRange = '30'; // '7' | '30' | 'all'
 let albumChartRange = '30'; // '7' | '30' | 'all'
 let showDetailedAnalysis = false;
@@ -285,6 +289,14 @@ function formatDate(dateStr) {
 function formatChartDate(dateStr) {
   const d = parseLocalDate(dateStr);
   if (isNaN(d.getTime())) return String(dateStr).slice(0, 10);
+  return formatChartDateObj(d);
+}
+
+// Same label, but from a Date we already hold. Never round-trip such a date
+// through toISOString() to reuse formatChartDate: local midnight east of UTC
+// serialises to the PREVIOUS day, which shifted every weekly bar's label back
+// by one day while its value stayed right.
+function formatChartDateObj(d) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 }
 
@@ -347,6 +359,231 @@ function filterHistoryByRange(history, range) {
     const d = new Date(row.recorded_date);
     return !isNaN(d.getTime()) && d >= cutoffDate;
   });
+}
+
+// ---- Trend helpers: week-over-week comparison ----
+//
+// Everything here is derived from `cumulative`, never from `daily_gain`.
+// A window's gain is just the running total at its end minus the running total
+// at its start, which stays correct when a day's row is missing, when the
+// scraper spread one reading over two days, or when a stale head reports NULL
+// for its daily gain (see agg-sql.js). Summing daily_gain would inherit all
+// three problems.
+
+// Running total as of `dayMs`, interpolated across gaps in the history.
+//
+// Taking "the newest row on or before that day" instead looks safer and is
+// worse: the scraper missed 2026-07-02 and 07-03 entirely, so 07-04 carried
+// three days of streams in one reading. A plain lookup then charged the whole
+// catch-up to the week that happened to contain 07-04 and starved the week
+// before it — FSLS drew a 13M week against a 24M week when both were ordinary
+// ~19M weeks. Splitting the gap proportionally is the same thing agg_gains
+// does server-side when it spreads a gain over the days it actually covers.
+//
+// Returns null when the history starts after `dayMs` — the caller must not
+// treat a missing baseline as zero, or a catalogue's first week reads as
+// +everything it has ever earned.
+function cumulativeAsOf(sortedRows, dayMs) {
+  if (!sortedRows.length || dayMs < sortedRows[0].t) return null;
+  const son = sortedRows[sortedRows.length - 1];
+  if (dayMs >= son.t) return son.c;
+
+  for (let i = sortedRows.length - 2; i >= 0; i--) {
+    if (sortedRows[i].t > dayMs) continue;
+    const onceki = sortedRows[i];
+    const sonraki = sortedRows[i + 1];
+    if (onceki.t === dayMs) return onceki.c;
+    const oran = (dayMs - onceki.t) / (sonraki.t - onceki.t);
+    return onceki.c + (sonraki.c - onceki.c) * oran;
+  }
+  return null;
+}
+
+function normalizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  const rows = history
+    .map(row => ({
+      t: parseLocalDate(row.recorded_date).getTime(),
+      c: Number(row.cumulative),
+      date: row.recorded_date
+    }))
+    .filter(row => Number.isFinite(row.t) && Number.isFinite(row.c))
+    .sort((a, b) => a.t - b.t);
+  return bridgeScrapeHoles(rows);
+}
+
+// An album total is a SUM across its tracks, so a day where some tracks were
+// never scraped reads as a cliff and the next day as a spike: FSLS showed
+// -127,653,070 on 2026-08-21 and +133,143,321 on 08-22, when the two days
+// together were just two ordinary days (+5,490,251).
+//
+// Only bridge a dip that RECOVERS within `lookahead` days. A drop that stays
+// down is Spotify actually removing streams, which this dashboard is supposed
+// to show — see the Vaelis case — so it is left alone.
+function bridgeScrapeHoles(rows, lookahead = 3) {
+  if (rows.length < 2) return rows;
+  const out = rows.map(r => ({ ...r }));
+  let zirve = out[0].c;
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].c < zirve) {
+      let toparlandi = false;
+      for (let j = i + 1; j < out.length && j <= i + lookahead; j++) {
+        if (out[j].c >= zirve) { toparlandi = true; break; }
+      }
+      if (toparlandi) {
+        out[i].c = zirve;                 // a hole, not a decline
+        out[i].bridged = true;
+      } else {
+        zirve = out[i].c;                 // a real removal: keep it
+      }
+    } else {
+      zirve = out[i].c;
+    }
+  }
+  return out;
+}
+
+// A week can genuinely be negative when Spotify removes streams. Print the
+// sign rather than clamping it away.
+function formatSignedGain(n) {
+  const v = Math.round(n);
+  return (v < 0 ? '−' : '+') + formatNumber(Math.abs(v));
+}
+
+const GUN_MS = 24 * 60 * 60 * 1000;
+
+// Last `weekCount` seven-day windows, oldest first. A window whose baseline
+// predates the history is dropped rather than shown as a short bar.
+function weeklyGainSeries(history, weekCount = 12) {
+  const rows = normalizeHistory(history);
+  if (rows.length < 2) return [];
+
+  const lastMs = rows[rows.length - 1].t;
+  const out = [];
+  for (let k = weekCount - 1; k >= 0; k--) {
+    const endMs = lastMs - k * 7 * GUN_MS;
+    const startMs = endMs - 7 * GUN_MS;
+    const endCum = cumulativeAsOf(rows, endMs);
+    const startCum = cumulativeAsOf(rows, startMs);
+    if (endCum === null || startCum === null) continue;
+    out.push({
+      endMs,
+      label: formatChartDateObj(new Date(endMs)),
+      gain: endCum - startCum
+    });
+  }
+  return out;
+}
+
+// Highest single-day gain in the window, for the "best day" tile.
+function bestDayInHistory(rows, sinceMs) {
+  let best = null;
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i].t < sinceMs) continue;
+    // The day after a bridged hole carries TWO days of streams in one reading,
+    // so it wins "best day" on a technicality. FSLS would have claimed
+    // +5,490,251 on a catalogue that never clears +3M.
+    if (rows[i - 1].bridged) continue;
+    // Same trap after an outage: 07-04's reading covered three days. A row more
+    // than a day after the previous one is not a single day's gain.
+    if (rows[i].t - rows[i - 1].t > GUN_MS * 1.5) continue;
+    const gain = rows[i].c - rows[i - 1].c;
+    if (gain > 0 && (!best || gain > best.gain)) best = { gain, date: rows[i].date };
+  }
+  return best;
+}
+
+function trendSummary(history) {
+  const rows = normalizeHistory(history);
+  if (rows.length < 2) return null;
+
+  const lastMs = rows[rows.length - 1].t;
+  const nowCum = rows[rows.length - 1].c;
+  const week1Cum = cumulativeAsOf(rows, lastMs - 7 * GUN_MS);
+  const week2Cum = cumulativeAsOf(rows, lastMs - 14 * GUN_MS);
+
+  if (week1Cum === null) return null; // less than a week of history
+
+  const thisWeek = nowCum - week1Cum;
+  // null, not 0: "no prior week on record" and "a prior week of zero streams"
+  // must not render the same way.
+  const prevWeek = week2Cum === null ? null : week1Cum - week2Cum;
+  const changePct = (prevWeek && prevWeek > 0)
+    ? ((thisWeek - prevWeek) / prevWeek) * 100
+    : null;
+
+  return {
+    thisWeek,
+    prevWeek,
+    changePct,
+    dailyAvg: thisWeek / 7,
+    best: bestDayInHistory(rows, lastMs - 30 * GUN_MS),
+    lastDate: rows[rows.length - 1].date
+  };
+}
+
+function trendTile(label, value, sub, tone) {
+  const renk = tone === 'up' ? 'var(--accent-green)'
+             : tone === 'down' ? 'var(--accent-red)'
+             : 'var(--text-primary)';
+  return `
+    <div class="trend-tile">
+      <div class="trend-tile-label">${label}</div>
+      <div class="trend-tile-value" style="color:${renk}">${value}</div>
+      <div class="trend-tile-sub">${sub || '&nbsp;'}</div>
+    </div>`;
+}
+
+function renderTrendStrip(el, history) {
+  if (!el) return;
+  const t = trendSummary(history);
+  if (!t) {
+    // Under a week of data there is nothing to compare against; say so instead
+    // of printing a 0% that looks like a real reading.
+    el.innerHTML = `<div class="trend-empty">Not enough history yet for a weekly comparison — check back in a few days.</div>`;
+    return;
+  }
+
+  const yon = t.changePct === null ? 'flat' : (t.changePct >= 0 ? 'up' : 'down');
+  const ok = yon === 'up' ? '▲' : yon === 'down' ? '▼' : '';
+  const degisim = t.changePct === null
+    ? 'no prior week'
+    : `${ok} ${Math.abs(t.changePct).toFixed(1)}% vs last week`;
+
+  el.innerHTML = `
+    ${trendTile('This week', formatSignedGain(t.thisWeek), degisim, yon)}
+    ${trendTile('Last week', t.prevWeek === null ? '—' : formatSignedGain(t.prevWeek), 'previous 7 days')}
+    ${trendTile('Daily average', formatSignedGain(t.dailyAvg), 'this week')}
+    ${trendTile('Best day', t.best ? formatSignedGain(t.best.gain) : '—', t.best ? formatChartDate(t.best.date) : 'last 30 days')}
+  `;
+}
+
+// Shape the series for whichever mode the chart is in. Weekly ignores the
+// 7D/30D range (a single week is one bar) and always shows the last 12 windows.
+function chartSeriesFor(history, type, range, weekCount = 12) {
+  if (type === 'weekly') {
+    const weeks = weeklyGainSeries(history, weekCount);
+    return {
+      dates: weeks.map(w => w.label),
+      dataPoints: weeks.map(w => w.gain),
+      seriesName: 'Weekly Streams',
+      apexType: 'bar'
+    };
+  }
+  const filtered = filterHistoryByRange(history, range);
+  return {
+    dates: filtered.map(row => formatChartDate(row.recorded_date)),
+    dataPoints: filtered.map(row => Number(type === 'daily' ? row.daily_gain : row.cumulative)),
+    seriesName: type === 'daily' ? 'Daily Streams' : 'Total Streams',
+    apexType: type === 'daily' ? 'bar' : 'area'
+  };
+}
+
+// The 7D/30D/All range means nothing in weekly mode — 7D would be a single
+// bar — so hide the group rather than leave a control that does nothing.
+function syncRangeToggleVisibility(modalSel, type) {
+  const grup = document.querySelector(`${modalSel} .range-group`);
+  if (grup) grup.style.display = type === 'weekly' ? 'none' : 'flex';
 }
 
 // ---- Skeleton / empty-state helpers ----
@@ -1087,8 +1324,13 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
       activeAlbumHistory = await historyRes.json();
       loadingAlbumHistory = false;
       
-      // Reset range selector tab
+      // Reset chart mode and range selector tabs
+      albumChartType = 'weekly';
       albumChartRange = '30';
+      document.querySelectorAll('#album-modal .album-chart-toggle-btn').forEach(btn => {
+        if (btn.dataset.chartType === 'weekly') btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
       const albumRangeBtns = document.querySelectorAll('#album-modal .album-range-toggle-btn');
       albumRangeBtns.forEach(btn => {
         if (btn.dataset.range === '30') btn.classList.add('active');
@@ -1187,8 +1429,11 @@ function renderAlbumChart() {
   if (showDetailedAnalysis && albumChartSection) {
     albumChartSection.classList.remove('hidden');
 
+    const albumTrendEl = document.getElementById('album-trend');
+
     if (loadingAlbumHistory) {
       if (chartToggleBar) chartToggleBar.style.display = 'none';
+      if (albumTrendEl) albumTrendEl.innerHTML = '';
       albumChartContainer.innerHTML = `
         <div class="chart-loading" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary); gap: 12px;">
           <div class="spinner" style="width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--album-accent, var(--accent-green)); border-radius: 50%; animation: spinner 1s linear infinite;"></div>
@@ -1200,6 +1445,7 @@ function renderAlbumChart() {
 
     if (!activeAlbumHistory || activeAlbumHistory.length === 0) {
       if (chartToggleBar) chartToggleBar.style.display = 'none';
+      if (albumTrendEl) albumTrendEl.innerHTML = '';
       albumChartContainer.innerHTML = `
         <div class="chart-empty" style="display: flex; align-items: center; justify-content: center; min-height: 200px; color: var(--text-secondary);">
           No streaming history available for this album.
@@ -1211,41 +1457,43 @@ function renderAlbumChart() {
     // Show the toggle bar since we have data
     if (chartToggleBar) chartToggleBar.style.display = 'flex';
     albumChartContainer.innerHTML = ''; // Clear container
-    
-    // Filter history by range
-    const filteredHistory = filterHistoryByRange(activeAlbumHistory, albumChartRange);
 
-    const dates = filteredHistory.map(row => formatChartDate(row.recorded_date));
-    const dataPoints = filteredHistory.map(row => Number(row.cumulative));
-    
+    renderTrendStrip(albumTrendEl, activeAlbumHistory);
+    syncRangeToggleVisibility('#album-modal', albumChartType);
+
+    const { dates, dataPoints, seriesName, apexType } =
+      chartSeriesFor(activeAlbumHistory, albumChartType, albumChartRange);
+
     const artistTheme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
 
     const options = {
       series: [{
-        name: 'Total Streams',
+        name: seriesName,
         data: dataPoints
       }],
       chart: {
-        type: 'area',
+        type: apexType,
         height: 200,
         background: 'transparent',
         foreColor: '#94a3b8',
         toolbar: { show: false }
       },
       colors: [artistTheme.accent],
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shadeIntensity: 1,
-          opacityFrom: 0.4,
-          opacityTo: 0.02,
-          stops: [0, 100]
-        }
+      // A gradient that fades to 2% is right under an area line and wrong on a
+      // column: it left the bars almost invisible against the dark card.
+      fill: apexType === 'bar'
+        ? { type: 'solid', opacity: 0.85 }
+        : {
+            type: 'gradient',
+            gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.02, stops: [0, 100] }
+          },
+      plotOptions: {
+        bar: { columnWidth: '62%', borderRadius: 3 }
       },
       dataLabels: { enabled: false },
       stroke: {
         curve: 'smooth',
-        width: 3
+        width: apexType === 'bar' ? 0 : 3
       },
       xaxis: {
         categories: dates,
@@ -1272,7 +1520,10 @@ function renderAlbumChart() {
       },
       tooltip: {
         theme: 'dark',
-        x: { show: true },
+        x: {
+          show: true,
+          formatter: (val) => albumChartType === 'weekly' ? `Week ending ${val}` : val
+        },
         y: {
           formatter: function (val) {
             return val.toLocaleString();
@@ -1294,6 +1545,17 @@ function renderAlbumChart() {
     albumChartSection.classList.add('hidden');
   }
 }
+
+// Bind Album Chart Mode Elements
+document.querySelectorAll('#album-modal .album-chart-toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#album-modal .album-chart-toggle-btn')
+      .forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    albumChartType = btn.dataset.chartType;
+    renderAlbumChart();
+  });
+});
 
 // Bind Album Range Selector Elements
 const albumRangeBtns = document.querySelectorAll('#album-modal .album-range-toggle-btn');
@@ -3831,6 +4093,10 @@ window.openSongById = async function(songId) {
   songModalCard.scrollTop = 0;
 
   // Fetch History for Chart
+  // Clear first: on a failed fetch the strip must not keep showing the
+  // PREVIOUS song's week-over-week numbers under this song's title.
+  activeSongHistory = [];
+  renderTrendStrip(document.getElementById('song-trend'), []);
   try {
     const headers = {};
     if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
@@ -3838,11 +4104,11 @@ window.openSongById = async function(songId) {
     activeSongHistory = await historyRes.json();
     
     // Set default chart tab and range tab
-    songChartType = 'cumulative';
+    songChartType = 'weekly';
     songChartRange = '30';
     const tabs = document.querySelectorAll('#song-modal .chart-toggle-btn');
     tabs.forEach(btn => {
-      if (btn.dataset.chartType === 'cumulative') btn.classList.add('active');
+      if (btn.dataset.chartType === 'weekly') btn.classList.add('active');
       else btn.classList.remove('active');
     });
 
@@ -3860,6 +4126,7 @@ window.openSongById = async function(songId) {
 };
 
 function renderSongChart() {
+  renderTrendStrip(document.getElementById('song-trend'), activeSongHistory);
   if (!activeSongHistory || activeSongHistory.length === 0) {
     document.getElementById('song-chart').innerHTML = `<div class="table-empty">No streaming history available.</div>`;
     return;
@@ -3873,19 +4140,10 @@ function renderSongChart() {
 
   const theme = ARTIST_THEMES[currentArtist] || ARTIST_THEMES['31TPClRtHm23RisEBtV3X7'];
   
-  const filteredHistory = filterHistoryByRange(activeSongHistory, songChartRange);
+  syncRangeToggleVisibility('#song-modal', songChartType);
 
-  const dates = filteredHistory.map(row => formatChartDate(row.recorded_date));
-  let dataPoints = [];
-  let seriesName = '';
-  
-  if (songChartType === 'cumulative') {
-    dataPoints = filteredHistory.map(row => Number(row.cumulative));
-    seriesName = 'Total Streams';
-  } else {
-    dataPoints = filteredHistory.map(row => Number(row.daily_gain));
-    seriesName = 'Daily Streams';
-  }
+  const { dates, dataPoints, seriesName, apexType } =
+    chartSeriesFor(activeSongHistory, songChartType, songChartRange);
 
   const options = {
     series: [{
@@ -3893,26 +4151,27 @@ function renderSongChart() {
       data: dataPoints
     }],
     chart: {
-      type: songChartType === 'cumulative' ? 'area' : 'bar',
+      type: apexType,
       height: 280,
       background: 'transparent',
       foreColor: '#94a3b8',
       toolbar: { show: false }
     },
     colors: [theme.accent],
-    fill: {
-      type: 'gradient',
-      gradient: {
-        shadeIntensity: 1,
-        opacityFrom: 0.4,
-        opacityTo: 0.02,
-        stops: [0, 100]
-      }
+    // See renderAlbumChart: bars need a solid fill, not the area gradient.
+    fill: apexType === 'bar'
+      ? { type: 'solid', opacity: 0.85 }
+      : {
+          type: 'gradient',
+          gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.02, stops: [0, 100] }
+        },
+    plotOptions: {
+      bar: { columnWidth: '62%', borderRadius: 3 }
     },
     dataLabels: { enabled: false },
     stroke: {
       curve: 'smooth',
-      width: 3
+      width: apexType === 'bar' ? 0 : 3
     },
     xaxis: {
       categories: dates,
@@ -3938,7 +4197,10 @@ function renderSongChart() {
     },
     tooltip: {
       theme: 'dark',
-      x: { show: true },
+      x: {
+        show: true,
+        formatter: (val) => songChartType === 'weekly' ? `Week ending ${val}` : val
+      },
       y: {
         formatter: function (val) {
           return val.toLocaleString();

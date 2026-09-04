@@ -556,8 +556,14 @@
 
         <!-- Album Chart Section -->
         <div id="album-chart-section" class="chart-section hidden" style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 20px;">
-          <div class="chart-toggle-bar" style="justify-content: flex-end;">
+          <div id="album-trend" class="trend-strip"></div>
+          <div class="chart-toggle-bar">
             <div class="toggle-group">
+              <button class="album-chart-toggle-btn active" data-chart-type="weekly">Weekly</button>
+              <button class="album-chart-toggle-btn" data-chart-type="daily">Daily</button>
+              <button class="album-chart-toggle-btn" data-chart-type="cumulative">Total</button>
+            </div>
+            <div class="toggle-group range-group" style="display: none;">
               <button class="album-range-toggle-btn" data-range="7">7D</button>
               <button class="album-range-toggle-btn active" data-range="30">30D</button>
               <button class="album-range-toggle-btn" data-range="all">All</button>
@@ -615,12 +621,14 @@
         
         <!-- Chart Container for Song -->
         <div class="chart-section">
+          <div id="song-trend" class="trend-strip"></div>
           <div class="chart-toggle-bar">
             <div class="toggle-group">
-              <button class="chart-toggle-btn active" data-chart-type="cumulative">Total Streams</button>
-              <button class="chart-toggle-btn" data-chart-type="daily">Daily Streams</button>
+              <button class="chart-toggle-btn active" data-chart-type="weekly">Weekly</button>
+              <button class="chart-toggle-btn" data-chart-type="daily">Daily</button>
+              <button class="chart-toggle-btn" data-chart-type="cumulative">Total</button>
             </div>
-            <div class="toggle-group">
+            <div class="toggle-group range-group" style="display: none;">
               <button class="range-toggle-btn" data-range="7">7D</button>
               <button class="range-toggle-btn active" data-range="30">30D</button>
               <button class="range-toggle-btn" data-range="all">All</button>
