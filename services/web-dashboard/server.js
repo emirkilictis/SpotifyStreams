@@ -2157,38 +2157,10 @@ app.get('/api/albums/:id/songs', requireAuth,
       }
     }
 
-    const query = `
-      WITH album_songs AS (
-        SELECT DISTINCT ON (COALESCE(s.canonical_id, s.id))
-          COALESCE(s.canonical_id, s.id) as id,
-          c.title,
-          c.is_featured,
-          c.duration_ms,
-          s.track_number,
-          dsc.recorded_date,
-          COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
-          COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain,
-          COALESCE(prev.daily_gain, 0)::bigint AS prev_daily_gain
-        FROM songs s
-        JOIN songs c ON c.id = COALESCE(s.canonical_id, s.id)
-        LEFT JOIN (
-          SELECT DISTINCT ON (canonical_id)
-            canonical_id,
-            cumulative,
-            daily_gain,
-            recorded_date
-          FROM daily_streams_canonical
-          ORDER BY canonical_id, recorded_date DESC
-        ) dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
-        LEFT JOIN LATERAL (
-          SELECT daily_gain
-          FROM daily_streams_canonical pv
-          WHERE pv.canonical_id = COALESCE(s.canonical_id, s.id)
-            AND pv.recorded_date < dsc.recorded_date
-          ORDER BY pv.recorded_date DESC
-          LIMIT 1
-        ) prev ON true
-        WHERE (
+    // Bu tracklist'in uyelik kurali TEK yerde duruyor: hem toplama CTE'sini
+    // kapsiyor hem satirlari seciyor. Ikisi ayrisirsa kart, hesaplanmamis bir
+    // sarkiyi bos degerlerle gosterirdi.
+    const uyelikSql = `(
           (
             -- FSLS Deluxe: also pull "LoveStoned / I Think She Knows - Radio Edit" (lives on the Bravo Black Hits comp 4zJu...)
             $1 = '0tcExuDWMQdBbwSpqN8Ku2'
@@ -2226,6 +2198,31 @@ app.get('/api/albums/:id/songs', requireAuth,
         -- Drop third-party DJ remixes/mixes/dubs/instrumentals & unofficial
         -- "Radio Edit"s pulled into the FSLS family by the discography scrape.
         AND ${FSLS_REMIX_EXCLUSION_SQL}
+      `;
+
+    const query = `
+      WITH ${artistLatestAggCTE(uyelikSql)},
+      album_songs AS (
+        SELECT DISTINCT ON (COALESCE(s.canonical_id, s.id))
+          COALESCE(s.canonical_id, s.id) as id,
+          c.title,
+          c.is_featured,
+          c.duration_ms,
+          s.track_number,
+          agg.recorded_date,
+          COALESCE(agg.cumulative, 0)::bigint AS cumulative,
+          COALESCE(agg.daily_gain, 0)::bigint AS daily_gain,
+          COALESCE(agg.prev_daily_gain, 0)::bigint AS prev_daily_gain
+        -- daily_streams_canonical YERINE agg: o view her okumada TUM
+        -- stream_stats uzerinde pencere fonksiyonu kuruyor, sonra bir album
+        -- disindaki her satiri atiyordu. Ustelik eski surumde ikinci bir kopyasi
+        -- LATERAL icinde, satir basina yeniden calisiyordu. Soguk bir album
+        -- tiklamasi bu yuzden ~6 saniye suruyordu; agg once bu album'un
+        -- sarkilarini cozup yalnizca onlarin satirlarindan tek gecis yapiyor.
+        FROM songs s
+        JOIN songs c ON c.id = COALESCE(s.canonical_id, s.id)
+        LEFT JOIN agg ON COALESCE(s.canonical_id, s.id) = agg.canonical_id
+        WHERE ${uyelikSql}
         ORDER BY COALESCE(s.canonical_id, s.id), s.track_number ASC
       )
       SELECT * FROM album_songs
@@ -2302,14 +2299,9 @@ app.get('/api/albums/:id/history', requireAuth,
       }
     }
 
-    const query = `
-      WITH album_canonicals AS (
-        -- Same membership rules as the tracklist: resolve the album's songs to
-        -- their canonical ids first, so tracks whose canonical copy lives on a
-        -- different album (e.g. Say Something's single) are still counted.
-        SELECT DISTINCT COALESCE(s.canonical_id, s.id) AS cid
-        FROM songs s
-        WHERE
+    // Uyelik kurali TEK yerde: hem toplama CTE'sini kapsiyor hem gunluk
+    // toplamlari besliyor.
+    const gecmisUyelikSql = `
           (
             (
               $1 = '0tcExuDWMQdBbwSpqN8Ku2'
@@ -2342,13 +2334,20 @@ app.get('/api/albums/:id/history', requireAuth,
           )
           AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
           AND ${FSLS_REMIX_EXCLUSION_SQL}
-      )
+      `;
+
+    const query = `
+      WITH ${artistLatestAggCTE(gecmisUyelikSql)}
       SELECT
-        dsc.recorded_date,
-        SUM(dsc.cumulative)::bigint AS cumulative,
-        SUM(dsc.daily_gain)::bigint AS daily_gain
-      FROM daily_streams_canonical dsc
-      JOIN album_canonicals ac ON ac.cid = dsc.canonical_id
+        g.recorded_date,
+        SUM(g.cumulative)::bigint AS cumulative,
+        SUM(g.daily_gain)::bigint AS daily_gain
+      -- daily_streams_canonical YERINE agg_gains. O view her cagrida TUM
+      -- stream_stats uzerinde pencere fonksiyonu kurup sonra bu albumun disindaki
+      -- her satiri atiyordu; grafik bu yuzden ~5 saniye suruyordu. agg_gains ayni
+      -- aritmetigi yalnizca bu albumun sarkilarinin satirlari uzerinde yapiyor,
+      -- ve sitenin geri kalaniyla ayni formulu paylasiyor.
+      FROM agg_gains g
       -- Backfilled artists only: start the chart on the day EVERY track on the
       -- album has history. The donated series cover some tracks and not others
       -- (Rockstar yes, Rockstar - Sped Up no), so summing across the seam would
@@ -2356,17 +2355,16 @@ app.get('/api/albums/:id/history', requireAuth,
       -- scraped album this rule would truncate the chart at its newest track.
       WHERE (
         NOT $2::boolean
-        OR dsc.recorded_date >= (
+        OR g.recorded_date >= (
           SELECT MAX(first_seen) FROM (
-            SELECT MIN(d2.recorded_date) AS first_seen
-            FROM daily_streams_canonical d2
-            JOIN album_canonicals ac2 ON ac2.cid = d2.canonical_id
-            GROUP BY d2.canonical_id
+            SELECT MIN(g2.recorded_date) AS first_seen
+            FROM agg_gains g2
+            GROUP BY g2.canonical_id
           ) f
         )
       )
-      GROUP BY dsc.recorded_date
-      ORDER BY dsc.recorded_date ASC;
+      GROUP BY g.recorded_date
+      ORDER BY g.recorded_date ASC;
     `;
     // Mixed-artist albums: if ANY credited artist carries a backfill, the album
     // can contain half-covered tracks, so apply the rule.
