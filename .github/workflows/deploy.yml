@@ -1,0 +1,61 @@
+# main'e her push'ta Render'a deploy tetikler.
+#
+# NEDEN VAR. Render'in kendi GitHub entegrasyonu bu serviste guvenilir
+# calismiyor: 2026-09-04'te ff35a90 push edildi ve 15 dakika boyunca deploy
+# olmadi — /healthz uptime'i kesintisiz 1086 saniye gosterdi, yani servis hic
+# yeniden baslamadi. Ayni gun baska bir commit kendiliginden inmisti, yani
+# entegrasyon "kapali" degil, DUZENSIZ; hangisinin inip hangisinin inmedigini
+# tahmin etmek zorunda kalmak da fiilen ayni sey.
+#
+# Deploy Hook bu belirsizligi kaldiriyor: push -> GitHub Actions -> Render.
+# Render tarafinda GitHub baglantisi ne durumda olursa olsun calisir.
+#
+# KURULUM (tek seferlik):
+#   1. Render -> servis -> Settings -> Deploy Hook -> URL'yi kopyala
+#   2. GitHub -> repo -> Settings -> Secrets and variables -> Actions
+#      -> New repository secret -> ad: RENDER_DEPLOY_HOOK, deger: o URL
+#
+# Secret yoksa is atlanir ve yesil kalir — yani bu dosyayi eklemek tek basina
+# hicbir seyi bozmuyor, sadece secret eklendigi an devreye giriyor.
+name: Deploy to Render
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Ust uste push'larda yalnizca sonuncusu deploy edilsin; sirada bekleyen eski
+# bir deploy'un yenisinin ustune yazmasinin anlami yok.
+concurrency:
+  group: render-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK secret'i yok — deploy atlandi."
+            echo "Kurulum icin bu dosyanin basindaki nota bak."
+            exit 0
+          fi
+          # Hook URL'si gizli: yalnizca HTTP kodunu basiyoruz, govdesini degil.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$HOOK")
+          echo "Render deploy hook -> HTTP $code"
+          # 2xx disinda basarisiz say: sessizce gecerse yine "deploy oldu mu"
+          # tahminine geri doneriz, ki bu dosyanin var olma sebebi tam da o.
+          case "$code" in
+            2*) echo "Deploy tetiklendi." ;;
+            *)  echo "Deploy TETIKLENEMEDI (HTTP $code)."; exit 1 ;;
+          esac
+
+      - name: Nasil dogrulanir
+        if: success()
+        run: |
+          echo "Canlida hangi surumun kostugu:"
+          echo "  curl -s https://spotify-streams-dashboard.onrender.com/healthz"
+          echo "Donen commit alanini bu push'un SHA'si ile karsilastir: ${GITHUB_SHA:0:7}"
