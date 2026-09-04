@@ -6,6 +6,11 @@ services:
     rootDir: services/web-dashboard
     buildCommand: npm install
     startCommand: node server.js
+    # Her main push'unda deploy. UYARI: bu dosya yalnizca servis Blueprint'ten
+    # olusturulduysa baglayici; elle olusturulmus bir servis icin Render panelin
+    # kendi "Auto-Deploy" ayarini kullanir ve buradaki satiri yok sayar.
+    # Canlida hangi surumun kostugu /healthz -> commit alanindan gorulur.
+    autoDeploy: true
     envVars:
       - key: PORT
         value: 10000

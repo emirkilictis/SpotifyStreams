@@ -840,7 +840,17 @@ app.get('/healthz', (req, res) => {
   // konteynerin acilmasini bekliyor — sayfa da, sorgu da hizliyken ziyaretci
   // dakikalarca bekleyebiliyor. Uptime kucukse yavasligin sebebi budur;
   // buyukse yavaslik uygulamanin kendisindedir ve baska yerde aranmalidir.
-  res.status(200).json({ ok: true, uptime_s: Math.round(process.uptime()) });
+  //
+  // commit: CANLIDA HANGI SURUM CALISIYOR. Bu olmadan "deploy indi mi" sorusunun
+  // cevabi tahmindi — uptime ise yanitlamiyor, cunku ucretsiz instance uykudan
+  // uyaninca da sifirlaniyor, yani kucuk uptime "yeni deploy" DEGIL "yeni
+  // uyandi" olabiliyor. Render her deploy'da RENDER_GIT_COMMIT'i kendisi
+  // veriyor; yerelde calisirken yok, o yuzden 'local'.
+  res.status(200).json({
+    ok: true,
+    uptime_s: Math.round(process.uptime()),
+    commit: (process.env.RENDER_GIT_COMMIT || 'local').slice(0, 7),
+  });
 });
 
 // Public Routes
