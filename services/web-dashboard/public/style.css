@@ -2398,11 +2398,11 @@ body.modal-open {
 .artist-picker-section {
   min-height: 100vh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   position: relative;
   overflow: hidden;
-  padding: 40px 20px;
+  padding: 28px 20px;
 }
 
 /* Ambient glow orbs */
@@ -2467,38 +2467,53 @@ body.modal-open {
 }
 
 .picker-header {
-  text-align: center;
-  margin-bottom: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
 }
+.picker-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.picker-toolbar { display: flex; align-items: stretch; gap: 10px; margin-bottom: 18px; }
+.picker-toolbar .picker-search-wrapper { max-width: none; flex: 1; min-width: 0; }
+.picker-toolbar .compare-open-btn { margin: 0; flex-shrink: 0; gap: 8px; min-height: 46px; }
+.picker-toolbar .compare-open-btn > span { font-size: 22px; line-height: 1; }
+.picker-header .picker-guide-link { margin: 0; flex-shrink: 0; min-height: 40px; }
+.picker-roster-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.picker-roster-heading h2 { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.picker-favorite-hint { font-size: 11px; color: var(--text-secondary); }
+.picker-toolbar :focus-visible, .picker-header a:focus-visible, .picker-filter:focus-visible { outline: 2px solid var(--accent-green); outline-offset: 3px; }
+#artist-search-input::-webkit-search-cancel-button { display: none; }
 
 .picker-logo {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 13px;
   background: rgba(30, 215, 96, 0.12);
   border: 1px solid rgba(30, 215, 96, 0.2);
   color: var(--accent-green);
-  margin-bottom: 20px;
+  margin-bottom: 0;
   box-shadow: 0 0 30px rgba(30, 215, 96, 0.15);
 }
 
 .picker-title {
   font-family: 'Outfit', sans-serif;
-  font-size: 2.8rem;
+  font-size: 1.65rem;
   font-weight: 800;
   letter-spacing: -1px;
   background: linear-gradient(135deg, #ffffff 0%, #94a3b8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin-bottom: 12px;
+  margin-bottom: 3px;
 }
 
 .picker-subtitle {
-  font-size: 1.05rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
   font-weight: 400;
 }
@@ -2772,11 +2787,11 @@ body.modal-open {
 
 @media (max-width: 600px) {
   .picker-title {
-    font-size: 2rem;
+    font-size: 1.3rem;
   }
   
   .picker-subtitle {
-    font-size: 0.9rem;
+    font-size: 0.72rem;
   }
   
   /* Compact mobile picker: 3 columns and the name overlaid on the photo so
@@ -2853,7 +2868,7 @@ body.modal-open {
   }
 
   .picker-header {
-    margin-bottom: 24px;
+    margin-bottom: 18px;
   }
 }
 
@@ -5949,10 +5964,9 @@ select.tc-input { cursor: pointer; }
 .picker-filters {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin: 0 auto 18px;
-  padding: 0 16px;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
 }
 
 .picker-filter {
@@ -6046,8 +6060,8 @@ select.tc-input { cursor: pointer; }
 .favorites-section { margin: 0 auto 22px; }
 
 .favorites-title {
-  margin: 0 0 12px;
-  text-align: center;
+  margin: 0 0 10px;
+  text-align: left;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.09em;
@@ -6065,14 +6079,6 @@ select.tc-input { cursor: pointer; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 0;
-}
-
-.favorites-section::after {
-  content: '';
-  display: block;
-  max-width: 340px;
-  margin: 22px auto 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 /* Kart uzerindeki favori yildizi. Niyet LISTEDE olusuyor ("bunlari hep
@@ -6160,4 +6166,31 @@ select.tc-input { cursor: pointer; }
 
 @media (max-width: 560px) {
   .picker-guide-link { font-size: 12px; padding: 6px 12px; }
+}
+
+/* Favorites stay a single shortcut row even when a visitor saves many artists. */
+.favorites-grid {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 3px 3px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #344b43 transparent;
+}
+.favorites-grid .picker-card { flex: 0 0 220px; animation: none; }
+@media (max-width: 600px) {
+  .artist-picker-section { padding: 20px 16px; align-items: flex-start; }
+  .picker-brand { gap: 9px; }
+  .picker-header .picker-guide-link { padding: 6px 10px; font-size: 12px; }
+  .picker-toolbar { gap: 8px; margin-bottom: 14px; }
+  .picker-toolbar .picker-search-wrapper { padding: 0 10px; }
+  .picker-toolbar .compare-open-btn { padding: 10px 12px; font-size: 12px; }
+  #artist-search-input { font-size: 16px; }
+  .picker-filters { margin-bottom: 12px; }
+  .picker-filter { min-height: 36px; }
+  .favorites-grid .picker-card { flex-basis: 88px; }
+  .favorites-section { margin-bottom: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .picker-bg-glow, .picker-container, .picker-card { animation: none; }
 }
