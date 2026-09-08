@@ -175,10 +175,53 @@ function artistLatestAggCTE(songFilter) {
                CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
                          < (SELECT recorded_date FROM agg_day) - 7
                     THEN NULL ELSE MAX(real_change) FILTER (WHERE rn = 1) END AS real_change,
-               -- NULL when this head has no row on the headline day.
-               MAX(daily_gain) FILTER (
-                 WHERE recorded_date = (SELECT recorded_date FROM agg_day)
-               ) AS day_gain
+               -- What this head earned ON the headline day.
+               --
+               -- A head with no row that day is NOT automatically a zero. Two
+               -- different things produce a missing row and only one of them
+               -- means "earned nothing":
+               --
+               --   * The song stopped updating weeks ago (Cardi's frozen head).
+               --     It earns nothing and must contribute nothing.
+               --   * We simply did not read it that day — a cold-cadence skip,
+               --     or the headline day is TODAY and the run is still going.
+               --     The song is growing exactly as before; we just have not
+               --     looked yet.
+               --
+               -- Treating both as zero made the artist headline read low every
+               -- day some songs slipped, and read like a fraction of itself
+               -- while a scrape was in flight. JT on 2026-09-07: the song list
+               -- summed to 8,748,469 (kworb said 8,724,593) while the headline
+               -- said 8,162,410 — short by exactly the 586,059 belonging to
+               -- five songs that were not read that day.
+               --
+               -- So fall back to the head's most recent per-day gain, but only
+               -- from the two days before the headline. daily_gain is already a
+               -- PER-DAY share (agg_gains divides a rise by the days it covers),
+               -- so this adds one day's worth, and when the song is finally read
+               -- the same rise is still divided across the days it spanned —
+               -- the estimate is replaced, never added on top. Beyond two days
+               -- there is no recent rate worth carrying and a stalled head
+               -- correctly falls back to nothing.
+               -- CASE, not COALESCE: the fallback is for heads with NO row that
+               -- day. A head that WAS read and still reports NULL (its value has
+               -- not moved since its last step, so the rise it is accumulating
+               -- has nowhere to land yet) keeps its NULL. Estimating for it too
+               -- pushed the artist headline ABOVE the sum of its own song list —
+               -- Celine read 2,968,666 against a list of 2,940,963 — and the two
+               -- numbers disagreeing is the very thing being fixed here.
+               CASE WHEN COUNT(*) FILTER (
+                      WHERE recorded_date = (SELECT recorded_date FROM agg_day)
+                    ) > 0
+                    THEN MAX(daily_gain) FILTER (
+                      WHERE recorded_date = (SELECT recorded_date FROM agg_day)
+                    )
+                    ELSE (ARRAY_AGG(daily_gain ORDER BY recorded_date DESC) FILTER (
+                      WHERE daily_gain IS NOT NULL
+                        AND recorded_date <  (SELECT recorded_date FROM agg_day)
+                        AND recorded_date >= (SELECT recorded_date FROM agg_day) - 2
+                    ))[1]
+               END AS day_gain
         FROM agg_gains
         GROUP BY canonical_id
       )`;
