@@ -1292,7 +1292,14 @@ tbody tr.featured-row:hover {
   text-align: right;
   font-size: 0.82rem;
   padding: 6px 4px;
-  font-variant-numeric: tabular-nums;
+  /* tabular-nums BILEREK YOK. Sayfada calisiyor (Outfit'te "1111111" ve
+     "0000000" ikisi de 165.2px) ama PNG'yi ciren html2canvas yerlesimi DOM'dan
+     alip rakamlari canvas'a basiyor, canvas ise bu ayari yok sayip orantili
+     ciziyor (105.8px vs 186.3px). Kutu tabular genislikte, yazi orantili
+     genislikte: saga dayali her sutunun sag kenari satirdan satira kayiyor ve
+     "1.71 %" gibi rakamla isaret arasina bosluk giriyordu. Iki taraf da orantili
+     olunca kutu ile cizilen yazi ayni genislikte ve kenarlar tam hizalaniyor. */
+  font-variant-numeric: normal;
   /* The global `td` rule sets colour + a white bottom hairline; both have to be
      overridden here or a light card theme renders white-on-white. */
   color: var(--dc-text);
