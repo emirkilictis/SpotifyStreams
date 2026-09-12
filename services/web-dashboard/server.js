@@ -600,7 +600,7 @@ function artistBucketMatchSQL(s, a) {
 // dashboard actually serves can be run against a real database by
 // scripts/check-stats-sql.js — the arithmetic here is where a wrong headline
 // comes from, and it was previously only checkable by loading the page.
-const { artistLatestAggCTE } = require('./lib/agg-sql');
+const { artistLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE } = require('./lib/agg-sql');
 
 // Dynamically generate the album exclusion clauses for albums query based on active artists.
 function artistAlbumMatchSQL(s) {
@@ -1393,6 +1393,7 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess,
         SELECT
           cs.song_id,
           cs.recorded_date,
+          cs.synthetic,
           -- Running max, exactly like daily_streams_canonical: a dipped
           -- playcount can never make a past day read lower than it did then.
           MAX(cs.stream_count) OVER (
@@ -1406,7 +1407,30 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess,
           ROW_NUMBER() OVER (
             PARTITION BY cs.song_id ORDER BY cs.recorded_date DESC
           ) AS rn
-        FROM canonical_streams cs
+        -- canonical_streams plus the debut baseline (see debutBaselineSQL):
+        -- a new release's first snapshot diffs against a 0 the day before, so
+        -- its debut is that day's gain here exactly as on the song page.
+        -- The synthetic flag marks those 0 rows so a date that lands ON one (the day
+        -- before a debut) doesn't count a song that wasn't out yet. The debut
+        -- rows are computed for this artist's songs only, not the whole table.
+        FROM (
+          SELECT song_id, recorded_date, stream_count, false AS synthetic
+          FROM canonical_streams
+          UNION ALL
+          SELECT d.song_id, d.recorded_date, d.stream_count, true AS synthetic
+          FROM (${debutBaselineSQL(
+            // Per-head per-day MAX built from stream_stats, with the artist
+            // and the release-date bound applied BEFORE grouping: going through
+            // canonical_streams grouped the whole table first (LISA 2.1s -> 0.2s).
+            '(SELECT COALESCE(x0.canonical_id, x0.id) AS song_id, xs0.recorded_date, ' +
+            'MAX(xs0.stream_count) AS stream_count FROM stream_stats xs0 ' +
+            'JOIN songs x0 ON x0.id = xs0.song_id ' +
+            'JOIN songs s0 ON s0.id = COALESCE(x0.canonical_id, x0.id) JOIN albums a0 ON a0.id = s0.album_id ' +
+            'WHERE s0.canonical_id IS NULL AND ' + artistBucketMatchSQL('s0', 'a0') +
+            ' AND s0.id NOT IN (' + hiddenTrackIdsSql() + ')' +
+            " AND a0.release_date >= DATE '" + DEBUT_EARLIEST_RELEASE + "' GROUP BY 1, 2) debut_src",
+            'song_id')}) d
+        ) cs
         WHERE cs.recorded_date <= $2::date
       ),
       snap AS (
@@ -1415,7 +1439,8 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess,
           MAX(runmax)        FILTER (WHERE rn = 1) AS cum_at,
           MAX(recorded_date) FILTER (WHERE rn = 1) AS as_of,
           MAX(runmax)        FILTER (WHERE rn = 2) AS cum_prev,
-          MAX(recorded_date) FILTER (WHERE rn = 2) AS prev_date
+          MAX(recorded_date) FILTER (WHERE rn = 2) AS prev_date,
+          bool_or(synthetic) FILTER (WHERE rn = 1) AS on_synthetic
         FROM bounded
         WHERE rn <= 2
         GROUP BY song_id
@@ -1444,6 +1469,8 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess,
         -- so a residual dedup chain can't double-count a recording here either.
         WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
           AND s.id NOT IN (${hiddenTrackIdsSql()})
+          -- Landed on a debut's synthetic 0: the song was not out on this date.
+          AND NOT snap.on_synthetic
       )
       SELECT
         (SELECT COALESCE(SUM(cum_at), 0)::bigint FROM rows) AS total_streams,
@@ -1512,7 +1539,21 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess,
             PARTITION BY cs.song_id ORDER BY cs.recorded_date
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
           ) AS runmax
-        FROM canonical_streams cs
+        -- Same debut baseline as the day view above. The 0 row is always a
+        -- song's earliest, so it only ever seeds the LAG and its own gain is
+        -- NULL (dropped below); no synthetic flag needed here.
+        FROM (
+          SELECT song_id, recorded_date, stream_count FROM canonical_streams
+          UNION ALL
+          ${debutBaselineSQL(
+            '(SELECT COALESCE(x0.canonical_id, x0.id) AS song_id, xs0.recorded_date, ' +
+            'MAX(xs0.stream_count) AS stream_count FROM stream_stats xs0 ' +
+            'JOIN songs x0 ON x0.id = xs0.song_id ' +
+            'JOIN mine m0 ON m0.id = COALESCE(x0.canonical_id, x0.id) ' +
+            'JOIN songs s0 ON s0.id = m0.id JOIN albums a0 ON a0.id = s0.album_id ' +
+            "WHERE a0.release_date >= DATE '" + DEBUT_EARLIEST_RELEASE + "' GROUP BY 1, 2) debut_src",
+            'song_id')}
+        ) cs
         JOIN mine m ON m.id = cs.song_id
         WHERE cs.recorded_date <= $2::date
           AND cs.recorded_date > ($2::date - ${STREAMS_ON_STRIP_DAYS + 1})
@@ -2367,7 +2408,9 @@ app.get('/api/albums/:id/history', requireAuth,
       -- her satiri atiyordu; grafik bu yuzden ~5 saniye suruyordu. agg_gains ayni
       -- aritmetigi yalnizca bu albumun sarkilarinin satirlari uzerinde yapiyor,
       -- ve sitenin geri kalaniyla ayni formulu paylasiyor.
-      FROM agg_gains g
+      -- With each new release's 0 reading the day before its debut, so the
+      -- album chart shows the debut as a gain exactly like the song page does.
+      FROM ${AGG_GAINS_WITH_DEBUT_BASE} g
       -- Backfilled artists only: start the chart on the day EVERY track on the
       -- album has history. The donated series cover some tracks and not others
       -- (Rockstar yes, Rockstar - Sped Up no), so summing across the seam would
@@ -2378,7 +2421,7 @@ app.get('/api/albums/:id/history', requireAuth,
         OR g.recorded_date >= (
           SELECT MAX(first_seen) FROM (
             SELECT MIN(g2.recorded_date) AS first_seen
-            FROM agg_gains g2
+            FROM ${AGG_GAINS_WITH_DEBUT_BASE} g2
             GROUP BY g2.canonical_id
           ) f
         )

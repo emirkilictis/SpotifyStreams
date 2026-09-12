@@ -18,6 +18,72 @@
 //
 // `songFilter` is SQL selecting this endpoint's songs; it may reference `s`
 // (songs) and `a` (albums), which are joined here the same way.
+// ---------------------------------------------------------------------------
+// Debut baseline: the synthetic 0 reading that lets a new release's first
+// snapshot count as a gain instead of a silent baseline.
+//
+// A head's first snapshot has nothing before it to diff against, so its gain
+// was NULL and everything it earned before we first looked belonged to no day.
+// Right for old catalogue (a song first read today at 900M did not earn 900M
+// today); wrong for a new release, where it throws away the biggest day.
+// LISA's "SaWaDiKa" read 3,913,030 on its first snapshot and the song page
+// showed nothing for its debut, although kworb's chart puts a 2,787,349 debut
+// on exactly that day (our playcount gains run ~1.35x the chart figure).
+//
+// Returns rows (idCol, recorded_date = first day - 1, stream_count = 0) for the
+// heads in `src` that qualify; UNION ALL them into the per-day counts before
+// the running max. Used by Time Machine. `src` is anything FROM-able with
+// columns (idCol, recorded_date, stream_count). artistLatestAggCTE applies the
+// same rule without inserting the row (see agg_flag there), which is faster.
+//
+// Qualifies only when: the album's release_date is within -1..DEBUT_WINDOW_DAYS
+// of the first snapshot, the song is still growing, and the first reading is at
+// most DEBUT_MAX_RATIO x the next per-day gain for each day since release. The
+// ratio is the guard against a reissue whose new track id inherits a linked
+// playcount of hundreds of millions; on the 2026-09-13 roster the largest real
+// ratio was 2.79 and the only rejection was an AI track reading 1,009 then +2/day.
+//
+// Not spread back to release_date on purpose: Spotify's date can sit days
+// before the real drop (SaWaDiKa: 09-02 vs a 09-04 chart debut).
+//
+// KEEP IN SYNC — the rule lives in three places: this function, agg_flag in
+// artistLatestAggCTE, and migrations/023_debut_baseline.sql
+// (daily_streams_canonical). If they disagree, the song page, the song list and
+// Time Machine stop showing the same numbers for the same day.
+const DEBUT_WINDOW_DAYS = 7;
+const DEBUT_MAX_RATIO = 3;
+// Nothing released before this can qualify: a first snapshot must be within
+// DEBUT_WINDOW_DAYS of release and our earliest snapshot is 2024-06-29. Used
+// only to skip work (it removes ~7.7K of ~9K heads before any sorting); lower it
+// if older history is ever backfilled — a stale bound leaves those debuts blank.
+const DEBUT_EARLIEST_RELEASE = '2024-06-22';
+
+function debutBaselineSQL(src, idCol = 'canonical_id') {
+  return `
+        SELECT debut_f.${idCol}, (debut_f.d1 - 1) AS recorded_date, 0::bigint AS stream_count
+        FROM (
+          SELECT ${idCol},
+                 MIN(recorded_date) FILTER (WHERE rn = 1) AS d1,
+                 MAX(stream_count)  FILTER (WHERE rn = 1) AS c1,
+                 MIN(recorded_date) FILTER (WHERE rn = 2) AS d2,
+                 MAX(stream_count)  FILTER (WHERE rn = 2) AS c2
+          FROM (
+            SELECT ${idCol}, recorded_date, stream_count,
+                   ROW_NUMBER() OVER (PARTITION BY ${idCol} ORDER BY recorded_date) AS rn
+            FROM ${src}
+          ) debut_o
+          WHERE rn <= 2
+          GROUP BY ${idCol}
+        ) debut_f
+        JOIN songs debut_s ON debut_s.id = debut_f.${idCol}
+        JOIN albums debut_a ON debut_a.id = debut_s.album_id
+        WHERE debut_a.release_date IS NOT NULL
+          AND debut_f.d1 - debut_a.release_date BETWEEN -1 AND ${DEBUT_WINDOW_DAYS}
+          AND debut_f.c2 > debut_f.c1
+          AND debut_f.c1 <= ${DEBUT_MAX_RATIO} * ((debut_f.c2 - debut_f.c1)::numeric / (debut_f.d2 - debut_f.d1))
+                            * (GREATEST(debut_f.d1 - debut_a.release_date, 0) + 1)`;
+}
+
 function artistLatestAggCTE(songFilter) {
   return `
       agg_scope AS (
@@ -34,6 +100,18 @@ function artistLatestAggCTE(songFilter) {
         JOIN songs s2 ON s2.id = ss.song_id
         WHERE COALESCE(s2.canonical_id, s2.id) IN (SELECT canonical_id FROM agg_scope)
         GROUP BY 1, 2
+      ),
+      -- Release dates of the heads that could possibly be a debut (see
+      -- debutBaselineSQL): only those released since the earliest date a debut
+      -- is even possible, ~1.3K rows. Deliberately NOT joined to agg_scope —
+      -- the EXISTS in agg_flag already matches on canonical_id, and a second
+      -- reference to agg_scope makes Postgres materialise it.
+      agg_debut_rel AS (
+        SELECT dh.id AS canonical_id, da.release_date
+        FROM songs dh
+        JOIN albums da ON da.id = dh.album_id
+        WHERE dh.canonical_id IS NULL
+          AND da.release_date >= DATE '${DEBUT_EARLIEST_RELEASE}'
       ),
       agg_runmax AS (
         SELECT canonical_id, recorded_date, stream_count,
@@ -80,9 +158,39 @@ function artistLatestAggCTE(songFilter) {
         SELECT canonical_id, recorded_date, cumulative, stream_count,
                CASE WHEN cumulative > LAG(cumulative) OVER w
                       OR LAG(cumulative) OVER w IS NULL THEN 1 ELSE 0 END AS is_step,
-               (stream_count - LAG(stream_count) OVER w)::bigint AS real_change
+               (stream_count - LAG(stream_count) OVER w)::bigint AS real_change,
+               -- Debut inputs: which row is the first, and the reading after
+               -- it. Same window as the two LAGs above, so no extra sort.
+               ROW_NUMBER() OVER w AS rn_asc,
+               LEAD(recorded_date) OVER w AS next_date,
+               LEAD(stream_count)  OVER w AS next_count
         FROM agg_runmax
         WINDOW w AS (PARTITION BY canonical_id ORDER BY recorded_date)
+      ),
+      -- A new release's first row: debutBaselineSQL's rule, evaluated in place.
+      --
+      -- The view (and Time Machine) insert a synthetic 0 reading the day before
+      -- and let the ordinary diff produce the debut gain. Doing that HERE put
+      -- a UNION in front of the running max, which made Postgres materialise
+      -- agg_cs and sort it a second time: JT's aggregate went 1.6s -> 3.0s and
+      -- Ariana's 0.58s -> 1.62s. Flagging the first row instead gives the same
+      -- numbers — with a 0 before it the first row is a step of exactly its own
+      -- count over one day, every later row is untouched — at no extra sort.
+      -- The nested CASE guarantees the EXISTS only runs on first rows.
+      agg_flag AS (
+        SELECT agg_steps.*,
+               CASE WHEN rn_asc = 1 THEN
+                 CASE WHEN next_count > stream_count AND EXISTS (
+                   SELECT 1 FROM agg_debut_rel r
+                   WHERE r.canonical_id = agg_steps.canonical_id
+                     AND agg_steps.recorded_date - r.release_date BETWEEN -1 AND ${DEBUT_WINDOW_DAYS}
+                     AND agg_steps.stream_count <= ${DEBUT_MAX_RATIO}
+                         * ((agg_steps.next_count - agg_steps.stream_count)::numeric
+                            / (agg_steps.next_date - agg_steps.recorded_date))
+                         * (GREATEST(agg_steps.recorded_date - r.release_date, 0) + 1)
+                 ) THEN true ELSE false END
+               ELSE false END AS is_debut_first
+        FROM agg_steps
       ),
       -- Her satir icin: kendisini KAPSAYAN yukselis (tarihi >= kendi tarihi olan
       -- ilk yukselis) ve ondan bir onceki yukselis. Ikisinin farki yukselisin
@@ -99,16 +207,16 @@ function artistLatestAggCTE(songFilter) {
       -- Geriye bakan pencere CURRENT ROW'u disliyor (1 PRECEDING): bir yukselis
       -- satirinin "onceki yukselisi" kendisi olamaz.
       agg_gains AS (
-        SELECT canonical_id, recorded_date, cumulative, real_change,
-               (
+        SELECT canonical_id, recorded_date, cumulative, real_change, is_debut_first,
+               CASE WHEN is_debut_first THEN stream_count::numeric ELSE (
                  MIN(CASE WHEN is_step = 1 THEN cumulative END) OVER ileri
                  - MAX(CASE WHEN is_step = 1 THEN cumulative END) OVER geri
                ) / NULLIF(
                  MIN(CASE WHEN is_step = 1 THEN recorded_date END) OVER ileri
                  - MAX(CASE WHEN is_step = 1 THEN recorded_date END) OVER geri, 0
-               ) AS daily_gain,
+               ) END AS daily_gain,
                ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
-        FROM agg_steps
+        FROM agg_flag
         WINDOW
           ileri AS (PARTITION BY canonical_id ORDER BY recorded_date
                     ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING),
@@ -228,4 +336,15 @@ function artistLatestAggCTE(songFilter) {
 }
 
 
-module.exports = { artistLatestAggCTE };
+// agg_gains with each debut's 0 reading the day before it added back, for the
+// queries that sum PER DATE (album history). agg_gains itself leaves the row
+// out — see agg_flag — and nothing else needs it: a 0 cumulative with a NULL
+// gain changes no latest/previous/7-day pick and no per-day gain count.
+const AGG_GAINS_WITH_DEBUT_BASE = `(
+        SELECT canonical_id, recorded_date, cumulative, daily_gain FROM agg_gains
+        UNION ALL
+        SELECT canonical_id, recorded_date - 1, 0::bigint, NULL::numeric
+        FROM agg_gains WHERE is_debut_first
+      )`;
+
+module.exports = { artistLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE };
