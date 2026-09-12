@@ -2659,13 +2659,20 @@ app.post('/api/admin/artists', requireAdmin, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Name is required.' });
     await dbQuery(
       `INSERT INTO tracked_artists (artist_id, name, image_url, accent, sort_order, album_only, locked, active, categories)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, '{}'))
+       -- $9::text[], not a bare $9. '{}' on its own is an untyped literal that
+       -- Postgres resolves as text, which pins the whole COALESCE to text and
+       -- then refuses to store it in a text[] column ("column categories is of
+       -- type text[] but expression is of type text", SQLSTATE 42804). The type
+       -- is decided at PARSE time, so this failed for every new artist whatever
+       -- was passed — adding an artist from /admin never worked, and only the
+       -- PATCH route (which builds its own SET list) did.
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::text[], '{}'::text[]))
        ON CONFLICT (artist_id) DO UPDATE SET
          name=$2, image_url=$3, accent=$4, sort_order=$5, album_only=$6, locked=$7, active=$8,
          -- Etiket gonderilmediyse mevcut olan KORUNUR. Aksi halde etiket alani
          -- olmayan eski bir istemci kaydi guncelleyince butun etiketleri
          -- sessizce silerdi.
-         categories=COALESCE($9, tracked_artists.categories)`,
+         categories=COALESCE($9::text[], tracked_artists.categories)`,
       [artistId, name, b.image_url || null, b.accent || null,
        Number.isFinite(+b.sort_order) ? +b.sort_order : 100,
        !!b.album_only, !!b.locked, b.active === undefined ? true : !!b.active,
