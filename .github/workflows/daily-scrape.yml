@@ -159,6 +159,9 @@ jobs:
       # sitedeki rakamla ayni olur. tweet_log defteri sayesinde idempotent:
       # saatlik tetiklemelerin tamami cagirsa da gun basina tek tweet cikar.
       #
+      # YALNIZCA ARTIS gunlerinde atar: dinleyici dunden dusmus ya da ayni
+      # kalmissa susar.
+      #
       # Supheye dusunce SUSAR: gunun satiri yoksa, o gun icin zaten atildiysa,
       # ya da degisim %10'u asiyorsa (aylik dinleyici gunde ~%0.1 oynar, %10 =
       # veri kazasi) hicbir sey gondermez. Sahibi yokken calisiyor ve yanlis

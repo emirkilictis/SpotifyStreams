@@ -11,6 +11,10 @@
  * tweetlemez — yanlış rakamı geri almak, hiç atmamaktan çok daha pahalı:
  *   - bugünün satırı yoksa (scrape henüz yakalamadıysa) atlar
  *   - o gün için zaten tweet atıldıysa atlar (tweet_log defteri, idempotent)
+ *   - dinleyici sayısı dünden ARTMADIYSA atlar (düşüş ya da aynı kalma). Bot bir
+ *     kutlama hesabı; "JT dün 120 bin dinleyici kaybetti" diye tweet atmak
+ *     hayranların istediği şey değil. Önceki gün yoksa da atlar: artış olduğu
+ *     bilinmeden artış tweeti atılmaz.
  *   - değişim %10'u aşıyorsa atlar. Aylık dinleyici günde ~0.1% oynar; %10'luk
  *     bir sıçrama gerçek değil, veri kazası demektir — fallback roster olayında
  *     31 sanatçı JT'nin kovasına düşüp sayıyı uçurmuştu.
@@ -34,8 +38,9 @@ const fmt = n => Number(n).toLocaleString('en-US');
 // gecici seyler icin: repo degiskeni oldugu icin donunce GitHub'dan silmek
 // yetiyor, kod degismiyor. Bos/tanimsizsa hic satir eklenmez.
 function tweetMetni({ bugun, dun, zirveMi, tarih, footer }) {
+  // Buraya yalnizca artis gunleri ulasiyor (bkz. main), yani fark hep pozitif.
   const fark = dun == null ? null : Number(bugun) - Number(dun);
-  const isaret = fark == null ? '' : (fark >= 0 ? `+${fmt(fark)}` : fmt(fark));
+  const isaret = fark == null ? '' : `+${fmt(fark)}`;
   const gun = new Date(`${tarih}T12:00:00Z`).toLocaleDateString('en-GB',
     { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
@@ -48,6 +53,25 @@ function tweetMetni({ bugun, dun, zirveMi, tarih, footer }) {
   satirlar.push('', gun);
   if (footer && footer.trim()) satirlar.push('', footer.trim());
   return satirlar.join('\n');
+}
+
+// Bugunun degeri ve bir onceki gunun degeri verildiginde tweet atilmamasi
+// gerekiyorsa sebebini, atilabiliyorsa null dondurur. Saf fonksiyon: DB'ye ve
+// X'e dokunmadan gecmis gunler uzerinde denenebiliyor.
+function atlamaSebebi(deger, dun) {
+  // Yalnizca artislar. Bot bir kutlama hesabi; dusus tweeti atmak istenmiyor.
+  if (dun == null) return 'Önceki gün verisi yok, artış olduğu bilinmiyor';
+  const once = Number(dun);
+  if (deger <= once) {
+    const fark = deger - once;
+    return `Aylık dinleyici artmadı (${fmt(once)} → ${fmt(deger)}, ${fark === 0 ? '0' : fmt(fark)}) — yalnızca artışlar tweetleniyor`;
+  }
+  // Artik yalnizca yukari yon kaldigi icin abs gerekmiyor.
+  const oran = (deger - once) / once;
+  if (oran > MAX_DEGISIM_ORANI) {
+    return `Değişim %${(oran * 100).toFixed(1)}, gerçek olamayacak kadar büyük (${fmt(once)} → ${fmt(deger)}). Veriyi kontrol et`;
+  }
+  return null;
 }
 
 async function main() {
@@ -95,13 +119,11 @@ async function main() {
     const deger = Number(bugun.monthly_listeners);
     if (!(deger > 0)) return console.log('[tweet] Dinleyici sayısı boş/sıfır — atlandı.');
 
-    if (dun != null) {
-      const oran = Math.abs(deger - Number(dun)) / Number(dun);
-      if (oran > MAX_DEGISIM_ORANI) {
-        return console.log(`[tweet] Değişim %${(oran * 100).toFixed(1)} — gerçek olamayacak kadar büyük, atlandı. ` +
-          `(${fmt(dun)} → ${fmt(deger)}) Veriyi kontrol et.`);
-      }
-    }
+    // Kayit defterine (tweet_log) YAZILMIYOR: saatlik run'lar ayni gun tekrar
+    // bakiyor, ve gun icinde satir daha yeni bir okumayla guncellenip artisa
+    // donerse o zaman atilmasi dogru.
+    const sebep = atlamaSebebi(deger, dun);
+    if (sebep) return console.log(`[tweet] ${sebep} — atlandı.`);
 
     const zirve = await client.query(
       `SELECT MAX(monthly_listeners) AS m FROM artist_stats
@@ -131,7 +153,9 @@ async function main() {
   }
 }
 
-main().catch(err => {
+if (require.main !== module) {
+  module.exports = { atlamaSebebi, tweetMetni };
+} else main().catch(err => {
   // Asla run'ı düşürme: veri zaten yazıldı, tweet ikram.
   console.error('[tweet] HATA (yok sayıldı):', err.message);
 });
