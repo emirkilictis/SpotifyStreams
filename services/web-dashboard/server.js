@@ -628,11 +628,14 @@ const FSLS_ALBUM_IDS = [
 const FSLS_ALBUM_IDS_SQL = FSLS_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
 // The 20/20 Experience (Deluxe) family: the deluxe itself + the standalone
-// "Mirrors - Radio Edit" single + the live "Suit & Tie - Radio Edit" single.
-// Both the album list totals and the album-detail tracklist count these
-// singles into the deluxe album.
+// "Mirrors - Radio Edit" single + the live "Suit & Tie - Radio Edit" single +
+// the "Tunnel Vision" single (2013-06-14), whose "Tunnel Vision - Radio Edit"
+// is its own recording (748,233 streams on 2026-09-14) while its album version
+// is the deluxe's own track. Both the album list totals and the album-detail
+// tracklist count these singles into the deluxe album.
 const TT20_ALBUM_IDS = [
   '0O82niJ0NpcptYRxogeEZu', '28GWVLkctSuSWQ1EUIxZ8m', '5jlQrOtSuTXojcvBCpivyo',
+  '2DE6pmIqWYUX7ujJUnGMIY',
 ];
 const TT20_ALBUM_IDS_SQL = TT20_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
