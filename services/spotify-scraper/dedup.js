@@ -225,6 +225,36 @@ function shareSignificantToken(a, b) {
 /**
  * Album scoring — eski ve own daha iyi.
  */
+// Keep these copies as the canonical of their cluster (same +500M as the
+// hardcoded overrides in scoreCanonical). Their album is what the dashboard
+// labels a song with, and without a hint the tie between same-year copies falls
+// to the smaller track id.
+//
+// Adding "The 20/20 Experience - The Complete Experience" (2013, like the
+// Deluxe and 2 of 2) on 2026-09-14 did exactly that: its copies had smaller ids
+// and took over 13 JT songs, so Mirrors, Suit & Tie, TKO, Not a Bad Thing, ...
+// read "The Complete Experience" everywhere, and Tunnel Vision its single.
+// manual_merges rules could not pull them back — the title pass still crowned
+// the compilation copy, the rule then pointed the other way, and the 2-cycle
+// was broken by smallest id. Making manual targets win the title pass fixes
+// that too, but it re-roots 88 other clusters across 12 artists whose existing
+// rules currently lose, so it is a separate decision.
+const PREFERRED_CANONICAL_IDS = new Set([
+  '4rHZZAmHpZrA3iH5zx8frV', // Mirrors — The 20/20 Experience (Deluxe Version)
+  '6vt0I1cw1YmAIKDJvHVIM5', // Suit & Tie (feat. JAY-Z) — Deluxe
+  '7I7EnQnVJH1uSJ0cSQKPuu', // Don't Hold the Wall — Deluxe
+  '7z0JDE4w67HXt5lEWsU2Hj', // Strawberry Bubblegum — Deluxe
+  '7xxEK0MQvkME1LSS2cIW7R', // Spaceship Coupe — Deluxe
+  '4CfYxSs4Dr8KWORCmN3hom', // That Girl — Deluxe
+  '79MOydAvZYm8nyyzd6fiVi', // Tunnel Vision — Deluxe (not the single)
+  '6mMXHtmyjORXfbZk87csDk', // Gimme What I Don't Know (I Want) — 2 of 2 (Deluxe)
+  '4FcvYEVtmB0UuIPbdzwqsH', // Cabaret (feat. Drake) — 2 of 2 (Deluxe)
+  '5mIqtDBiw3rqMxsJc4UVM6', // TKO — 2 of 2 (Deluxe)
+  '3jthkYuDqzNeybhSlJ6a91', // Only When I Walk Away — 2 of 2 (Deluxe)
+  '7sFV6eCWpWPjazh5nyLwka', // You Got It On — 2 of 2 (Deluxe)
+  '3nB82yGjtbQFSU0JLAwLRH', // Not a Bad Thing — 2 of 2 (Deluxe)
+]);
+
 function scoreCanonical(song) {
   let score = 0;
   if (!song.is_featured) score += 1_000_000_000;
@@ -238,6 +268,9 @@ function scoreCanonical(song) {
   }
   if (song.id === '4NH5VZpm6y2Erde00suNUa') {
     score += 500000000; // Force What Goes Around main version ID
+  }
+  if (PREFERRED_CANONICAL_IDS.has(song.id)) {
+    score += 500000000;
   }
   return score;
 }
