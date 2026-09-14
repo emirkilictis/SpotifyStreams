@@ -639,6 +639,43 @@ const TT20_ALBUM_IDS = [
 ];
 const TT20_ALBUM_IDS_SQL = TT20_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
+// Tracks shown on an album IN ADDITION to wherever their own album places them.
+//
+// The album-family remaps above (TT20, FSLS, ...) and admin pins MOVE a song:
+// each song row lands in exactly one card. That is wrong for a compilation
+// that repeats radio edits already shown elsewhere — the 20/20 Complete
+// Experience card should list the Mirrors, Suit & Tie and Not a Bad Thing radio
+// edits while the Deluxe and 2 of 2 cards keep them too.
+//
+// Listed by any track id of the recording; resolved to its CURRENT canonical at
+// query time, so a dedup run that re-roots a cluster cannot silently drop them.
+// Display only: album cards, tracklists and album charts — artist totals count
+// each recording once regardless.
+const ALBUM_EXTRA_TRACKS = {
+  // The 20/20 Experience - The Complete Experience
+  '6NTQnlMBfYpPhDy1sXtVRG': [
+    '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit
+    '4mQVHEjrnuUd7G5IVhSYTk', // Suit & Tie - Radio Edit (live copy; 6233Z1 is the hidden frozen one)
+    '1JmPASoql4lnXimD5ICqRP', // Not a Bad Thing - Radio Edit
+  ],
+};
+
+// Tracklist/history membership: true for a row whose recording is an extra of
+// the album being viewed ($1 = album id).
+function albumExtraTracksMembershipSql(sAlias = 's') {
+  const parca = Object.entries(ALBUM_EXTRA_TRACKS).map(([albumId, ids]) =>
+    `($1 = '${albumId}' AND COALESCE(${sAlias}.canonical_id, ${sAlias}.id) IN (` +
+    `SELECT COALESCE(ext.canonical_id, ext.id) FROM songs ext WHERE ext.id IN (${ids.map(i => `'${i}'`).join(', ')})))`);
+  return parca.length ? `(${parca.join(' OR ')})` : 'FALSE';
+}
+
+// Album grid: (album_id, track_id) pairs as a VALUES list.
+function albumExtraTracksValuesSql() {
+  const satirlar = Object.entries(ALBUM_EXTRA_TRACKS)
+    .flatMap(([albumId, ids]) => ids.map(id => `('${albumId}', '${id}')`));
+  return satirlar.length ? satirlar.join(', ') : `('__none__', '__none__')`;
+}
+
 // Cardi B's two standalone "ErrTime" remix singles are each their own 1-track
 // "album". Pin them into AM I THE DRAMA? (Ultimate Edition) so they surface on
 // that tracklist as distinct rows carrying the remixes' REAL streams — they are
@@ -2012,6 +2049,7 @@ app.get('/api/albums', requireAuth, validateArtistAccess,
           AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
           AND ${FSLS_REMIX_EXCLUSION_SQL}`)},
       album_canonical_songs AS (
+        (
         SELECT DISTINCT ON (
           CASE
             ${pinnedAlbumCaseSql()}
@@ -2045,6 +2083,21 @@ app.get('/api/albums', requireAuth, validateArtistAccess,
         WHERE ${artistAlbumMatchSQL('s')}
         AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
         AND ${FSLS_REMIX_EXCLUSION_SQL}
+        )
+        -- Extras listed on an album in addition to their own (ALBUM_EXTRA_TRACKS).
+        -- UNION, not UNION ALL: an extra that already lands on the album the
+        -- normal way must not be counted twice in the card total.
+        UNION
+        SELECT ex.album_id,
+               COALESCE(x.canonical_id, x.id) AS canonical_song_id,
+               COALESCE(dsc.cumulative, 0) AS cumulative,
+               COALESCE(dsc.daily_gain, 0) AS daily_gain,
+               COALESCE(dsc.prev_daily_gain, 0) AS prev_daily_gain,
+               COALESCE(dsc.daily_avg_7d, 0) AS daily_avg_7d
+        FROM (VALUES ${albumExtraTracksValuesSql()}) ex(album_id, track_id)
+        JOIN songs x ON x.id = ex.track_id
+        JOIN agg dsc ON dsc.canonical_id = COALESCE(x.canonical_id, x.id)
+        WHERE COALESCE(x.canonical_id, x.id) NOT IN (${albumHiddenTrackIdsSql()})
       ),
       unique_albums AS (
         SELECT DISTINCT ON (
@@ -2252,6 +2305,8 @@ app.get('/api/albums/:id/songs', requireAuth,
           )
           -- Admin-pinned tracks (migration 019): show under the album they're pinned to.
           OR ${pinnedMembershipSql()}
+          -- Radio edits etc. repeated on a compilation (see ALBUM_EXTRA_TRACKS).
+          OR ${albumExtraTracksMembershipSql('s')}
         )
         -- Hidden alternate versions (display only — songs stay in the catalog / DB)
         AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
@@ -2391,6 +2446,8 @@ app.get('/api/albums/:id/history', requireAuth,
             )
             -- Admin-pinned tracks (migration 019): count under their pinned album.
             OR ${pinnedMembershipSql()}
+            -- Same extras as the tracklist, so the chart matches it.
+            OR ${albumExtraTracksMembershipSql('s')}
           )
           AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
           AND ${FSLS_REMIX_EXCLUSION_SQL}
