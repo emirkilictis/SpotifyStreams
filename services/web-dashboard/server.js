@@ -652,6 +652,14 @@ const TT20_ALBUM_IDS_SQL = TT20_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 // Display only: album cards, tracklists and album charts — artist totals count
 // each recording once regardless.
 const ALBUM_EXTRA_TRACKS = {
+  // FutureSex/LoveSounds (Complete). Two of these sit on FSLS-family albums and
+  // were only hidden by FSLS_REMIX_EXCLUSION_SQL (which exempts this list); the
+  // Tiësto remix lives on the "12\" Masters" comp and needs the extra membership.
+  '0tcExuDWMQdBbwSpqN8Ku2': [
+    '0qLljKHqotNMhwfbGbqLxc', // Sexy Ladies (feat. 50 Cent) - Remix
+    '2xBuDQ5M3YDyiQXhoIr41B', // SexyBack (feat. Timbaland) - Linus Loves Remix (Edit)
+    '0YInrpVFC85pWh0xLzYbEx', // LoveStoned / I Think She Knows - Tiësto Remix
+  ],
   // The 20/20 Experience - The Complete Experience
   '6NTQnlMBfYpPhDy1sXtVRG': [
     '6ToFxXRBtl5TJFEyIoYK3f', // Mirrors - Radio Edit
@@ -735,9 +743,17 @@ const NON_OFFICIAL_VERSION_SQL = `(
   OR s.title ILIKE '%dub'
   OR s.title ~* ' - .+ radio (edit|mix|remix)'
 )`;
-// Hide those alternate versions, but only within the FSLS family.
+// Hide those alternate versions, but only within the FSLS family — except the
+// ones hand-picked onto the FSLS card in ALBUM_EXTRA_TRACKS. Without that
+// exemption a listed remix that already sits on an FSLS-family album would be
+// dropped from the card's own totals scope and tracklist again by this filter.
+// Resolved to the current canonical, like the extras themselves.
+const FSLS_PICKED_TRACK_IDS_SQL = (ALBUM_EXTRA_TRACKS['0tcExuDWMQdBbwSpqN8Ku2'] || [])
+  .map(id => `'${id}'`).join(', ') || `'__none__'`;
 const FSLS_REMIX_EXCLUSION_SQL =
-  `NOT (s.album_id IN (${FSLS_ALBUM_IDS_SQL}) AND ${NON_OFFICIAL_VERSION_SQL})`;
+  `NOT (s.album_id IN (${FSLS_ALBUM_IDS_SQL}) AND ${NON_OFFICIAL_VERSION_SQL}
+        AND COALESCE(s.canonical_id, s.id) NOT IN (
+          SELECT COALESCE(fp.canonical_id, fp.id) FROM songs fp WHERE fp.id IN (${FSLS_PICKED_TRACK_IDS_SQL})))`;
 
 // PostgreSQL Connection Pool
 const pool = new Pool({
