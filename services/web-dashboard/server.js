@@ -911,45 +911,16 @@ app.get('/healthz', (req, res) => {
   });
 });
 
-// Public Routes
-app.get('/login', (req, res) => {
-  if (req.signedCookies.fan_session) {
-    return res.redirect('/');
-  }
-  res.sendFile(path.join(__dirname, 'public/login.html'));
+// The fan access-code screen and the Log Out button are gone (2026-09-15): the
+// site has been public since requireAuth became a no-op, so logging out only
+// ever sent people to a passcode screen they did not need. Old bookmarks still
+// point at these two paths, so they land on the site; a leftover fan_session
+// cookie is cleared on the way. The admin panel keeps its own passcode gate.
+app.get(['/login', '/logout'], (req, res) => {
+  if (req.signedCookies.fan_session) res.clearCookie('fan_session');
+  res.redirect('/');
 });
 
-app.post('/api/login', async (req, res) => {
-  const { passcode } = req.body;
-  if (!passcode) {
-    return res.status(400).json({ success: false, message: 'Passcode is required!' });
-  }
-  try {
-    const result = await dbQuery('SELECT * FROM access_codes WHERE code = $1', [passcode]);
-    if (result.rows.length > 0) {
-      res.cookie('fan_session', passcode, {
-        signed: true,
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
-      });
-      return res.json({ success: true });
-    } else {
-      return res.status(401).json({ success: false, message: 'Invalid passcode!' });
-    }
-  } catch (err) {
-    console.error('Login error:', err);
-    return res.status(500).json({ success: false, message: 'Internal server error occurred.' });
-  }
-});
-
-app.get('/logout', (req, res) => {
-  res.clearCookie('fan_session');
-  res.redirect('/login');
-});
-
-// Style.css must be accessible by the login page
 app.get('/style.css', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/style.css'));
 });
@@ -2667,7 +2638,12 @@ app.get('/api/albums/:id/history', requireAuth,
         -- label was a day early until this cast was added.
         g.recorded_date::text AS recorded_date,
         SUM(g.cumulative)::bigint AS cumulative,
-        SUM(g.daily_gain)::bigint AS daily_gain
+        SUM(g.daily_gain)::bigint AS daily_gain,
+        -- The part of this day's total that is not a gain: tracks read for the
+        -- first time, whose whole count joins the sum at once. The client
+        -- subtracts it from weekly/monthly windows. A debut's first row is its
+        -- synthetic 0, so a release still counts its debut as a gain.
+        COALESCE(SUM(g.cumulative) FILTER (WHERE g.recorded_date = intro_f.first_d), 0)::bigint AS introduced
       -- daily_streams_canonical YERINE agg_gains. O view her cagrida TUM
       -- stream_stats uzerinde pencere fonksiyonu kurup sonra bu albumun disindaki
       -- her satiri atiyordu; grafik bu yuzden ~5 saniye suruyordu. agg_gains ayni
@@ -2676,6 +2652,11 @@ app.get('/api/albums/:id/history', requireAuth,
       -- With each new release's 0 reading the day before its debut, so the
       -- album chart shows the debut as a gain exactly like the song page does.
       FROM ${AGG_GAINS_WITH_DEBUT_BASE} g
+      JOIN (
+        SELECT canonical_id, MIN(recorded_date) AS first_d
+        FROM ${AGG_GAINS_WITH_DEBUT_BASE} fx
+        GROUP BY canonical_id
+      ) intro_f ON intro_f.canonical_id = g.canonical_id
       -- Backfilled artists only: start the chart on the day EVERY track on the
       -- album has history. The donated series cover some tracks and not others
       -- (Rockstar yes, Rockstar - Sped Up no), so summing across the seam would

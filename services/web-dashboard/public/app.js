@@ -419,6 +419,9 @@ function normalizeHistory(history) {
     .map(row => ({
       t: parseLocalDate(row.recorded_date).getTime(),
       c: Number(row.cumulative),
+      // Album histories only: tracks read for the first time that day, whose
+      // whole count joined the sum without being streamed that day.
+      intro: Number(row.introduced) || 0,
       date: row.recorded_date
     }))
     .filter(row => Number.isFinite(row.t) && Number.isFinite(row.c))
@@ -466,6 +469,19 @@ function formatSignedGain(n) {
 
 const GUN_MS = 24 * 60 * 60 * 1000;
 
+// An album line is a SUM over its tracks, so the day a track is first read its
+// whole total joins the line: 20/20 Deluxe rose +53,450,176 on 2026-06-03 while
+// earning +1,380,814, because a radio edit with ~52M was read for the first
+// time. A window's gain is its rise minus what was introduced inside it
+// (after startMs, up to and including endMs). Songs carry no introductions.
+function introducedBetween(rows, startMs, endMs) {
+  let sum = 0;
+  for (const r of rows) {
+    if (r.t > startMs && r.t <= endMs) sum += r.intro || 0;
+  }
+  return sum;
+}
+
 // Last `weekCount` seven-day windows, oldest first. A window whose baseline
 // predates the history is dropped rather than shown as a short bar.
 function weeklyGainSeries(history, weekCount = 12) {
@@ -483,7 +499,56 @@ function weeklyGainSeries(history, weekCount = 12) {
     out.push({
       endMs,
       label: formatChartDateObj(new Date(endMs)),
-      gain: endCum - startCum
+      gain: endCum - startCum - introducedBetween(rows, startMs, endMs)
+    });
+  }
+  return out;
+}
+
+// Calendar months, oldest first, same arithmetic as the Monthly Streams card
+// (/api/period-streams). A reading is a day behind, so the reading dated the
+// 1st closes the month before it: August = reading of Sep 1 - reading of
+// Aug 1. The month in progress runs to the newest reading and is flagged
+// partial. A month whose opening reading predates the history is dropped, not
+// drawn as a short bar — it would look like a bad month instead of a missing one.
+//
+// So is a month with a hole of more than a few days in its readings. Before
+// daily scraping settled (May 2026) readings came weeks apart, and an album
+// line is a SUM over its tracks: tracks first read inside such a hole landed
+// their whole total on the far side of it. FSLS read 3,508,571,665 on 05-08
+// and 3,623,802,496 on 05-25 — +115M in 17 days for a card that earns ~2.7M a
+// day — and May came out at twice any other month.
+const MONTHLY_MAX_READING_GAP_MS = 3.5 * 24 * 60 * 60 * 1000;
+
+function monthlyGainSeries(history, monthCount = 12) {
+  const rows = normalizeHistory(history);
+  if (rows.length < 2) return [];
+
+  const lastMs = rows[rows.length - 1].t;
+  const newest = new Date(lastMs - GUN_MS); // the day the newest streams happened
+  const out = [];
+  for (let k = monthCount - 1; k >= 0; k--) {
+    const first = new Date(newest.getFullYear(), newest.getMonth() - k, 1);
+    const startMs = first.getTime();
+    const closeMs = new Date(first.getFullYear(), first.getMonth() + 1, 1).getTime();
+    const partial = closeMs > lastMs;
+    const endMs = partial ? lastMs : closeMs;
+    const startCum = cumulativeAsOf(rows, startMs);
+    const endCum = cumulativeAsOf(rows, endMs);
+    if (startCum === null || endCum === null) continue;
+    // Readings bracketing the month: the last one on/before its start through
+    // the first one on/after its end. Any gap between them over the limit drops it.
+    let from = 0;
+    while (from + 1 < rows.length && rows[from + 1].t <= startMs) from++;
+    let holey = false;
+    for (let i = from + 1; i < rows.length && rows[i - 1].t < endMs; i++) {
+      if (rows[i].t - rows[i - 1].t > MONTHLY_MAX_READING_GAP_MS) { holey = true; break; }
+    }
+    if (holey) continue;
+    const label = first.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    out.push({
+      label: partial ? `${label} (so far)` : label,
+      gain: endCum - startCum - introducedBetween(rows, startMs, endMs)
     });
   }
   return out;
@@ -501,7 +566,7 @@ function bestDayInHistory(rows, sinceMs) {
     // Same trap after an outage: 07-04's reading covered three days. A row more
     // than a day after the previous one is not a single day's gain.
     if (rows[i].t - rows[i - 1].t > GUN_MS * 1.5) continue;
-    const gain = rows[i].c - rows[i - 1].c;
+    const gain = rows[i].c - rows[i - 1].c - (rows[i].intro || 0);
     if (gain > 0 && (!best || gain > best.gain)) best = { gain, date: rows[i].date };
   }
   return best;
@@ -518,10 +583,11 @@ function trendSummary(history) {
 
   if (week1Cum === null) return null; // less than a week of history
 
-  const thisWeek = nowCum - week1Cum;
+  const thisWeek = nowCum - week1Cum - introducedBetween(rows, lastMs - 7 * GUN_MS, lastMs);
   // null, not 0: "no prior week on record" and "a prior week of zero streams"
   // must not render the same way.
-  const prevWeek = week2Cum === null ? null : week1Cum - week2Cum;
+  const prevWeek = week2Cum === null ? null
+    : week1Cum - week2Cum - introducedBetween(rows, lastMs - 14 * GUN_MS, lastMs - 7 * GUN_MS);
   const changePct = (prevWeek && prevWeek > 0)
     ? ((thisWeek - prevWeek) / prevWeek) * 100
     : null;
@@ -584,6 +650,15 @@ function chartSeriesFor(history, type, range, weekCount = 12) {
       apexType: 'bar'
     };
   }
+  if (type === 'monthly') {
+    const months = monthlyGainSeries(history);
+    return {
+      dates: months.map(m => m.label),
+      dataPoints: months.map(m => m.gain),
+      seriesName: 'Monthly Streams',
+      apexType: 'bar'
+    };
+  }
   const filtered = filterHistoryByRange(history, range);
   return {
     dates: filtered.map(row => formatChartDate(row.recorded_date)),
@@ -593,11 +668,11 @@ function chartSeriesFor(history, type, range, weekCount = 12) {
   };
 }
 
-// The 7D/30D/All range means nothing in weekly mode — 7D would be a single
-// bar — so hide the group rather than leave a control that does nothing.
+// The 7D/30D/All range means nothing in weekly or monthly mode — 7D would be a
+// single bar — so hide the group rather than leave a control that does nothing.
 function syncRangeToggleVisibility(modalSel, type) {
   const grup = document.querySelector(`${modalSel} .range-group`);
-  if (grup) grup.style.display = type === 'weekly' ? 'none' : 'flex';
+  if (grup) grup.style.display = (type === 'weekly' || type === 'monthly') ? 'none' : 'flex';
 }
 
 // ---- Skeleton / empty-state helpers ----
@@ -772,10 +847,6 @@ async function fetchData() {
 
     // Fetch stats
     const statsRes = await fetch(`/api/stats?artist=${artist}`, { headers });
-    if (statsRes.status === 401) {
-      window.location.href = '/login';
-      return;
-    }
     const statsData = await statsRes.json();
     if (artist !== currentArtist) return; // switched away while loading
     currentArtistRawStats = statsData;

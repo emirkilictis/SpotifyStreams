@@ -26,17 +26,13 @@ async function runTests() {
     assert.strictEqual(res.status, 200, "Should be 200 OK for public access");
   });
 
-  // 2. Perform Login
-  await test("Login with valid passcode should succeed and return cookie", async () => {
-    const res = await fetch(`${BASE_URL}/api/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passcode: 'timberlake_fan' })
-    });
-    assert.strictEqual(res.status, 200, "Login should return 200 OK");
-    const cookieHeader = res.headers.get('set-cookie');
-    assert.ok(cookieHeader, "Should return Set-Cookie header");
-    loginCookie = cookieHeader.split(';')[0]; // Extract the session cookie
+  // 2. The access-code screen is gone: /login and /logout just send you home
+  await test("/login and /logout redirect to the site", async () => {
+    for (const p of ['/login', '/logout']) {
+      const res = await fetch(`${BASE_URL}${p}`, { redirect: 'manual' });
+      assert.strictEqual(res.status, 302, `${p} should redirect`);
+      assert.strictEqual(res.headers.get('location'), '/', `${p} should redirect to /`);
+    }
   });
 
   // 3. Authenticated Request (JT)
