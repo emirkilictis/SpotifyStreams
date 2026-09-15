@@ -5477,17 +5477,29 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
 
     if (active) {
       let msg, fresh = false;
+      const escName = (v) => String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      // Which artist the run is on right now ("Taylor Swift · 12/64"), when the
+      // scraper reports it (migration 024).
+      const nowName = status === 'scraping' ? data.current_artist_name : null;
+      const nowOf = nowName && data.progress_total
+        ? ` · ${(Number(data.progress_done) || 0) + 1}/${data.progress_total}` : '';
+      const nowTag = nowName ? ` <span class="sync-now">Now: ${escName(nowName)}${nowOf}</span>` : '';
+      const viewedIsCurrent = !!(nowName && data.current_artist_id === currentArtist);
       if (status === 'deduping') {
         msg = 'Merging duplicates & finalizing — refreshing shortly…';
       } else if (sel && selectedFresh) {
-        msg = `<span class="check">✓</span> ${(currentArtistName || 'This artist')} is up to date — syncing other artists…`;
+        msg = `<span class="check">✓</span> ${escName(currentArtistName || 'This artist')} is up to date — syncing other artists…${nowTag}`;
         fresh = true;
+      } else if (viewedIsCurrent) {
+        msg = `Syncing ${escName(currentArtistName || 'this artist')}’s latest playcounts now${nowOf}…`;
       } else if (sel) {
-        msg = `Syncing ${(currentArtistName || 'this artist')}’s latest playcounts…`;
+        msg = `Syncing ${escName(currentArtistName || 'this artist')}’s latest playcounts…${nowTag}`;
       } else {
-        msg = 'Syncing Spotify playcounts…';
+        msg = `Syncing Spotify playcounts…${nowTag}`;
       }
       bannerText.innerHTML = msg;
+      banner.classList.toggle('has-now', msg.includes('class="sync-now"'));
       banner.classList.toggle('fresh', fresh);
       banner.classList.remove('hidden');
     } else {

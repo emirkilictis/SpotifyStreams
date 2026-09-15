@@ -704,4 +704,120 @@ function shouldKeepSeparate(title) {
   return { canonicalCount, aliasCount };
 }
 
-module.exports = { dedupCanonical, normalizeTitle };
+// ===== Quick merge: this run's copies of recordings we already track =====
+//
+// dedupCanonical rebuilds every canonical link, and it only runs once the whole
+// scrape is done. A daily full scrape takes 20-30 minutes, and every linked copy
+// it discovers counts twice on the site until then. On 2026-09-15 the run found
+// "Give It To Me" on the Serving Diva compilation and eight TROLLS World Tour
+// tracks under new ids — each at exactly the play count of a head we already
+// had — and JT read 20.30B instead of 19.04B for the rest of the run.
+//
+// So after each artist the scraper points songs created in THIS run at an
+// existing head when the evidence is what Pass 2 already trusts: the same play
+// count to the single stream, on the same day, above EXACT_MERGE_FLOOR, in the
+// same dashboard bucket — plus a matching title, a length within the exact-match
+// tolerance and the same version tags. It only ever fills in a missing link; the
+// end-of-run dedup still makes the final call on every mapping.
+const VERSION_WORDS = ['live', 'instrumental', 'remix', 'acoustic', 'performance', 'sped', 'slowed', 'karaoke', 'acapella'];
+
+function sameVersionTags(a, b) {
+  const at = String(a || '').toLowerCase();
+  const bt = String(b || '').toLowerCase();
+  return VERSION_WORDS.every((w) => at.includes(w) === bt.includes(w));
+}
+
+// Pure decision, no database. `fresh`: songs created this run, each with its
+// newest reading ({ id, title, duration_ms, primary_artist, d, streams }).
+// `candidates`: older songs holding a reading with the same (d, streams), plus
+// the head they belong to (head_id). Returns Map freshId -> headId, and only for
+// songs exactly ONE head qualifies for — two would mean we cannot tell.
+function pickQuickMerges(fresh, candidates, namedArtists, blocked = new Set()) {
+  const readingKey = (d, streams) => `${d}|${Number(streams)}`;
+  const byReading = new Map();
+  for (const c of candidates) {
+    const k = readingKey(c.d, c.streams);
+    if (!byReading.has(k)) byReading.set(k, []);
+    byReading.get(k).push(c);
+  }
+  const out = new Map();
+  for (const n of fresh) {
+    if (NEVER_MERGE.has(n.id) || blocked.has(n.id)) continue;
+    if ((Number(n.streams) || 0) < EXACT_MERGE_FLOOR) continue;
+    const bucket = bucketOfWith(namedArtists, n.primary_artist);
+    const heads = new Set();
+    for (const c of byReading.get(readingKey(n.d, n.streams)) || []) {
+      if (c.id === n.id || c.head_id === n.id) continue;
+      if (bucketOfWith(namedArtists, c.primary_artist) !== bucket) continue;
+      if (n.duration_ms == null || c.duration_ms == null ||
+          Math.abs(n.duration_ms - c.duration_ms) > EXACT_MATCH_DURATION_TOLERANCE_MS) continue;
+      if (!sameVersionTags(n.title, c.title)) continue;
+      if (normalizeTitle(n.title) !== normalizeTitle(c.title) && !shareSignificantToken(n.title, c.title)) continue;
+      heads.add(c.head_id);
+    }
+    if (heads.size === 1) out.set(n.id, [...heads][0]);
+  }
+  return out;
+}
+
+// A new song with no older copy (a real new release) would otherwise cost a scan
+// of stream_stats after every artist for the rest of the run. Its older copy may
+// simply not be read yet when we first look, so it gets a few tries, not one.
+const QUICK_MERGE_MAX_TRIES = 3;
+
+async function quickMergeNewCopies(client, since, state = { tries: new Map() }) {
+  const { rows: fresh } = await client.query(
+    `SELECT s.id, s.title, s.duration_ms, s.primary_artist,
+            r.recorded_date::text AS d, r.stream_count::bigint AS streams
+     FROM songs s
+     JOIN LATERAL (
+       SELECT recorded_date, stream_count FROM stream_stats x
+       WHERE x.song_id = s.id ORDER BY recorded_date DESC LIMIT 1
+     ) r ON true
+     WHERE s.created_at >= $1 AND s.canonical_id IS NULL AND r.stream_count >= $2`,
+    [since, EXACT_MERGE_FLOOR]
+  );
+  const todo = fresh.filter((n) => (state.tries.get(n.id) || 0) < QUICK_MERGE_MAX_TRIES);
+  if (!todo.length) return { merged: 0 };
+  for (const n of todo) state.tries.set(n.id, (state.tries.get(n.id) || 0) + 1);
+
+  const { rows: candidates } = await client.query(
+    `SELECT o.id, o.title, o.duration_ms, o.primary_artist,
+            COALESCE(o.canonical_id, o.id) AS head_id,
+            xs.recorded_date::text AS d, xs.stream_count::bigint AS streams
+     FROM (SELECT UNNEST($1::date[]) AS d, UNNEST($2::bigint[]) AS c) w
+     JOIN stream_stats xs ON xs.recorded_date = w.d AND xs.stream_count = w.c
+     JOIN songs o ON o.id = xs.song_id
+     WHERE o.created_at < $3`,
+    [todo.map((n) => n.d), todo.map((n) => n.streams), since]
+  );
+  if (!candidates.length) return { merged: 0 };
+
+  // A manual rule (merge or split) on the new id is the admin's call, not ours.
+  let blocked = new Set();
+  try {
+    const mm = await client.query(`SELECT alias_id FROM manual_merges WHERE alias_id = ANY($1::text[])`,
+      [todo.map((n) => n.id)]);
+    blocked = new Set(mm.rows.map((r) => r.alias_id));
+  } catch (_) { /* table missing: nothing is blocked */ }
+
+  const namedArtists = await loadNamedArtists(client);
+  const picks = pickQuickMerges(todo, candidates, namedArtists, blocked);
+  if (!picks.size) return { merged: 0 };
+
+  const ids = [...picks.keys()];
+  const r = await client.query(
+    `UPDATE songs s SET canonical_id = v.canon
+     FROM (SELECT UNNEST($1::text[]) AS id, UNNEST($2::text[]) AS canon) v
+     WHERE s.id = v.id AND s.canonical_id IS NULL`,
+    [ids, ids.map((id) => picks.get(id))]
+  );
+  for (const n of todo) {
+    if (picks.has(n.id)) {
+      console.log(`[quick-merge] "${n.title}" (${n.id}) → ${picks.get(n.id)} at ${Number(n.streams).toLocaleString('en-US')}`);
+    }
+  }
+  return { merged: r.rowCount };
+}
+
+module.exports = { dedupCanonical, normalizeTitle, pickQuickMerges, quickMergeNewCopies };

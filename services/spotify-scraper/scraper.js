@@ -15,8 +15,8 @@ require('dotenv').config({ path: __dirname + '/../../.env' });
 
 const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAvatar } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
-const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, reconcileStreamDrops, closePool } = require('./db');
-const { dedupCanonical } = require('./dedup');
+const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, reconcileStreamDrops, closePool } = require('./db');
+const { dedupCanonical, quickMergeNewCopies } = require('./dedup');
 
 // Auto-backfill any active artist still missing a profile photo (e.g. a freshly
 // added roster member) — no manual CDN-URL pasting needed. Called both on the
@@ -933,6 +933,10 @@ async function run() {
       }
 
       let attempted = 0;
+      // Songs created from here on are this run's; quickMergeNewCopies looks only
+      // at those. A minute of slack for the runner's clock against the DB's NOW().
+      const quickMergeSince = new Date(RUN_START - 60 * 1000);
+      const quickMergeState = { tries: new Map() };
       for (let i = 0; i < pendingArtists.length; i++) {
         const artist = pendingArtists[i];
         // Soft time budget: don't START a new artist once we're past the budget.
@@ -950,6 +954,9 @@ async function run() {
         // every hour forever even though the other 43 artists were captured fine.
         // Isolate the failure, keep going, and report it at the end.
         attempted++;
+        await setScraperProgress(client, {
+          artistId: artist.id, artistName: artist.name, done: i, total: pendingArtists.length,
+        });
         try {
           await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds, isForce, !!artist.album_only);
         } catch (artistErr) {
@@ -960,6 +967,14 @@ async function run() {
             permanent: !!artistErr.artistNotFound,
           });
           console.error(`[scraper] ⚠️ ${artist.name} (${artist.id}) atlandı: ${artistErr.message}`);
+        }
+        // Fold this artist's newly found copies of known recordings into their
+        // heads now, instead of letting them count twice until the end-of-run
+        // dedup (see quickMergeNewCopies). Never fatal to the scrape.
+        try {
+          await quickMergeNewCopies(client, quickMergeSince, quickMergeState);
+        } catch (qmErr) {
+          console.warn(`[quick-merge] skipped after ${artist.name}: ${qmErr.message}`);
         }
       }
 

@@ -1989,10 +1989,11 @@ app.get('/api/scraper-status', requireAuth, async (req, res) => {
 async function buildScraperStatus() {
   {
     // 1. Global scraper status row
-    const statusRes = await dbQuery(
-      'SELECT status, started_at, updated_at FROM scraper_status WHERE id = 1'
-    );
+    // SELECT *: the progress columns come from migration 024, and this must keep
+    // working on a database that does not have them yet.
+    const statusRes = await dbQuery('SELECT * FROM scraper_status WHERE id = 1');
     const global = statusRes.rows[0] || { status: 'idle', started_at: null, updated_at: null };
+    const scraping = global.status === 'scraping';
 
     // 2. Per-artist: last snapshot date + row count from daily_streams_canonical.
     //    Join via songs.primary_artist (the canonical artist URI column) →
@@ -2033,6 +2034,12 @@ async function buildScraperStatus() {
       status:      global.status,
       started_at:  global.started_at,
       updated_at:  global.updated_at,
+      // The artist in hand while scraping ("Scraping Taylor Swift (12/64)").
+      // progress_done counts artists finished before this one.
+      current_artist_id:   scraping ? (global.current_artist_id || null) : null,
+      current_artist_name: scraping ? (global.current_artist_name || null) : null,
+      progress_done:       scraping && global.progress_done != null ? Number(global.progress_done) : null,
+      progress_total:      scraping && global.progress_total != null ? Number(global.progress_total) : null,
       artists:     perArtist,
     };
   }

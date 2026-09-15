@@ -537,10 +537,30 @@ async function setScraperStatus(client, status) {
            updated_at = NOW()`,
     [status]
   );
+  // Every phase change starts with no artist in hand; the scrape loop fills it
+  // in again as it reaches each one.
+  await setScraperProgress(client, {});
+}
+
+// Which artist the scrape is on, for the admin Status tab and the site's sync
+// banner ("Scraping Taylor Swift (12/64)"). Columns from migration 024. A
+// failure here is only a missing caption, never a reason to stop scraping.
+async function setScraperProgress(client, { artistId = null, artistName = null, done = null, total = null } = {}) {
+  try {
+    await client.query(
+      `UPDATE scraper_status
+          SET current_artist_id = $1, current_artist_name = $2,
+              progress_done = $3, progress_total = $4, updated_at = NOW()
+        WHERE id = 1`,
+      [artistId, artistName, done, total]
+    );
+  } catch (err) {
+    console.warn('[status] progress not recorded:', err.code || err.message);
+  }
 }
 
 async function closePool() {
   if (pool) await pool.end();
 }
 
-module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, recordStreamDrops, reconcileStreamDrops, closePool };
+module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, recordStreamDrops, reconcileStreamDrops, closePool };

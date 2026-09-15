@@ -2471,12 +2471,26 @@ ORDER BY m.created_at DESC`],
       } catch { el.innerHTML = '<div class="empty">Could not load runs.</div>'; }
     }
 
-    async function loadScraperStatus() {
-      loadWorkflowRuns();
-      sgDot.className = 'sg-dot';
-      sgLabel.textContent = 'Loading…';
-      sgTime.textContent = '';
-      statusListEl.innerHTML = '<div class="loading">Loading…</div>';
+    // While a scrape runs, the Status tab refreshes itself so the current artist
+    // moves on screen. Quiet refreshes skip the loading placeholders and the
+    // GitHub runs list.
+    const STATUS_POLL_MS = 15000;
+    let statusPollTimer = null;
+    function scheduleStatusPoll(active) {
+      clearTimeout(statusPollTimer);
+      if (!active || statusView.classList.contains('hidden')) return;
+      statusPollTimer = setTimeout(() => loadScraperStatus({ quiet: true }), STATUS_POLL_MS);
+    }
+
+    async function loadScraperStatus(opts = {}) {
+      const quiet = opts && opts.quiet === true;
+      if (!quiet) {
+        loadWorkflowRuns();
+        sgDot.className = 'sg-dot';
+        sgLabel.textContent = 'Loading…';
+        sgTime.textContent = '';
+        statusListEl.innerHTML = '<div class="loading">Loading…</div>';
+      }
       try {
         const res = await api('/api/scraper-status');
         if (!res.ok) throw new Error();
@@ -2490,11 +2504,18 @@ ORDER BY m.created_at DESC`],
           error:    { label: 'Error — last run failed',     cls: 'error'  },
         };
         const s = statusMap[data.status] || { label: data.status, cls: '' };
+        const active = data.status === 'scraping' || data.status === 'deduping';
+        let label = s.label;
+        if (data.status === 'scraping' && data.current_artist_name) {
+          const of = data.progress_total ? ` (${(data.progress_done || 0) + 1}/${data.progress_total})` : '';
+          label = `Scraping ${data.current_artist_name}${of}…`;
+        }
         sgDot.className = 'sg-dot ' + s.cls;
-        sgLabel.textContent = s.label;
+        sgLabel.textContent = label;
         sgTime.textContent = data.updated_at
           ? 'Last updated: ' + fmtDate(data.updated_at)
           : '';
+        scheduleStatusPoll(active);
 
         // Per-artist table
         if (!data.artists || !data.artists.length) {
@@ -2507,10 +2528,12 @@ ORDER BY m.created_at DESC`],
           const dateClass = !lastDate ? 'missing' : stale ? 'stale' : '';
           const dateText = lastDate || 'No data';
           const firstDate = a.first_date ? fmtDate(a.first_date) : '—';
-          const rowClass = a.active ? '' : 'st-inactive';
+          const current = data.status === 'scraping' && a.artist_id === data.current_artist_id;
+          const rowClass = [a.active ? '' : 'st-inactive', current ? 'st-current' : ''].join(' ').trim();
           return `<tr class="${rowClass}">
             <td><div class="st-name">
-              <span>${a.name}</span>
+              <span>${esc(a.name)}</span>
+              ${current ? '<span class="ar-tag cat">⟳ scraping now</span>' : ''}
               ${!a.active ? '<span class="ar-tag">hidden</span>' : ''}
             </div></td>
             <td class="st-date ${dateClass}">${dateText}${stale ? ' ⚠' : ''}</td>

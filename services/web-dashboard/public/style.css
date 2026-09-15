@@ -4300,6 +4300,17 @@ select.tc-input { cursor: pointer; }
 
 .sync-banner #sync-banner-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sync-banner .check { color: var(--accent-green, #1ed760); font-weight: 800; }
+/* "Now: Taylor Swift · 12/64" — the artist the scrape is on (migration 024).
+   Its own line: on one line the main message used to push it past the ellipsis
+   on a phone, which hid the one thing the banner was there to say. */
+.sync-banner.has-now { border-radius: 18px; }
+.sync-banner .sync-now {
+  display: block;
+  font-size: 0.78rem;
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .sync-spinner {
   flex-shrink: 0;
