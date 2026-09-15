@@ -2428,10 +2428,10 @@ async function openDailyCard() {
         <tr>
           <td class="dc-rank">${i + 1}</td>
           <td class="dc-track" title="${esc(s.title)}">${star}${esc(cleanTrackTitle(s.title))}</td>
+          <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
           <td>${formatNumber(daily)}</td>
           <td class="${c.cls}">${c.txt}<span class="dc-pct-inline">${c.pct}</span></td>
           <td class="${c.cls}">${c.pct}</td>
-          <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
         </tr>`;
     }).join('');
 
@@ -2457,10 +2457,12 @@ async function openDailyCard() {
           <tr>
             <th class="dc-rank">#</th>
             <th class="dc-left">Track</th>
+            <!-- Total sits next to the track, then the day's numbers: the
+                 column widths in style.css follow this order by position. -->
+            <th>Total</th>
             <th>Daily</th>
             <th>Change</th>
             <th>%</th>
-            <th>Total</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -2468,10 +2470,10 @@ async function openDailyCard() {
           <tr>
             <td class="dc-rank"></td>
             <td class="dc-left">TOTAL</td>
+            <td class="dc-totalcol">${formatNumber(totalCum)}</td>
             <td>${formatNumber(totalDaily)}</td>
             <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}<span class="dc-pct-inline">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</span></td>
             <td class="${totalCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</td>
-            <td class="dc-totalcol">${formatNumber(totalCum)}</td>
           </tr>
         </tfoot>
       </table>

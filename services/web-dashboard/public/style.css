@@ -1307,10 +1307,11 @@ tbody tr.featured-row:hover {
 }
 
 /* Numeric columns get fixed widths; the Track column takes whatever's left. */
-.dc-table th:nth-child(3), .dc-table td:nth-child(3) { width: 80px; }
-.dc-table th:nth-child(4), .dc-table td:nth-child(4) { width: 74px; }
-.dc-table th:nth-child(5), .dc-table td:nth-child(5) { width: 72px; }
-.dc-table th:nth-child(6), .dc-table td:nth-child(6) { width: 116px; }
+/* Column order (app.js openDailyCard): # | Track | Total | Daily | Change | % */
+.dc-table th:nth-child(3), .dc-table td:nth-child(3) { width: 116px; }
+.dc-table th:nth-child(4), .dc-table td:nth-child(4) { width: 80px; }
+.dc-table th:nth-child(5), .dc-table td:nth-child(5) { width: 74px; }
+.dc-table th:nth-child(6), .dc-table td:nth-child(6) { width: 72px; }
 
 .dc-table th {
   text-align: right;
@@ -1548,8 +1549,9 @@ tbody tr.featured-row:hover {
   .dc-table { margin-top: 12px; }
   .dc-table th, .dc-table td { font-size: 0.72rem; padding: 5px 2px; }
   /* Drop the standalone % column on small screens — there isn't room for six
-     columns — but keep the number itself by stacking it under Change. */
-  .dc-table th:nth-child(5), .dc-table td:nth-child(5) { display: none; }
+     columns — but keep the number itself by stacking it under Change.
+     Column 6 since Total moved ahead of the day's numbers. */
+  .dc-table th:nth-child(6), .dc-table td:nth-child(6) { display: none; }
   .dc-pct-inline {
     display: block;
     font-size: 0.62rem;
@@ -1559,9 +1561,9 @@ tbody tr.featured-row:hover {
   }
   /* Shrink the fixed numeric columns so the preview fits a phone viewport
      (the exported PNG still renders at the full 600px desktop width). */
-  .dc-table th:nth-child(3), .dc-table td:nth-child(3) { width: 56px; }
+  .dc-table th:nth-child(3), .dc-table td:nth-child(3) { width: 86px; }
   .dc-table th:nth-child(4), .dc-table td:nth-child(4) { width: 56px; }
-  .dc-table th:nth-child(6), .dc-table td:nth-child(6) { width: 86px; }
+  .dc-table th:nth-child(5), .dc-table td:nth-child(5) { width: 56px; }
   .dc-footer { font-size: 0.66rem; margin-top: 12px; }
 }
 
