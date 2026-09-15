@@ -320,7 +320,51 @@
         </button>
         <div id="daily-streams-breakdown" class="streams-breakdown collapsed">
           <div class="breakdown-row"><span class="breakdown-label">Lead</span><span class="breakdown-value"><span id="lead-daily-streams">-</span><span id="lead-daily-pct" class="breakdown-pct"></span></span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Solo</span><span class="breakdown-value"><span id="solo-daily-streams">-</span><span id="solo-daily-pct" class="breakdown-pct"></span></span></div>
           <div class="breakdown-row"><span class="breakdown-label">Featured</span><span class="breakdown-value"><span id="feat-daily-streams">-</span><span id="feat-daily-pct" class="breakdown-pct"></span></span></div>
+        </div>
+      </div>
+
+      <!-- Weekly Streams: the last seven days, against the seven before. Filled
+           by loadPeriodStreams() from /api/period-streams. -->
+      <div class="stat-card glass stat-card-total">
+        <div class="stat-info">
+          <h3>Weekly Streams</h3>
+          <p id="weekly-streams" class="gain-positive">-</p>
+          <span class="stat-subtle" id="weekly-range">last 7 days</span>
+          <span id="weekly-change" class="period-change"></span>
+        </div>
+        <button id="weekly-breakdown-toggle" class="breakdown-toggle" type="button" aria-expanded="false">
+          <span>Breakdown</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div id="weekly-streams-breakdown" class="streams-breakdown collapsed">
+          <div class="breakdown-row"><span class="breakdown-label">Lead</span><span class="breakdown-value"><span id="weekly-lead">-</span><span id="weekly-lead-pct" class="breakdown-pct"></span></span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Solo</span><span class="breakdown-value"><span id="weekly-solo">-</span><span id="weekly-solo-pct" class="breakdown-pct"></span></span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Featured</span><span class="breakdown-value"><span id="weekly-feat">-</span><span id="weekly-feat-pct" class="breakdown-pct"></span></span></div>
+        </div>
+      </div>
+
+      <!-- Monthly Streams: one calendar month at a time, newest whole month
+           first; the picker lists every month we have full coverage for. -->
+      <div class="stat-card glass stat-card-total">
+        <div class="stat-info">
+          <div class="stat-head-row">
+            <h3>Monthly Streams</h3>
+            <select id="monthly-select" class="period-select" aria-label="Month" disabled></select>
+          </div>
+          <p id="monthly-streams" class="gain-positive">-</p>
+          <span class="stat-subtle" id="monthly-range">-</span>
+          <span id="monthly-change" class="period-change"></span>
+        </div>
+        <button id="monthly-breakdown-toggle" class="breakdown-toggle" type="button" aria-expanded="false">
+          <span>Breakdown</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="chevron-icon" style="transition: transform 0.3s ease;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div id="monthly-streams-breakdown" class="streams-breakdown collapsed">
+          <div class="breakdown-row"><span class="breakdown-label">Lead</span><span class="breakdown-value"><span id="monthly-lead">-</span><span id="monthly-lead-pct" class="breakdown-pct"></span></span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Solo</span><span class="breakdown-value"><span id="monthly-solo">-</span><span id="monthly-solo-pct" class="breakdown-pct"></span></span></div>
+          <div class="breakdown-row"><span class="breakdown-label">Featured</span><span class="breakdown-value"><span id="monthly-feat">-</span><span id="monthly-feat-pct" class="breakdown-pct"></span></span></div>
         </div>
       </div>
     </section>

@@ -1303,6 +1303,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
         -- day used to keep re-adding that day's gain to every day after it.
         COALESCE(SUM(dsc.day_gain), 0)::bigint AS daily_gain,
         COALESCE(SUM(dsc.day_gain) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_daily_gain,
+        COALESCE(SUM(dsc.day_gain) FILTER (WHERE s.is_solo), 0)::bigint AS solo_daily_gain,
         COALESCE(SUM(dsc.day_gain) FILTER (WHERE s.is_featured), 0)::bigint AS feat_daily_gain,
         -- 7-day trailing average of the artist's total daily gain. Smooths out
         -- Spotify's irregular update cadence (some days post 0, the next ~2x),
@@ -1362,6 +1363,192 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
   } catch (err) {
     console.error('Fetch stats error:', err);
     res.status(500).json({ error: 'Failed to load stats.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Weekly and monthly streams: what the catalogue earned over a stretch of days.
+//
+// Per head: its total at the end of the stretch minus its total at the end of
+// the stretch before. Deliberately NOT a sum of daily gains — a daily gain only
+// lands on days a song was actually read, so a head skipped for a day would
+// lose that day's share. A difference of totals keeps every stream however the
+// readings are spaced, and consecutive months add up to exactly the growth
+// over both.
+//
+// Spotify's playcount runs a day behind (STREAM_DATE_OFFSET_DAYS in app.js):
+// a reading dated the 1st is the catalogue as of the 31st. So a reading belongs
+// to the month of recorded_date - 1; August is the reading dated Sep 1 minus
+// the one dated Aug 1, and the week is the reading on the headline day minus
+// the one seven days earlier.
+//
+// A head with no reading before a stretch began was not tracked yet. Its
+// baseline is its own lowest (= first) reading, so only what it earned while
+// we were watching counts — except a debut, whose baseline is the 0 the day
+// before (debutBaselineSQL), so a release inside the month keeps its first day.
+//
+// A stretch is only offered if, on the day it began, we were already reading
+// the songs that carry the catalogue. Counting heads does not work: Ariana's
+// roster grew by hundreds of small features and remixes long after her albums
+// were tracked, which made every month before look uncovered. So coverage is
+// weighted by streams — the share of the catalogue's streams that belong to
+// heads we had read by that day. A head we only started reading within a week
+// of its release is never "missing": it had nothing to earn before.
+// ---------------------------------------------------------------------------
+const PERIOD_MIN_COVERAGE = 0.9;
+
+function periodCoverageAt(dayExpr) {
+  return `(SELECT ROUND(1 - COALESCE(SUM(h.weight) FILTER (
+             WHERE h.first_d > (${dayExpr})
+               AND NOT COALESCE(hm.release_date >= h.first_d - 7, false)
+           ), 0)::numeric / NULLIF(SUM(h.weight), 0), 4)
+         FROM head_first h JOIN mine hm ON hm.id = h.song_id)`;
+}
+
+app.get('/api/period-streams', requireAuth, validateArtistAccess,
+  cacheFor(CACHE_TTL_LIVE_MS, artistKey('period-streams')), async (req, res) => {
+  const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
+  const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
+  try {
+    const query = `
+      WITH mine AS (
+        SELECT s.id, s.is_featured, s.is_solo, a.release_date
+        FROM songs s
+        JOIN albums a ON s.album_id = a.id
+        WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})
+      ),
+      cs AS (
+        SELECT m.id AS song_id, xs.recorded_date, MAX(xs.stream_count) AS stream_count
+        FROM stream_stats xs
+        JOIN songs x ON x.id = xs.song_id
+        JOIN mine m ON m.id = COALESCE(x.canonical_id, x.id)
+        GROUP BY 1, 2
+      ),
+      readings AS (
+        SELECT song_id, recorded_date, stream_count FROM cs
+        UNION ALL
+        ${debutBaselineSQL(
+          `(SELECT cs.song_id, cs.recorded_date, cs.stream_count FROM cs
+             JOIN mine dm ON dm.id = cs.song_id
+             WHERE dm.release_date >= DATE '${DEBUT_EARLIEST_RELEASE}') debut_src`,
+          'song_id')}
+      ),
+      days AS (
+        SELECT recorded_date, COUNT(*) AS heads FROM cs GROUP BY recorded_date
+      ),
+      -- The headline day, picked exactly like agg_day: the newest date a
+      -- quarter of the heads reported on, not whatever a repair wrote today.
+      day_end AS (
+        SELECT recorded_date AS d FROM days
+        WHERE heads >= GREATEST((SELECT MAX(heads) FROM days) / 4, 1)
+        ORDER BY recorded_date DESC LIMIT 1
+      ),
+      -- When we started reading each head, and how much it weighs.
+      head_first AS (
+        SELECT c.song_id, MIN(c.recorded_date) AS first_d, MAX(c.stream_count) AS weight
+        FROM cs c GROUP BY c.song_id
+      ),
+      per_month AS (
+        SELECT song_id,
+               date_trunc('month', recorded_date - 1)::date AS month,
+               MAX(stream_count) AS mx,
+               MIN(stream_count) AS mn
+        FROM readings
+        WHERE recorded_date <= (SELECT d FROM day_end)
+        GROUP BY 1, 2
+      ),
+      month_gain AS (
+        SELECT song_id, month,
+               MAX(mx) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+               - COALESCE(MAX(mx) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),
+                          FIRST_VALUE(mn) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) AS gain
+        FROM per_month
+        WINDOW w AS (PARTITION BY song_id ORDER BY month)
+      ),
+      week_head AS (
+        SELECT song_id,
+               MAX(stream_count) AS c0,
+               MAX(stream_count) FILTER (WHERE recorded_date <= (SELECT d FROM day_end) - 7)  AS c7,
+               MAX(stream_count) FILTER (WHERE recorded_date <= (SELECT d FROM day_end) - 14) AS c14,
+               MIN(stream_count) AS first_c
+        FROM readings
+        WHERE recorded_date <= (SELECT d FROM day_end)
+        GROUP BY song_id
+      ),
+      week_gain AS (
+        SELECT w.song_id,
+               w.c0 - COALESCE(w.c7, w.first_c) AS gain,
+               COALESCE(w.c7, w.first_c) - COALESCE(w.c14, w.first_c) AS prev_gain
+        FROM week_head w
+      )
+      SELECT
+        (SELECT d::text FROM day_end) AS end_day,
+        ((SELECT d FROM day_end) - 1)::text AS through,
+        ((SELECT d FROM day_end) - 7)::text AS week_from,
+        ((SELECT d FROM day_end) - 14)::text AS prev_week_from,
+        ${periodCoverageAt('(SELECT d FROM day_end) - 7')} AS week_coverage,
+        ${periodCoverageAt('(SELECT d FROM day_end) - 14')} AS prev_week_coverage,
+        (SELECT json_build_object(
+           'total', COALESCE(SUM(g.gain), 0)::bigint,
+           'lead',  COALESCE(SUM(g.gain) FILTER (WHERE NOT m.is_featured), 0)::bigint,
+           'solo',  COALESCE(SUM(g.gain) FILTER (WHERE m.is_solo), 0)::bigint,
+           'feat',  COALESCE(SUM(g.gain) FILTER (WHERE m.is_featured), 0)::bigint,
+           'prev_total', COALESCE(SUM(g.prev_gain), 0)::bigint)
+         FROM week_gain g JOIN mine m ON m.id = g.song_id) AS week,
+        (SELECT json_agg(u ORDER BY u.month DESC) FROM (
+         SELECT t.month, t.month_start::text AS month_start, t.month_end, t.total, t.lead, t.solo, t.feat,
+                ${periodCoverageAt('t.month_start')} AS coverage
+         FROM (
+           SELECT to_char(g.month, 'YYYY-MM') AS month,
+                  g.month AS month_start,
+                  ((g.month + INTERVAL '1 month')::date - 1)::text AS month_end,
+                  COALESCE(SUM(g.gain), 0)::bigint AS total,
+                  COALESCE(SUM(g.gain) FILTER (WHERE NOT m.is_featured), 0)::bigint AS lead,
+                  COALESCE(SUM(g.gain) FILTER (WHERE m.is_solo), 0)::bigint AS solo,
+                  COALESCE(SUM(g.gain) FILTER (WHERE m.is_featured), 0)::bigint AS feat
+           FROM month_gain g JOIN mine m ON m.id = g.song_id
+           GROUP BY g.month
+         ) t
+        ) u) AS months
+    `;
+    const { rows } = await dbQuery(query, [artistUri]);
+    const row = rows[0] || {};
+    if (!row.end_day) return res.json({ end_day: null, week: null, months: [] });
+
+    // A stretch is offered only if the catalogue was being read when it began
+    // (and, for a backfilled artist, the backfill was complete by then).
+    const completeFrom = historyCompleteFrom(artistUri);
+    const whole = (startDay, coverage) =>
+      Number(coverage) >= PERIOD_MIN_COVERAGE && (!completeFrom || completeFrom <= startDay);
+    const num = (v) => Number(v) || 0;
+
+    const wk = row.week || {};
+    const week = whole(row.week_from, row.week_coverage) ? {
+      from: row.week_from,
+      to: row.through,
+      total: num(wk.total), lead: num(wk.lead), solo: num(wk.solo), feat: num(wk.feat),
+      prev_total: whole(row.prev_week_from, row.prev_week_coverage) ? num(wk.prev_total) : null,
+      coverage: Number(row.week_coverage),
+    } : null;
+
+    // The month's baseline is the reading dated its 1st (it counts toward the
+    // month before), so a month is whole once that reading was covered.
+    const months = (row.months || [])
+      .filter(m => whole(m.month_start, m.coverage))
+      .map(m => ({
+        coverage: Number(m.coverage),
+        month: m.month,
+        from: m.month_start,
+        to: m.month_end < row.through ? m.month_end : row.through,
+        partial: row.through < m.month_end,
+        total: num(m.total), lead: num(m.lead), solo: num(m.solo), feat: num(m.feat),
+      }));
+
+    res.json({ end_day: row.end_day, through: row.through, week, months });
+  } catch (err) {
+    console.error('Fetch period streams error:', err);
+    res.status(500).json({ error: 'Failed to load weekly and monthly streams.' });
   }
 });
 

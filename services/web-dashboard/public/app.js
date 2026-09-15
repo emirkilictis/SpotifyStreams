@@ -118,7 +118,21 @@ const dailyBreakdownToggle = document.getElementById('daily-breakdown-toggle');
 const dailyStreamsBreakdown = document.getElementById('daily-streams-breakdown');
 const dailyRemovedEl = document.getElementById('daily-removed');
 const leadDailyStreamsEl = document.getElementById('lead-daily-streams');
+const soloDailyStreamsEl = document.getElementById('solo-daily-streams');
+const soloDailyPctEl = document.getElementById('solo-daily-pct');
 const featDailyStreamsEl = document.getElementById('feat-daily-streams');
+
+// Weekly / Monthly Streams cards
+const weeklyStreamsEl = document.getElementById('weekly-streams');
+const weeklyRangeEl = document.getElementById('weekly-range');
+const weeklyChangeEl = document.getElementById('weekly-change');
+const weeklyBreakdownToggle = document.getElementById('weekly-breakdown-toggle');
+const monthlyStreamsEl = document.getElementById('monthly-streams');
+const monthlyRangeEl = document.getElementById('monthly-range');
+const monthlyChangeEl = document.getElementById('monthly-change');
+const monthlySelectEl = document.getElementById('monthly-select');
+const monthlyBreakdownToggle = document.getElementById('monthly-breakdown-toggle');
+let periodMonths = []; // newest first, from /api/period-streams
 
 // Modal Elements
 const albumModal = document.getElementById('album-modal');
@@ -617,6 +631,127 @@ function emptyState(title, sub, accentColor) {
   return `<div class="empty-state">${icon}<div class="empty-title"${titleStyle}>${title}</div>${sub ? `<div class="empty-sub">${sub}</div>` : ''}</div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Weekly / Monthly Streams cards (/api/period-streams).
+//
+// The server already dates each stretch by the days the streams happened, not
+// the days they were read (a reading is a day behind), so from/to are shown
+// as they come.
+// ---------------------------------------------------------------------------
+function formatDayShort(dateStr) {
+  const d = parseLocalDate(dateStr);
+  if (isNaN(d.getTime())) return String(dateStr || '');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatMonthLabel(month) {
+  const [y, m] = String(month).split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+// "▲ 3.1% vs previous week"; blank when there is nothing whole to compare to.
+function setPeriodChange(el, cur, prev, label) {
+  if (!el) return;
+  const c = Number(cur);
+  const p = Number(prev);
+  if (prev == null || !Number.isFinite(c) || !Number.isFinite(p) || p <= 0) {
+    el.textContent = '';
+    el.className = 'period-change';
+    return;
+  }
+  const pct = ((c - p) / p) * 100;
+  const abs = Math.abs(pct);
+  const shown = abs >= 10 ? Math.round(abs) : abs.toFixed(1);
+  if (Number(shown) === 0) {
+    el.textContent = `0% ${label}`;
+    el.className = 'period-change';
+  } else {
+    el.textContent = `${pct > 0 ? '▲' : '▼'} ${shown}% ${label}`;
+    el.className = `period-change ${pct > 0 ? 'gain-positive' : 'gain-negative'}`;
+  }
+}
+
+function setPeriodBreakdown(prefix, p) {
+  for (const key of ['lead', 'solo', 'feat']) {
+    const valEl = document.getElementById(`${prefix}-${key}`);
+    const v = p ? Number(p[key]) : null;
+    if (valEl) valEl.textContent = v == null ? '-' : (v > 0 ? '+' : '') + formatNumber(v);
+    setSharePct(document.getElementById(`${prefix}-${key}-pct`), p ? p[key] : null, p ? p.total : null);
+  }
+}
+
+// Collapses a breakdown and hides its toggle when there is nothing to break down.
+function setBreakdownAvailable(toggle, panelId, available) {
+  if (!toggle) return;
+  toggle.classList.toggle('hidden', !available);
+  if (!available) {
+    const panel = document.getElementById(panelId);
+    if (panel) panel.classList.add('collapsed');
+    toggle.setAttribute('aria-expanded', 'false');
+    const chevron = toggle.querySelector('.chevron-icon');
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
+  }
+}
+
+function renderWeeklyStreams(week, loading = false) {
+  if (!weeklyStreamsEl) return;
+  weeklyStreamsEl.textContent = week ? (week.total > 0 ? '+' : '') + formatNumber(week.total) : '-';
+  weeklyRangeEl.textContent = week
+    ? `${formatDayShort(week.from)} – ${formatDayShort(week.to)}`
+    : (loading ? 'last 7 days' : 'Not enough history yet');
+  setPeriodChange(weeklyChangeEl, week?.total, week?.prev_total, 'vs previous week');
+  setPeriodBreakdown('weekly', week);
+  setBreakdownAvailable(weeklyBreakdownToggle, 'weekly-streams-breakdown', !!week);
+}
+
+function renderMonthlyStreams(index, loading = false) {
+  if (!monthlyStreamsEl) return;
+  const m = periodMonths[index] || null;
+  monthlyStreamsEl.textContent = m ? (m.total > 0 ? '+' : '') + formatNumber(m.total) : '-';
+  if (m) {
+    monthlyRangeEl.textContent = m.partial
+      ? `${formatDayShort(m.from)} – ${formatDayShort(m.to)} (so far)`
+      : `${formatDayShort(m.from)} – ${formatDayShort(m.to)}`;
+  } else {
+    monthlyRangeEl.textContent = loading ? '-' : 'Not enough history yet';
+  }
+  // Only whole months are compared: a half-finished month against a full one
+  // would always read as a collapse.
+  const older = periodMonths[index + 1];
+  setPeriodChange(monthlyChangeEl, m?.total, (m && !m.partial && older) ? older.total : null, 'vs previous month');
+  setPeriodBreakdown('monthly', m);
+  setBreakdownAvailable(monthlyBreakdownToggle, 'monthly-streams-breakdown', !!m);
+}
+
+async function loadPeriodStreams(artist, headers) {
+  // Clear the previous artist's numbers straight away.
+  periodMonths = [];
+  if (monthlySelectEl) { monthlySelectEl.innerHTML = ''; monthlySelectEl.disabled = true; }
+  renderWeeklyStreams(null, true);
+  renderMonthlyStreams(-1, true);
+  let data = null;
+  try {
+    const res = await fetch(`/api/period-streams?artist=${artist}`, { headers });
+    if (res.ok) data = await res.json();
+  } catch (_) { /* leave the cards empty */ }
+  if (artist !== currentArtist) return; // switched away while loading
+
+  renderWeeklyStreams(data?.week || null);
+  periodMonths = Array.isArray(data?.months) ? data.months : [];
+  // Default to the newest WHOLE month ("how did last month go"); the month in
+  // progress is still one pick away.
+  let initial = periodMonths.findIndex(m => !m.partial);
+  if (initial < 0) initial = periodMonths.length ? 0 : -1;
+  if (monthlySelectEl) {
+    monthlySelectEl.innerHTML = periodMonths
+      .map((m, i) => `<option value="${i}">${formatMonthLabel(m.month)}${m.partial ? ' (so far)' : ''}</option>`)
+      .join('');
+    monthlySelectEl.disabled = periodMonths.length === 0;
+    if (initial >= 0) monthlySelectEl.value = String(initial);
+  }
+  renderMonthlyStreams(initial);
+}
+
 // Fetch Songs and Stats
 async function fetchData() {
   // Capture the artist this load is for. Every await below is a window for the
@@ -631,6 +766,9 @@ async function fetchData() {
     // Show skeleton rows in the songs table while loading.
     const songsTbodyEl = document.getElementById('songs-tbody');
     if (songsTbodyEl) songsTbodyEl.innerHTML = skeletonRows(8, 5);
+
+    // Weekly / Monthly cards load on their own, never holding up the stats.
+    loadPeriodStreams(artist, headers);
 
     // Fetch stats
     const statsRes = await fetch(`/api/stats?artist=${artist}`, { headers });
@@ -661,11 +799,16 @@ async function fetchData() {
       const leadDaily = Number(statsData.lead_daily_gain);
       leadDailyStreamsEl.textContent = (leadDaily > 0 ? '+' : '') + formatNumber(leadDaily);
     }
+    if (soloDailyStreamsEl) {
+      const soloDaily = Number(statsData.solo_daily_gain);
+      soloDailyStreamsEl.textContent = (soloDaily > 0 ? '+' : '') + formatNumber(soloDaily);
+    }
     if (featDailyStreamsEl) {
       const featDaily = Number(statsData.feat_daily_gain);
       featDailyStreamsEl.textContent = (featDaily > 0 ? '+' : '') + formatNumber(featDaily);
     }
     setSharePct(leadDailyPctEl, statsData.lead_daily_gain, dailyGain);
+    setSharePct(soloDailyPctEl, statsData.solo_daily_gain, dailyGain);
     setSharePct(featDailyPctEl, statsData.feat_daily_gain, dailyGain);
 
     // The daily headline does not announce removals — a catalogue-wide
@@ -3269,14 +3412,23 @@ if (breakdownToggle && streamsBreakdown) {
   });
 }
 
-// Daily Streams breakdown (Lead / Featured) toggle
-if (dailyBreakdownToggle && dailyStreamsBreakdown) {
-  dailyBreakdownToggle.addEventListener('click', () => {
-    const collapsed = dailyStreamsBreakdown.classList.toggle('collapsed');
-    dailyBreakdownToggle.setAttribute('aria-expanded', String(!collapsed));
-    const chevron = dailyBreakdownToggle.querySelector('.chevron-icon');
+// Daily / Weekly / Monthly Streams breakdown (Lead / Solo / Featured) toggles
+[
+  [dailyBreakdownToggle, dailyStreamsBreakdown],
+  [weeklyBreakdownToggle, document.getElementById('weekly-streams-breakdown')],
+  [monthlyBreakdownToggle, document.getElementById('monthly-streams-breakdown')],
+].forEach(([toggle, panel]) => {
+  if (!toggle || !panel) return;
+  toggle.addEventListener('click', () => {
+    const collapsed = panel.classList.toggle('collapsed');
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    const chevron = toggle.querySelector('.chevron-icon');
     if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
   });
+});
+
+if (monthlySelectEl) {
+  monthlySelectEl.addEventListener('change', () => renderMonthlyStreams(Number(monthlySelectEl.value)));
 }
 
 // Search handler
