@@ -428,6 +428,22 @@ function touchRosterCaches() {
   }
 }
 
+// Runs fn over items with at most `limit` in flight, results in input order.
+// For per-artist background/admin work: Promise.all over the roster queues 60+
+// heavy queries onto a 5-connection pool and every visitor waits behind them.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  return out;
+}
+
 async function refreshOgStatsCache() {
   // Computed off the roster, so on the fallback it would bake JT's catch-all
   // total (~387B) into every link preview and hold it for the 30-minute TTL.
@@ -445,45 +461,46 @@ async function refreshOgStatsCache() {
     // Ciktisi yalnizca link onizlemesindeki rakamlar. Bir dakikada bitmesi de
     // yeterli; onemli olan bunu beklerken kimsenin sayfasinin acilmamasi.
     // Ayni anda en fazla ikisi, aralarinda kisa bir nefes.
-    const OG_ESZAMANLI = 2;
+    //
+    // 2026-09-16: tek sanatci basina sorgu da agirdi. Her biri
+    // daily_streams_canonical'i — TUM katalogun her gunu uzerinde pencere
+    // fonksiyonu kuran view'i — IKI KEZ tarayip sonra bu sanatci disindaki her
+    // seyi atiyordu: ortalama 7,6 sn, 26 gunde 15.240 cagri, ~32 saat DB zamani;
+    // pg_stat_statements'in en tepesi. Bir tur 64 sanatcida ~4 dakika surup
+    // havuzun 2/5'ini tutuyordu ve admin panelinin 60 satirlik Artists sorgusu
+    // bile arkasinda 10 sn bekliyordu. Artik /api/stats ile ayni sorgu
+    // (artistLatestAggCTE: once bu sanatcinin sarkilari, sonra yalnizca onlarin
+    // satirlari) — ayni toplam ve 7 gunluk ortalama, sanatci basina ~0,5 sn.
+    // Ayni anda bir tane.
     const OG_NEFES_MS = 120;
-    const kuyruk = [...roster];
-    const isci = async () => {
-      for (;;) {
-        const a = kuyruk.shift();
-        if (!a) return;
-        await ogTekSanatci(a, next);
-        await new Promise((r) => { setTimeout(r, OG_NEFES_MS).unref?.(); });
-      }
-    };
-    await Promise.all(Array.from({ length: OG_ESZAMANLI }, isci));
+    const baslangic = Date.now();
+    await mapLimit(roster, 1, async (a) => {
+      await ogTekSanatci(a, next);
+      await new Promise((r) => { setTimeout(r, OG_NEFES_MS).unref?.(); });
+    });
+    console.log(`[og] stats cache refreshed: ${next.size}/${roster.length} artists in ${Math.round((Date.now() - baslangic) / 1000)}s`);
 
     async function ogTekSanatci(a, next) {
       try {
         const uri = `spotify:artist:${a.artist_id}`;
         const r = await dbQuery(
-          `SELECT COALESCE(SUM(dsc.cumulative), 0)::bigint AS total,
+          `WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+              AND s.id NOT IN (${hiddenTrackIdsSql()})`)}
+           SELECT COALESCE(SUM(dsc.cumulative), 0)::bigint AS total,
                   (
                     SELECT COALESCE(ROUND(AVG(pd.day_gain)), 0)::bigint
                     FROM (
-                      SELECT d2.recorded_date, SUM(d2.daily_gain) AS day_gain
-                      FROM daily_streams_canonical d2
-                      JOIN songs s2 ON s2.id = d2.canonical_id
-                      JOIN albums a2 ON s2.album_id = a2.id
-                      WHERE s2.canonical_id IS NULL AND ${artistBucketMatchSQL('s2', 'a2')}
-                        AND s2.id NOT IN (${hiddenTrackIdsSql()})
-                      GROUP BY d2.recorded_date
-                      ORDER BY d2.recorded_date DESC
+                      SELECT recorded_date, SUM(daily_gain) AS day_gain
+                      FROM agg_gains
+                      GROUP BY recorded_date
+                      ORDER BY recorded_date DESC
                       LIMIT 7
                     ) pd
                   ) AS daily
-           FROM (
-             SELECT DISTINCT ON (canonical_id) canonical_id, cumulative
-             FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC
-           ) dsc
+           FROM agg dsc
            JOIN songs s ON s.id = dsc.canonical_id
-           JOIN albums alb ON s.album_id = alb.id
-           WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'alb')}
+           JOIN albums a ON s.album_id = a.id
+           WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
              AND s.id NOT IN (${hiddenTrackIdsSql()})`,
           [uri]
         );
@@ -1988,18 +2005,22 @@ async function buildScraperStatus() {
       // it is touched. The banner only needs each artist's newest snapshot date
       // — the row_count / first_date this used to also compute were never read
       // by the client, and COUNT(DISTINCT) over that view was the expensive bit.
+      //
+      // And not canonical_streams either: that view groups ALL of stream_stats
+      // before the join can narrow it (mean 2.4 s, 106 s under load, 7K calls).
+      // The newest reading per artist straight off stream_stats uses the
+      // (song_id, recorded_date) index — same dates for all 64 artists, half
+      // the time. The public page polls this.
       const artistRes = await dbQuery(`
         SELECT
           ta.artist_id,
           ta.name,
           ta.active,
-          MAX(cs.recorded_date) AS last_date
+          (SELECT MAX(ss.recorded_date)
+             FROM songs s
+             JOIN stream_stats ss ON ss.song_id = s.id
+            WHERE s.primary_artist = 'spotify:artist:' || ta.artist_id) AS last_date
         FROM tracked_artists ta
-        LEFT JOIN songs s
-          ON s.primary_artist = 'spotify:artist:' || ta.artist_id
-        LEFT JOIN canonical_streams cs
-          ON cs.song_id = s.id
-        GROUP BY ta.artist_id, ta.name, ta.active
         ORDER BY ta.sort_order, ta.name
       `);
       perArtist = artistRes.rows;
@@ -3119,8 +3140,32 @@ app.post('/api/admin/artists/:id/purge', requireAdmin, requireSuperAdmin, async 
 // Admin: health overview — per-artist totals/songs/daily/last-snapshot with
 // anomaly flags, plus orphan detection (artists with songs but no roster row,
 // whose catalogue leaks into JT's catch-all — the Britney class of bug).
+// The health report is a dozen heavy queries. Two admins (or one impatient
+// double-click) used to run it twice at once, and each run held every pool
+// connection for over a minute — the public site stalled with it. One run at a
+// time; a report under a minute old is served as is.
+const HEALTH_TTL_MS = 60 * 1000;
+let healthCache = null;
+let healthAt = 0;
+let healthInFlight = null;
+
 app.get('/api/admin/health', requireAdmin, async (req, res) => {
   try {
+    if (healthCache && Date.now() - healthAt < HEALTH_TTL_MS) return res.json(healthCache);
+    if (!healthInFlight) {
+      healthInFlight = buildHealthReport()
+        .then((payload) => { healthCache = payload; healthAt = Date.now(); return payload; })
+        .finally(() => { healthInFlight = null; });
+    }
+    res.json(await healthInFlight);
+  } catch (err) {
+    console.error('Admin health error:', err);
+    res.status(500).json({ error: 'Failed to load health.' });
+  }
+});
+
+async function buildHealthReport() {
+  {
     const globalMaxRes = await dbQuery(`SELECT MAX(recorded_date)::text AS d FROM stream_stats`);
     const globalMax = globalMaxRes.rows[0]?.d || null;
 
@@ -3143,18 +3188,24 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
       console.warn('[health] kworb_audit unavailable:', e.code || e.message);
     }
 
-    const perArtist = await Promise.all(roster.map(async (a) => {
+    // Two artists at a time over the per-artist aggregate /api/stats uses. This
+    // was Promise.all over the whole roster, each query scanning the entire
+    // daily_streams_canonical view: the tab took ~90 s, hit the 120 s statement
+    // timeout and returned 500, holding all five pool connections meanwhile.
+    const perArtist = await mapLimit(roster, 2, async (a) => {
       const uri = `spotify:artist:${a.artist_id}`;
       const r = await dbQuery(
-        `SELECT COALESCE(SUM(dsc.cumulative),0)::bigint AS total,
+        `WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+            AND s.id NOT IN (${hiddenTrackIdsSql()})`)}
+         SELECT COALESCE(SUM(dsc.cumulative),0)::bigint AS total,
                 COUNT(*)::int AS songs,
                 COALESCE(SUM(dsc.daily_gain),0)::bigint AS daily,
                 MAX(dsc.recorded_date)::text AS last_update
-         FROM (SELECT DISTINCT ON (canonical_id) canonical_id, cumulative, daily_gain, recorded_date
-               FROM daily_streams_canonical ORDER BY canonical_id, recorded_date DESC) dsc
+         FROM agg dsc
          JOIN songs s ON s.id = dsc.canonical_id
-         JOIN albums alb ON s.album_id = alb.id
-         WHERE ${artistBucketMatchSQL('s', 'alb')} AND s.id NOT IN (${hiddenTrackIdsSql()})`,
+         JOIN albums a ON s.album_id = a.id
+         WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+           AND s.id NOT IN (${hiddenTrackIdsSql()})`,
         [uri]
       );
       const row = r.rows[0];
@@ -3195,7 +3246,7 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
         total: row.total, songs: row.songs, daily: row.daily,
         last_update: row.last_update, days_stale: daysStale, flags, kworb,
       };
-    }));
+    });
 
     // Orphans: canonical songs whose primary_artist isn't a tracked artist.
     // JT's catch-all absorbs these. A few low-count ones are normal (genuine JT
@@ -3282,12 +3333,9 @@ app.get('/api/admin/health', requireAdmin, async (req, res) => {
       stale: daysSinceUpdate != null && daysSinceUpdate >= 2,
     };
 
-    res.json({ global_last_update: globalMax, summary, artists: perArtist, orphans, frozen_songs: frozenSongs });
-  } catch (err) {
-    console.error('Admin health error:', err);
-    res.status(500).json({ error: 'Failed to load health.' });
+    return { global_last_update: globalMax, summary, artists: perArtist, orphans, frozen_songs: frozenSongs };
   }
-});
+}
 
 // The real scraper (Puppeteer + Spotify cookie) only runs in GitHub Actions —
 // Render has neither Chrome nor the SP_DC secret, so we trigger the workflow via
