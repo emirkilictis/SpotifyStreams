@@ -2367,16 +2367,8 @@ async function openDailyCard() {
       return;
     }
 
-    // Apply compact / super-compact layout classes based on song count
-    if (songs.length > 15) {
-      dailyCardEl.classList.add('dc-super-compact');
-      dailyCardEl.classList.remove('dc-compact');
-    } else if (songs.length > 10) {
-      dailyCardEl.classList.add('dc-compact');
-      dailyCardEl.classList.remove('dc-super-compact');
-    } else {
-      dailyCardEl.classList.remove('dc-compact', 'dc-super-compact');
-    }
+    // Keep every track readable; the card grows with the track list.
+    dailyCardEl.classList.remove('dc-compact', 'dc-super-compact');
 
     // Totals
     let totalDaily = 0, totalPrev = 0, totalCum = 0;
@@ -2429,19 +2421,21 @@ async function openDailyCard() {
           <td class="dc-rank">${i + 1}</td>
           <td class="dc-track" title="${esc(s.title)}">${star}${esc(cleanTrackTitle(s.title))}</td>
           <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
-          <td>${formatNumber(daily)}</td>
-          <td class="${c.cls}">${c.txt}<span class="dc-pct-inline">${c.pct}</span></td>
-          <td class="${c.cls}">${c.pct}</td>
+          <td class="dc-dailycol">${formatNumber(daily)}</td>
+          <td class="${c.cls}">${c.txt}<span class="dc-change-percent">${c.pct}</span></td>
         </tr>`;
     }).join('');
 
     const totalCls = totalChange > 0 ? 'dc-pos' : (totalChange < 0 ? 'dc-neg' : 'dc-muted');
+    const edition = String(title || '').match(/\s*[([]((?:complete|deluxe|expanded|special|anniversary)[^)[\]]*)[)\]]\s*$/i);
+    const albumName = edition ? title.slice(0, edition.index).trim() : title;
     dailyCardEl.innerHTML = `
       <div class="dc-header">
         ${coverUrl ? `<img class="dc-cover" src="${coverUrl}" crossorigin="anonymous" alt="">` : ''}
         <div class="dc-head-text">
-          <div class="dc-album">${esc(cleanAlbumTitle(title)) || 'Album'}</div>
-          <div class="dc-artist">${esc((currentArtistName || '').toUpperCase())}</div>
+          <div class="dc-album">${esc(albumName) || 'Album'}</div>
+          <div class="dc-artist">${esc(currentArtistName || '')}</div>
+          ${edition ? `<div class="dc-edition">${esc(edition[1])}</div>` : ''}
           <div class="dc-date">${formatCardDate(recordedDate)}</div>
         </div>
       </div>
@@ -2449,7 +2443,7 @@ async function openDailyCard() {
       <div class="dc-big-label">DAILY STREAMS</div>
       <div class="dc-big-row">
         <div class="dc-daily-num">+${formatNumber(totalDaily)}</div>
-        <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</div>
+        <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%<span class="dc-comparison-label">vs. previous day</span></div>
       </div>
       <div class="dc-total">Total streams · <b>${formatNumber(totalCum)}</b></div>
       <table class="dc-table">
@@ -2461,8 +2455,7 @@ async function openDailyCard() {
                  column widths in style.css follow this order by position. -->
             <th>Total</th>
             <th>Daily</th>
-            <th>Change</th>
-            <th>%</th>
+            <th>Change<span class="dc-change-percent">vs. prev. day</span></th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -2471,9 +2464,8 @@ async function openDailyCard() {
             <td class="dc-rank"></td>
             <td class="dc-left">TOTAL</td>
             <td class="dc-totalcol">${formatNumber(totalCum)}</td>
-            <td>${formatNumber(totalDaily)}</td>
-            <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}<span class="dc-pct-inline">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</span></td>
-            <td class="${totalCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</td>
+            <td class="dc-dailycol">${formatNumber(totalDaily)}</td>
+            <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}<span class="dc-change-percent">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</span></td>
           </tr>
         </tfoot>
       </table>
@@ -2513,22 +2505,10 @@ async function downloadDailyCard() {
         if (card) {
           card.style.setProperty('width', '600px', 'important');
           card.style.setProperty('max-width', '600px', 'important');
-          if (card.classList.contains('dc-super-compact')) {
-            card.style.setProperty('padding', '16px 18px', 'important');
-          } else if (card.classList.contains('dc-compact')) {
-            card.style.setProperty('padding', '20px 22px', 'important');
-          } else {
-            card.style.setProperty('padding', '26px 28px', 'important');
-          }
+          card.style.setProperty('padding', '28px', 'important');
+          card.style.setProperty('max-height', 'none', 'important');
+          card.style.setProperty('overflow', 'visible', 'important');
         }
-        // Force every table column visible at desktop size (the mobile preview
-        // may hide the % column to fit the screen).
-        clonedDoc.querySelectorAll('#daily-card .dc-table th, #daily-card .dc-table td')
-          .forEach(c => c.style.setProperty('display', 'table-cell', 'important'));
-        // ...and drop the stacked mobile-only % line, since the real % column
-        // is back. Without this the export would show the value twice.
-        clonedDoc.querySelectorAll('#daily-card .dc-pct-inline')
-          .forEach(c => c.style.setProperty('display', 'none', 'important'));
       }
     });
     const name = (currentAlbumMeta?.title || 'album').replace(/[^a-z0-9]+/gi, '_').toLowerCase();

@@ -6256,3 +6256,67 @@ select.tc-input { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .picker-bg-glow, .picker-container, .picker-card { animation: none; }
 }
+
+/* Album Daily Card: one continuous report, with no track-count compression. */
+#daily-card-modal {
+  align-items: flex-start;
+  overflow-y: auto;
+  padding: 24px 12px;
+}
+#daily-card-modal .daily-card-shell { margin: 0 auto; flex-shrink: 0; }
+#daily-card {
+  padding: 28px;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  border-radius: 20px;
+  box-shadow: 0 16px 48px rgba(0,0,0,.25) !important;
+}
+#daily-card .dc-header { align-items: flex-start; gap: 18px; }
+#daily-card .dc-cover { width: 100px; height: 100px; border: 0; border-radius: 10px; box-shadow: none; }
+#daily-card .dc-album { font-size: 25px; line-height: 1.15; text-transform: none; overflow-wrap: anywhere; letter-spacing: -.5px; }
+#daily-card .dc-artist { font-size: 14px; letter-spacing: .2px; font-weight: 600; }
+#daily-card .dc-date { font-size: 10px; letter-spacing: .8px; color: var(--dc-text-2); margin-top: 4px; }
+#daily-card .dc-edition { align-self: flex-start; font-size: 10px; padding: 3px 7px; border: 1px solid var(--dc-line-strong); border-radius: 5px; color: var(--dc-text-2); }
+#daily-card .dc-divider { margin: 22px 0; }
+#daily-card .dc-big-label { color: var(--dc-text-2); }
+#daily-card .dc-daily-num { font-size: 42px; letter-spacing: -1px; }
+#daily-card .dc-badge { text-align: right; background: transparent; padding: 0; }
+#daily-card .dc-comparison-label { display: block; font-size: 10px; font-weight: 400; color: var(--dc-text-2); margin-top: 5px; }
+#daily-card .dc-table { margin-top: 24px; }
+#daily-card .dc-table th:nth-child(3), #daily-card .dc-table td:nth-child(3) { width: 104px; }
+#daily-card .dc-table th:nth-child(4), #daily-card .dc-table td:nth-child(4) { width: 82px; }
+/* Wider than the others: it now carries "+87,523  ▲15.65%" on one line. */
+#daily-card .dc-table th:nth-child(5), #daily-card .dc-table td:nth-child(5) { width: 124px; }
+#daily-card .dc-table th { color: var(--dc-text-2); font-size: 10px; }
+/* 6px, not 10: with 22 tracks the row padding alone added ~145px of card. */
+#daily-card .dc-table td { padding: 6px 3px; font-size: 12px; vertical-align: middle; }
+/* One line per track. Wrapping long names turned 17 of FSLS (Complete)'s 22
+   rows into two lines and made the card 1567px tall on a phone; the title is
+   shortened by cleanTrackTitle first (app.js), so an ellipsis is rare. */
+#daily-card .dc-table td.dc-track { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; line-height: 1.4; padding-right: 12px; }
+#daily-card .dc-table td.dc-totalcol { font-weight: 400; color: var(--dc-text-2); font-size: 11px; }
+#daily-card .dc-table td.dc-dailycol { font-weight: 700; color: var(--dc-text); }
+/* The % rides alongside the change instead of under it: stacked, it set the
+   row height for all 22 FSLS rows (48px each) and made the card 260px taller
+   than the numbers needed. The column header keeps its caption on its own line. */
+#daily-card .dc-table td .dc-change-percent { display: inline; margin-left: 6px; font-size: 10px; line-height: 1.4; font-weight: 400; }
+#daily-card .dc-table th .dc-change-percent { display: block; margin-top: 3px; font-size: 8px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+#daily-card .dc-table tfoot td { padding-top: 16px; }
+#daily-card .dc-footer { margin-top: 24px; font-size: 10px; flex-wrap: wrap; color: var(--dc-text-2); }
+@media (max-width: 600px) {
+  #daily-card { padding: 18px 12px; }
+  #daily-card .dc-cover { width: 76px; height: 76px; }
+  #daily-card .dc-header { gap: 12px; }
+  #daily-card .dc-album { font-size: 21px; }
+  #daily-card .dc-daily-num { font-size: 32px; }
+  #daily-card .dc-big-row { gap: 8px; flex-wrap: wrap; }
+  #daily-card .dc-table th:nth-child(3), #daily-card .dc-table td:nth-child(3) { width: 76px; }
+  #daily-card .dc-table th:nth-child(4), #daily-card .dc-table td:nth-child(4) { width: 62px; }
+  #daily-card .dc-table th:nth-child(5), #daily-card .dc-table td:nth-child(5) { width: 92px; }
+  #daily-card .dc-table th.dc-rank, #daily-card .dc-table td.dc-rank { width: 18px; font-size: 9px; }
+  #daily-card .dc-table td { font-size: 10px; padding: 6px 2px; }
+  #daily-card .dc-table td.dc-totalcol { font-size: 9px; }
+  #daily-card .dc-table td.dc-track { padding-right: 6px; }
+  #daily-card .dc-change-percent { font-size: 9px; }
+}
