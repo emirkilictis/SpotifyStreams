@@ -2420,9 +2420,9 @@ async function openDailyCard() {
         <tr>
           <td class="dc-rank">${i + 1}</td>
           <td class="dc-track" title="${esc(s.title)}">${star}${esc(cleanTrackTitle(s.title))}</td>
-          <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
           <td class="dc-dailycol">${formatNumber(daily)}</td>
-          <td class="${c.cls}">${c.txt}<span class="dc-change-percent">${c.pct}</span></td>
+          <td class="${c.cls}"><span class="dc-change-value">${c.txt}</span><span class="dc-change-percent">${c.pct}</span></td>
+          <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
         </tr>`;
     }).join('');
 
@@ -2437,25 +2437,30 @@ async function openDailyCard() {
           <div class="dc-artist">${esc(currentArtistName || '')}</div>
           ${edition ? `<div class="dc-edition">${esc(edition[1])}</div>` : ''}
           <div class="dc-date">${formatCardDate(recordedDate)}</div>
+          <div class="dc-summary">
+            <div class="dc-summary-metrics">
+              <div class="dc-daily-metric">
+                <div class="dc-big-label">DAILY STREAMS</div>
+                <div class="dc-daily-num">+${formatNumber(totalDaily)}</div>
+              </div>
+              <div class="dc-total-metric">
+                <div class="dc-big-label">TOTAL STREAMS</div>
+                <div class="dc-total dc-total-num">${formatNumber(totalCum)}</div>
+              </div>
+            </div>
+            <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%<span class="dc-comparison-label">vs. previous day</span></div>
+          </div>
         </div>
       </div>
       <div class="dc-divider"></div>
-      <div class="dc-big-label">DAILY STREAMS</div>
-      <div class="dc-big-row">
-        <div class="dc-daily-num">+${formatNumber(totalDaily)}</div>
-        <div class="dc-badge ${totalBadgeCls}">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%<span class="dc-comparison-label">vs. previous day</span></div>
-      </div>
-      <div class="dc-total">Total streams · <b>${formatNumber(totalCum)}</b></div>
       <table class="dc-table">
         <thead>
           <tr>
             <th class="dc-rank">#</th>
             <th class="dc-left">Track</th>
-            <!-- Total sits next to the track, then the day's numbers: the
-                 column widths in style.css follow this order by position. -->
-            <th>Total</th>
             <th>Daily</th>
-            <th>Change<span class="dc-change-percent">vs. prev. day</span></th>
+            <th>Change · %<span class="dc-change-percent">vs. prev. day</span></th>
+            <th>Total</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -2463,9 +2468,9 @@ async function openDailyCard() {
           <tr>
             <td class="dc-rank"></td>
             <td class="dc-left">TOTAL</td>
-            <td class="dc-totalcol">${formatNumber(totalCum)}</td>
             <td class="dc-dailycol">${formatNumber(totalDaily)}</td>
-            <td class="${totalCls}">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}<span class="dc-change-percent">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</span></td>
+            <td class="${totalCls}"><span class="dc-change-value">${totalChange > 0 ? '+' : ''}${formatNumber(totalChange)}</span><span class="dc-change-percent">${totalBadgeArrow} ${Math.abs(totalPctNum).toFixed(2)}%</span></td>
+            <td class="dc-totalcol">${formatNumber(totalCum)}</td>
           </tr>
         </tfoot>
       </table>
@@ -2485,6 +2490,8 @@ async function downloadDailyCard() {
     if (cover.style.visibility !== 'hidden' && !cover.naturalWidth) cover.style.visibility = 'hidden';
   }
   try {
+    // Capture only after the same fonts used in the preview have loaded.
+    await document.fonts.ready;
     // Always render the PNG at the full desktop card width so the exported
     // image looks identical regardless of the (possibly narrow) mobile preview.
     const canvas = await html2canvas(dailyCardEl, {
@@ -2492,22 +2499,43 @@ async function downloadDailyCard() {
       // Match the chosen card theme's base colour, otherwise a light card gets
       // dark corners where the rounded border is anti-aliased.
       backgroundColor: resolveCardTheme(cardThemeId).page || '#080c14',
-      // The daily card is small (600px wide) — full 2x fits well under the
-      // iOS canvas area limit and keeps text sharp on Retina screens.
+      // Export the full 820px layout at 2x, independently of preview scaling.
       scale: 2,
       useCORS: true,
       imageTimeout: 15000,
       logging: false,
-      width: 600,
-      windowWidth: 700,
-      onclone: (clonedDoc) => {
+      width: 820,
+      windowWidth: 900,
+      onclone: async (clonedDoc) => {
         const card = clonedDoc.getElementById('daily-card');
         if (card) {
-          card.style.setProperty('width', '600px', 'important');
-          card.style.setProperty('max-width', '600px', 'important');
+          card.style.setProperty('width', '820px', 'important');
+          card.style.setProperty('max-width', '820px', 'important');
           card.style.setProperty('padding', '28px', 'important');
           card.style.setProperty('max-height', 'none', 'important');
           card.style.setProperty('overflow', 'visible', 'important');
+          card.style.setProperty('transform', 'none', 'important');
+          const preview = clonedDoc.getElementById('daily-card-preview');
+          if (preview) { preview.style.height = 'auto'; preview.style.width = '820px'; }
+          await clonedDoc.fonts.ready;
+          // html2canvas clips CSS ellipses. Materialize the shortened label so
+          // the PNG ends in an actual ellipsis rather than a sliced letter.
+          card.querySelectorAll('td.dc-track').forEach(cell => {
+            const style = clonedDoc.defaultView.getComputedStyle(cell);
+            const available = cell.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            const text = cell.textContent;
+            const label = clonedDoc.createElement('span');
+            label.style.whiteSpace = 'nowrap';
+            cell.replaceChildren(label);
+            label.textContent = text;
+            if (label.getBoundingClientRect().width > available) {
+              const chars = Array.from(text);
+              while (chars.length && label.getBoundingClientRect().width > available) {
+                chars.pop();
+                label.textContent = chars.join('').trimEnd() + '…';
+              }
+            }
+          });
         }
       }
     });
@@ -2538,6 +2566,22 @@ async function downloadDailyCard() {
     if (cover) cover.style.visibility = 'visible';
   }
 }
+
+// Scale the full layout on narrow screens without squeezing its columns.
+function fitAlbumDailyCard() {
+  const preview = document.getElementById('daily-card-preview');
+  if (!preview || !dailyCardEl || !preview.clientWidth) return;
+  const scale = Math.min(1, preview.clientWidth / 820);
+  dailyCardEl.style.transform = `scale(${scale})`;
+  preview.style.height = `${Math.ceil(dailyCardEl.offsetHeight * scale)}px`;
+}
+if (dailyCardEl && typeof ResizeObserver !== 'undefined') {
+  const cardObserver = new ResizeObserver(fitAlbumDailyCard);
+  cardObserver.observe(dailyCardEl);
+  const preview = document.getElementById('daily-card-preview');
+  if (preview) cardObserver.observe(preview);
+}
+window.addEventListener('resize', fitAlbumDailyCard);
 
 if (openDailyCardBtn) openDailyCardBtn.addEventListener('click', openDailyCard);
 if (dailyCardCloseBtn) dailyCardCloseBtn.addEventListener('click', () => dailyCardModal.classList.add('hidden'));
