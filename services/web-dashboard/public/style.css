@@ -4296,6 +4296,18 @@ select.tc-input { cursor: pointer; }
   transform: translateX(-50%) translateY(-14px);
 }
 
+/* The banner only reports; nothing in it is clickable. It is fixed at the very
+   top, which on a phone is exactly where a modal's × lives — at z-index 1500 it
+   swallowed the tap and the album could not be closed. Never take pointer
+   events, and slide out of sight entirely while any overlay is open (it comes
+   straight back when the modal closes). */
+.sync-banner { pointer-events: none; }
+
+body.modal-open .sync-banner {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-18px);
+}
+
 .sync-banner.fresh {
   border-color: rgba(30, 215, 96, 0.35);
 }

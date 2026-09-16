@@ -1844,9 +1844,10 @@ albumModal.addEventListener('click', (e) => {
 // the topmost open modal on Escape. Watches the three modals' class changes so
 // every open/close path is covered without touching each opener.
 (function initModalUX() {
-  const modals = ['album-modal', 'song-modal', 'feedback-modal']
-    .map((id) => document.getElementById(id))
-    .filter(Boolean);
+  // Every overlay, not just the three big ones: body.modal-open now also gets
+  // the fixed sync banner out of the way, and on a phone that banner sits right
+  // on top of a modal's × button.
+  const modals = Array.from(document.querySelectorAll('.modal-backdrop'));
   if (!modals.length) return;
 
   const isOpen = (m) => m && !m.classList.contains('hidden');
