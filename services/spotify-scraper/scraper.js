@@ -15,7 +15,7 @@ require('dotenv').config({ path: __dirname + '/../../.env' });
 
 const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAvatar } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
-const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, reconcileStreamDrops, closePool } = require('./db');
+const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, reconcileStreamDrops, closePool } = require('./db');
 const { dedupCanonical, quickMergeNewCopies } = require('./dedup');
 
 // Auto-backfill any active artist still missing a profile photo (e.g. a freshly
@@ -689,6 +689,7 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
 
   console.log(`[scraper] Scraping ${albumsToScrape.length} albums for ${artistId}...`);
 
+  let failedAlbums = 0;
   for (let i = 0; i < albumsToScrape.length; i++) {
     const a = albumsToScrape[i];
     const isFeatured = a.is_featured ?? false;
@@ -698,9 +699,13 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
     try {
       const n = await processAlbum(page, client, { ...a, is_featured: isFeatured }, artistUri, stats, artistIsNew);
       console.log(`           ${n} track`);
-    } catch (err) { console.warn('  Hata:', err.message); }
+    } catch (err) { failedAlbums++; console.warn('  Hata:', err.message); }
     await sleep(DELAY_MS);
   }
+  // Albüm hataları yutuluyor (biri patlasa da diğerleri çekilsin), o yüzden
+  // "fonksiyon throw etmedi" taramanın tam olduğu anlamına gelmiyor. Damgayı
+  // yalnızca hepsi geçtiğinde atabilmek için sonucu bildiriyoruz.
+  return { albums: albumsToScrape.length, failedAlbums };
 }
 
 // Returns true if this artist already has a full snapshot for today. Used both for
@@ -755,6 +760,28 @@ async function artistsWithTodaysData(client, artistUris) {
     const today = parseInt(row.today_cnt ?? 0, 10);
     const prev = parseInt(row.prev_cnt ?? 0, 10);
     if (today > 0 && today >= prev) done.add(row.artist);
+  }
+
+  // AI kadrosu satır sayısıyla ölçülemez. Spotify bu sanatçılarda sahte
+  // dinlemeleri silip duruyor; katalogun çoğu ya donmuş ya düşüyor, yazıcı
+  // stale-skip yüzünden satır yazmıyor ve "bugünkü satır >= dünkü satır" kuralı
+  // hiçbir zaman sağlanmıyor. Sonuç: sanatçı SAATLİK HER KOŞUDA baştan taranıyor
+  // (Vaelis son 7 günün 3'ünde), her seferinde bütün albümleri yeniden açarak.
+  // Onlar için ölçü taramanın kendi damgası: bütün albümleri hatasız işlendiyse
+  // bugün bitmiştir, tek bir sayı değişmemiş olsa bile.
+  try {
+    const stamped = await client.query(
+      `SELECT 'spotify:artist:' || artist_id AS artist
+         FROM tracked_artists
+        WHERE 'ai' = ANY(categories)
+          AND last_scanned_date = (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)
+          AND 'spotify:artist:' || artist_id = ANY($1::text[])`,
+      [artistUris]
+    );
+    for (const row of stamped.rows) done.add(row.artist);
+  } catch (err) {
+    // Migration 025 henüz uygulanmadıysa eski davranış geçerli kalsın.
+    console.warn(`[scraper] AI tarama damgası okunamadı (${err.code || err.message}); satır sayısı kuralı kullanılıyor.`);
   }
   return done;
 }
@@ -958,7 +985,12 @@ async function run() {
           artistId: artist.id, artistName: artist.name, done: i, total: pendingArtists.length,
         });
         try {
-          await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds, isForce, !!artist.album_only);
+          const outcome = await scrapeArtist(page, client, artist.id, stats, allTrackedArtistIds, isForce, !!artist.album_only);
+          // Tarandı damgası — YALNIZCA bütün albümleri hatasız işlendiyse.
+          // Yarım kalan tarama damgalanmaz, sonraki koşu onu tamamlar.
+          if (outcome && outcome.albums > 0 && outcome.failedAlbums === 0) {
+            await markArtistScanned(client, artist.id);
+          }
         } catch (artistErr) {
           failedArtists.push({
             id: artist.id,

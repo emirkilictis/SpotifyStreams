@@ -221,6 +221,22 @@ const DROP_CONFIRM_DAYS = 2;
 // A "drop" this large is not Spotify tidying up, it's a bad read (wrong track,
 // truncated response). Refuse to act on it and leave it in the log to be seen.
 const DROP_SANITY_MAX_RATIO = 0.25;
+// AI SANATÇILARI (tracked_artists.categories'inde 'ai') iki kuraldan da muaf.
+//
+// Spotify bu kadroda sahte dinlemeleri toplu halde siliyor: düşüş %50-75
+// oluyor ve DOĞRU oluyor — Utopic Records "What Am I Doing?" 48.365 → 12.403
+// (%74), Vaelis "Side Effects" 2.511 → 1.014 (%60). %25'lik koruma bunları
+// "bozuk okuma" sayıp reddediyor, gözlem her gece yeniden değerlendiriliyor ve
+// site eski şişik sayıyı göstermeye devam ediyor: "What Am I Doing?" 13 gün üst
+// üste bu döngüde kaldı. Gerçek bir sanatçıda aynı oran neredeyse her zaman
+// bozuk okumadır (aynı listede Dove Cameron %99,9, Stray Kids %97,4 — hepsi
+// gerçekten hatalı okuma), o yüzden koruma orada aynen duruyor.
+//
+// Muafiyet bedava değil, kanıta bağlı: tıraşlama zaten ŞARKININ KENDİ sayfasının
+// canlı okumasını şart koşuyor (verify). AI'da atlanan şey oran tavanı ve ikinci
+// günün teyidi; kanıt değil. Bu, repair-stream-drops.js --force'un elle yaptığı
+// şeyin aynısı — sadece artık her gece kendiliğinden oluyor.
+const AI_DROP_CONFIRM_DAYS = 1;
 
 async function recordStreamDrops(client, drops, observedDate) {
   if (!drops || !drops.length) return 0;
@@ -339,14 +355,30 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
        SELECT COALESCE(s.canonical_id, s.id) AS head, MAX(ss.stream_count) AS old_count
        FROM stream_stats ss JOIN songs s ON s.id = ss.song_id
        GROUP BY COALESCE(s.canonical_id, s.id)
+     ),
+     -- Kaydın sahibi AI kadrosundan mı? Aile üyeleri farklı sanatçılara
+     -- bağlanabiliyor (feature kopyaları), bir üyesi bile AI ise kayıt AI
+     -- muamelesi görür: o katalogda düşüş gerçek.
+     owner AS (
+       SELECT COALESCE(s.canonical_id, s.id) AS head,
+              bool_or(COALESCE('ai' = ANY(ta.categories), false)) AS is_ai
+       FROM songs s
+       LEFT JOIN tracked_artists ta
+              ON 'spotify:artist:' || ta.artist_id = s.primary_artist
+       WHERE COALESCE(s.canonical_id, s.id) IN (SELECT head FROM agg)
+       GROUP BY 1
      )
-     SELECT a.head, a.days_seen, l.new_count::bigint, h.old_count::bigint
+     SELECT a.head, a.days_seen, l.new_count::bigint, h.old_count::bigint,
+            COALESCE(o.is_ai, false) AS is_ai
      FROM agg a
      JOIN latest l ON l.head = a.head
      JOIN held   h ON h.head = a.head
-     WHERE a.days_seen >= $3 AND l.new_count < h.old_count
+     LEFT JOIN owner o ON o.head = a.head
+     WHERE l.new_count < h.old_count
+       AND a.days_seen >= (CASE WHEN COALESCE(o.is_ai, false)
+                                THEN LEAST($3::int, $4::int) ELSE $3::int END)
      ORDER BY (h.old_count - l.new_count) DESC`,
-    [today, lookbackDays, minConfirmations]
+    [today, lookbackDays, minConfirmations, AI_DROP_CONFIRM_DAYS]
   );
 
   const applied = [];
@@ -405,11 +437,15 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
     if (!(drop > 0)) continue;
 
     if (drop / oldCount > DROP_SANITY_MAX_RATIO) {
-      if (!forceHeads.has(row.head)) {
-        console.warn(`[drops] ${row.head}: ${drop} (${((drop / oldCount) * 100).toFixed(1)}%) düşüş fazla büyük — bozuk okuma sayıldı, dokunulmadı.`);
+      const pct = ((drop / oldCount) * 100).toFixed(1);
+      if (row.is_ai === true) {
+        console.warn(`[drops] ${row.head}: ${drop} (${pct}%) düşüş — AI sanatçısı, oran koruması uygulanmadı (şarkı sayfası ${newCount} diyor).`);
+      } else if (!forceHeads.has(row.head)) {
+        console.warn(`[drops] ${row.head}: ${drop} (${pct}%) düşüş fazla büyük — bozuk okuma sayıldı, dokunulmadı.`);
         continue;
+      } else {
+        console.warn(`[drops] ${row.head}: ${drop} (${pct}%) düşüş — koruma ADIYLA atlandı (--force).`);
       }
-      console.warn(`[drops] ${row.head}: ${drop} (${((drop / oldCount) * 100).toFixed(1)}%) düşüş — koruma ADIYLA atlandı (--force).`);
     }
 
     let ids = famIds;
@@ -559,8 +595,34 @@ async function setScraperProgress(client, { artistId = null, artistName = null, 
   }
 }
 
+// "Bu sanatçı bugün baştan sona tarandı" damgası (migration 025).
+//
+// Taramanın tamamlandığını yazılan satır sayısından ÇIKARMAK, katalogu her gün
+// büyüyen sanatçılarda çalışıyor ama AI kadrosunda çalışmıyor: orada şarkıların
+// çoğu ya donmuş ya da düşüyor, stale-skip satır yazmıyor ve sanatçı her saat
+// yeniden taranıyor. Damga taramanın kendi kaydı — hiçbir sayı değişmemiş olsa
+// bile "baktım, bitirdim" der. YALNIZCA sanatçının bütün albümleri hatasız
+// işlendiğinde yazılır; yarım kalan bir tarama damga almaz ve bir sonraki koşu
+// onu normal şekilde tamamlar.
+//
+// Kolon yoksa (migration henüz uygulanmadıysa) uyarı basıp geçer: eksik damga
+// eski davranışa döner, taramayı düşürmez.
+async function markArtistScanned(client, artistId) {
+  try {
+    await client.query(
+      `UPDATE tracked_artists
+          SET last_scanned_date = (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date),
+              last_scanned_at   = NOW()
+        WHERE artist_id = $1`,
+      [artistId]
+    );
+  } catch (err) {
+    console.warn(`[scan-stamp] ${artistId} damgalanamadı: ${err.code || err.message}`);
+  }
+}
+
 async function closePool() {
   if (pool) await pool.end();
 }
 
-module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, recordStreamDrops, reconcileStreamDrops, closePool };
+module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, recordStreamDrops, reconcileStreamDrops, closePool };
