@@ -766,16 +766,24 @@ async function artistsWithTodaysData(client, artistUris) {
        JOIN songs s ON s.id = ss.song_id
        WHERE s.primary_artist = ANY($1::text[])
      ),
-     prev AS (
-       SELECT m.artist, MAX(m.recorded_date) AS prev_date
+     -- Baraj, ÖNCEKİ GÜNÜN satır sayısı değil, son 7 günün EN DOLU gününün
+     -- satır sayısı. Tek bir günün sayısına bakmak yarım günlerde çöküyor:
+     -- 2026-09-19'da Anitta'nın önceki günü (09-18) yalnızca 3 satırlık yarım
+     -- bir gündü, bugünkü 3 satır o barajı geçti ve sanatçı iki gün boyunca
+     -- "zaten tarandı" sayılıp atlandı (595 şarkısı 09-17'de kaldı).
+     daily AS (
+       SELECT m.artist, m.recorded_date, COUNT(*) AS n
        FROM mine m CROSS JOIN bounds b
-       WHERE m.recorded_date < b.today
-       GROUP BY m.artist
+       WHERE m.recorded_date < b.today AND m.recorded_date >= b.today - 7
+       GROUP BY m.artist, m.recorded_date
+     ),
+     prev AS (
+       SELECT artist, MAX(n) AS prev_cnt FROM daily GROUP BY artist
      )
      SELECT
        m.artist,
-       COUNT(*) FILTER (WHERE m.recorded_date = b.today)     AS today_cnt,
-       COUNT(*) FILTER (WHERE m.recorded_date = p.prev_date) AS prev_cnt
+       COUNT(*) FILTER (WHERE m.recorded_date = b.today) AS today_cnt,
+       MAX(p.prev_cnt)                                   AS prev_cnt
      FROM mine m
      CROSS JOIN bounds b
      LEFT JOIN prev p ON p.artist = m.artist
@@ -789,6 +797,12 @@ async function artistsWithTodaysData(client, artistUris) {
     if (today > 0 && today >= prev) done.add(row.artist);
   }
 
+  // Damga: bütün albümleri hatasız taranan sanatçı, tek satır yazılmamış olsa
+  // bile bugün bitmiştir. Bu kural AI kadrosu için eklenmişti ama herkes için
+  // geçerli — satır sayısı kuralı normal bir günde bile 5-22 sanatçıda
+  // tutmuyor (bir-iki donmuş ya da düşen şarkı yetiyor) ve o sanatçılar saat
+  // başı yeniden taranıyordu.
+  //
   // AI kadrosu satır sayısıyla ölçülemez. Spotify bu sanatçılarda sahte
   // dinlemeleri silip duruyor; katalogun çoğu ya donmuş ya düşüyor, yazıcı
   // stale-skip yüzünden satır yazmıyor ve "bugünkü satır >= dünkü satır" kuralı
@@ -800,8 +814,7 @@ async function artistsWithTodaysData(client, artistUris) {
     const stamped = await client.query(
       `SELECT 'spotify:artist:' || artist_id AS artist
          FROM tracked_artists
-        WHERE 'ai' = ANY(categories)
-          AND last_scanned_date = (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)
+        WHERE last_scanned_date = (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)
           AND 'spotify:artist:' || artist_id = ANY($1::text[])`,
       [artistUris]
     );
