@@ -595,6 +595,105 @@ async function setScraperProgress(client, { artistId = null, artistName = null, 
   }
 }
 
+// GEÇ GELEN SPOTIFY GÜNCELLEMESİ — gün kaymasını kendiliğinden düzelt.
+//
+// Spotify X gününün sayılarını normalde X+1 gecesi 00:00-03:00 arası yayınlıyor;
+// "-12 saat" kuralı o yazımları X'e damgalıyor. 2026-09-19'da 09-18'in
+// güncellemesi 09-19 akşamı 19:00'da geldi: -12 saat → 09-19. Sonuç: 09-18 boş,
+// 09-19 dolu, daily hesabı tek günlük sıçramayı iki güne bölüyor (JT 4.8M).
+// nextSnapshotDate'in catch-up'ı burada yardım edemiyor: CATCHUP_CAP_DAYS=1,
+// çünkü 2 iken seyrek taranan sürümler bir gün geride kilitleniyordu (180f0ba).
+//
+// Kural, üçü birden sağlanırsa bugünün satırlarını düne taşır:
+//   1. dün HİÇ satır yok, bugün ve evvelsi gün var (gerçek bir delik),
+//   2. canary (Mirrors) evvelsi günden bugüne TEK günlük büyüklükte büyümüş —
+//      medyan günlük artışın en fazla 1,5 katı. İki gün gerçekten kaçırıldıysa
+//      sıçrama ~2 kat olur, o zaman bölmek DOĞRU ve dokunulmaz,
+//   3. çağıran, kadronun (neredeyse) tamamının bugün tarandığını doğruladı.
+//      Yarım kadroyla taşımak kalanları öldürür: satırlar düne gidince bugün boş
+//      görünür, canary "yeni güncelleme yok" der ve koşu kalanları taramadan
+//      çıkar. Bu kontrol scraper.js'de (artistsWithTodaysData orada).
+// Taşıma admin "Move a snapshot day" ile aynı iş: stream_stats + artist_stats +
+// AI tarama damgası (damga bugünde kalırsa AI kadrosu gerçek bugünün
+// güncellemesini "zaten tarandı" sanıp atlar). Tek transaction.
+const CANARY_SONG_ID = '4rHZZAmHpZrA3iH5zx8frV'; // Mirrors — scraper canary'si ile aynı
+const LATE_UPDATE_MAX_RATIO = 1.5;
+
+async function fixLateUpdateDay(client) {
+  const today = await todayIstanbul(client);
+  const d1 = addDays(today, -1);
+  const d2 = addDays(today, -2);
+
+  const counts = await client.query(
+    `SELECT recorded_date::text AS d, COUNT(*)::int AS n
+       FROM stream_stats
+      WHERE recorded_date IN ($1::date, $2::date, $3::date)
+      GROUP BY 1`,
+    [today, d1, d2]
+  );
+  const n = Object.fromEntries(counts.rows.map(r => [r.d, r.n]));
+  if (!n[today] || n[d1] || !n[d2]) return null;               // delik yok
+
+  const canary = await client.query(
+    `SELECT recorded_date::text AS d, stream_count::bigint AS c
+       FROM stream_stats
+      WHERE song_id = $1 AND recorded_date BETWEEN $2::date - 10 AND $2::date
+      ORDER BY recorded_date`,
+    [CANARY_SONG_ID, today]
+  );
+  const byDate = new Map(canary.rows.map(r => [r.d, Number(r.c)]));
+  if (!byDate.has(today) || !byDate.has(d2)) return null;
+  const oneDay = [];
+  for (const r of canary.rows) {
+    if (r.d >= d2) continue;
+    const next = byDate.get(addDays(r.d, 1));
+    if (next != null && next > Number(r.c)) oneDay.push(next - Number(r.c));
+  }
+  if (oneDay.length < 3) return null;                          // kıyas için veri yok
+  oneDay.sort((a, b) => a - b);
+  const typical = oneDay[Math.floor(oneDay.length / 2)];
+  const jump = byDate.get(today) - byDate.get(d2);
+  const ratio = jump / typical;
+  if (!(jump > 0) || ratio > LATE_UPDATE_MAX_RATIO) {
+    console.log(`[late-update] ${d1} boş ama Mirrors sıçraması ${ratio.toFixed(2)}× tipik gün — gerçekten kaçırılmış gün, taşınmadı.`);
+    return null;
+  }
+
+  await client.query('BEGIN');
+  try {
+    const moved = await client.query(
+      `UPDATE stream_stats SET recorded_date = $2::date WHERE recorded_date = $1::date`,
+      [today, d1]
+    );
+    let artistRows = 0;
+    const hasArtistStats =
+      (await client.query(`SELECT to_regclass('public.artist_stats') AS t`)).rows[0].t != null;
+    if (hasArtistStats) {
+      await client.query(
+        `DELETE FROM artist_stats t USING artist_stats s
+          WHERE t.recorded_date = $2::date AND s.recorded_date = $1::date
+            AND t.artist_id = s.artist_id`,
+        [today, d1]
+      );
+      artistRows = (await client.query(
+        `UPDATE artist_stats SET recorded_date = $2::date WHERE recorded_date = $1::date`,
+        [today, d1]
+      )).rowCount;
+    }
+    await client.query(
+      `UPDATE tracked_artists SET last_scanned_date = $2::date WHERE last_scanned_date = $1::date`,
+      [today, d1]
+    );
+    await client.query('COMMIT');
+    console.log(`[late-update] Spotify ${d1} güncellemesini geç yayınladı (Mirrors +${jump}, tipik gün ${typical}). ` +
+                `${moved.rowCount} stream satırı + ${artistRows} artist satırı ${today} → ${d1} taşındı.`);
+    return { from: today, to: d1, streamRows: moved.rowCount, artistRows, jump, typical };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw err;
+  }
+}
+
 // "Bu sanatçı bugün baştan sona tarandı" damgası (migration 025).
 //
 // Taramanın tamamlandığını yazılan satır sayısından ÇIKARMAK, katalogu her gün
@@ -625,4 +724,4 @@ async function closePool() {
   if (pool) await pool.end();
 }
 
-module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, recordStreamDrops, reconcileStreamDrops, closePool };
+module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, fixLateUpdateDay, recordStreamDrops, reconcileStreamDrops, closePool };

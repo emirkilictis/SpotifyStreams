@@ -15,7 +15,7 @@ require('dotenv').config({ path: __dirname + '/../../.env' });
 
 const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAvatar } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
-const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, reconcileStreamDrops, closePool } = require('./db');
+const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, fixLateUpdateDay, reconcileStreamDrops, closePool } = require('./db');
 const { dedupCanonical, quickMergeNewCopies } = require('./dedup');
 
 // Auto-backfill any active artist still missing a profile photo (e.g. a freshly
@@ -727,6 +727,25 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
 // The date expression and the today>0 && today>=prev rule are copied verbatim:
 // this is the gate that decides whether a run writes a new day, so it must give
 // the same answer, only cheaper.
+// Geç gelen Spotify güncellemesini (bkz. db.js fixLateUpdateDay) yalnızca
+// kadronun neredeyse tamamı bugün tarandıktan sonra düzelt. Yarım kadroyla
+// taşımak, kalan sanatçıları o günün verisinden tamamen mahrum bırakır. Birkaç
+// sanatçılık pay, kalıcı olarak taranamayan (404, boş katalog) bir sanatçının
+// düzeltmeyi sonsuza kadar kilitlememesi için.
+async function maybeFixLateUpdateDay(client, rosterIds) {
+  if (!rosterIds || !rosterIds.length) return;
+  try {
+    const uris = rosterIds.map(id => `spotify:artist:${id}`);
+    const captured = await artistsWithTodaysData(client, uris);
+    const missing = uris.length - uris.filter(u => captured.has(u)).length;
+    const slack = Math.max(2, Math.floor(uris.length * 0.05));
+    if (missing > slack) return;
+    await fixLateUpdateDay(client);
+  } catch (err) {
+    console.warn(`[late-update] kontrol atlandı: ${err.message}`);
+  }
+}
+
 async function artistsWithTodaysData(client, artistUris) {
   if (!artistUris.length) return new Set();
   const res = await client.query(
@@ -936,6 +955,7 @@ async function run() {
 
         if (pendingArtists.length === 0) {
           console.log('[scraper] All artists already have today\'s data. Nothing to do. Exiting gracefully.');
+          if (!artistFilterArg) await maybeFixLateUpdateDay(client, allTrackedArtistIds);
           await backfillMissingArtistPhotos(page, client);
           await setScraperStatus(client, 'idle');
           client.release();
@@ -1053,6 +1073,11 @@ async function run() {
       } catch (dropErr) {
         console.error('[scraper] Drop reconciliation failed (skipped):', dropErr.message);
       }
+
+      // Spotify günü geç yayınladıysa (09-18'in güncellemesi 09-19 19:00'da)
+      // bugüne damgalanan satırları ait oldukları güne taşı. Yalnızca tam kadro
+      // koşularında: hedefli (admin) bir senkron kadronun durumunu bilemez.
+      if (!artistFilterArg) await maybeFixLateUpdateDay(client, allTrackedArtistIds);
     } finally {
       try {
         console.log('[scraper] Running database deduplication step (transactional)...');
