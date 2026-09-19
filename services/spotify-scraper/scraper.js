@@ -737,6 +737,14 @@ async function maybeFixLateUpdateDay(client, rosterIds) {
   try {
     const uris = rosterIds.map(id => `spotify:artist:${id}`);
     const captured = await artistsWithTodaysData(client, uris);
+    // Satır sayısı kuralı tek başına yetmez: bir gün sonunda bile 5-22 sanatçı
+    // bir-iki donmuş/düşen şarkı yüzünden bu kuralı geçemiyor (09-17: 22).
+    // Bütün albümleri hatasız taranmış (damgalı) sanatçı da tamam sayılır.
+    const stamped = await client.query(
+      `SELECT 'spotify:artist:' || artist_id AS artist FROM tracked_artists
+        WHERE last_scanned_date = (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)`
+    );
+    for (const r of stamped.rows) captured.add(r.artist);
     const missing = uris.length - uris.filter(u => captured.has(u)).length;
     const slack = Math.max(2, Math.floor(uris.length * 0.05));
     if (missing > slack) return;
