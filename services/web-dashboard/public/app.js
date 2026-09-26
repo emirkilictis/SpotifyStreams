@@ -33,6 +33,10 @@ let showDetailedAnalysis = false;
 let loadingAlbumHistory = false;
 let currentArtistStats = null; // cached stats for the current artist
 let currentArtistRawStats = null; // cached daily/cumulative stats from /api/stats
+let aiChartsData = null;
+let aiChartsPeriod = 'daily';
+let aiChartsOrigin = 'picker';
+let aiChartsRequest = null;
 
 // Artists that should only show the Albums view (no Songs tab)
 const ALBUM_ONLY_ARTISTS = new Set([
@@ -4731,6 +4735,10 @@ const dashboardWrapper = document.getElementById('dashboard-wrapper');
 const backToPickerBtn = document.getElementById('back-to-picker-btn');
 const artistSearchInput = document.getElementById('artist-search-input');
 const clearSearchBtn = document.getElementById('clear-search-btn');
+const aiChartsWrapper = document.getElementById('ai-charts-wrapper');
+const aiChartsGrid = document.getElementById('ai-charts-grid');
+const aiChartsStatus = document.getElementById('ai-charts-status');
+const aiChartsDate = document.getElementById('ai-charts-date');
 let artistSearchQuery = '';
 
 // ===== Picker kategori filtresi + "yeni eklendi" rozeti =====
@@ -4857,6 +4865,7 @@ async function enterDashboard(artistId, artistName) {
   
   // Hide picker, show dashboard
   pickerSection.classList.add('hidden');
+  if (aiChartsWrapper) aiChartsWrapper.classList.add('hidden');
   dashboardWrapper.classList.remove('hidden');
   
   // Set correct view based on artist type
@@ -4882,8 +4891,10 @@ async function enterDashboard(artistId, artistName) {
 // Go back to picker
 function showPicker() {
   dashboardWrapper.classList.add('hidden');
+  if (aiChartsWrapper) aiChartsWrapper.classList.add('hidden');
   pickerSection.classList.remove('hidden');
   applyArtistTheme(null); // Reset to the neutral landing theme (NOT any artist's theme)
+  document.title = 'Spotify Streams - Fan Dashboard';
   window.scrollTo(0, 0);
 
   if (artistSearchInput) {
@@ -4894,6 +4905,141 @@ function showPicker() {
     clearSearchBtn.classList.add('hidden');
   }
   renderPickerRoster();
+}
+
+// ===== AI Charts =====
+// This is a top-level view rather than another per-artist tab: its whole job is
+// to compare the artists tagged `ai`, so it must stay reachable from both the
+// roster and an artist dashboard without changing the currently selected artist.
+function aiChartDateLabel(period, data) {
+  if (!data) return 'Latest AI artist rankings';
+  if (period === 'weekly' && data.week_from && data.through_date) {
+    return `${formatDate(data.week_from)} – ${formatDate(data.through_date)}`;
+  }
+  return data.through_date ? `Streams for ${formatDate(data.through_date)}` : 'Latest AI artist rankings';
+}
+
+function aiChartRow(row, kind) {
+  const rank = Number(row.rank) || 0;
+  const image = escHtml(row.cover_url || row.artist_image_url || '/images/default.jpg');
+  const shape = kind === 'artists' ? ' is-artist' : '';
+  const meta = kind === 'songs'
+    ? [row.artist_name, row.subtitle].filter(Boolean).join(' · ')
+    : kind === 'artists'
+      ? (row.subtitle || 'AI artist')
+      : (row.artist_name || row.subtitle || 'AI artist');
+  return `<li>
+    <button class="ai-chart-row${rank <= 3 ? ' is-top' : ''}" type="button"
+            data-artist="${escHtml(row.artist_id || '')}"
+            data-artist-name="${escHtml(row.artist_name || row.title || '')}">
+      <span class="ai-chart-rank rank-${rank}">${rank}</span>
+      <img class="ai-chart-cover${shape}" src="${image}" alt="" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/images/default.jpg'">
+      <span class="ai-chart-copy">
+        <strong title="${escHtml(row.title)}">${escHtml(row.title)}</strong>
+        <small title="${escHtml(meta)}">${escHtml(meta)}</small>
+      </span>
+      <span class="ai-chart-streams"><b>${formatNumber(row.streams)}</b><small>streams</small></span>
+    </button>
+  </li>`;
+}
+
+function renderAiCharts() {
+  if (!aiChartsData || !aiChartsGrid) return;
+  const period = aiChartsPeriod;
+  const bucket = aiChartsData.charts?.[period] || {};
+  document.querySelectorAll('.ai-period-btn').forEach((btn) => {
+    const active = btn.dataset.period === period;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('[data-period-label]').forEach((el) => {
+    el.textContent = period === 'weekly' ? 'Weekly' : 'Daily';
+  });
+  if (aiChartsDate) aiChartsDate.textContent = aiChartDateLabel(period, aiChartsData);
+
+  for (const kind of ['songs', 'artists', 'albums']) {
+    const list = document.getElementById(`ai-chart-${kind}`);
+    if (!list) continue;
+    const rows = Array.isArray(bucket[kind]) ? bucket[kind] : [];
+    list.innerHTML = rows.length
+      ? rows.map((row) => aiChartRow(row, kind)).join('')
+      : '<li class="ai-chart-empty">No chart data yet.</li>';
+  }
+  if (aiChartsStatus) aiChartsStatus.classList.add('hidden');
+  aiChartsGrid.classList.remove('hidden');
+}
+
+async function loadAiCharts() {
+  if (aiChartsData) { renderAiCharts(); return; }
+  if (aiChartsRequest) return aiChartsRequest;
+  if (aiChartsStatus) {
+    aiChartsStatus.textContent = 'Loading charts…';
+    aiChartsStatus.classList.remove('is-error', 'hidden');
+  }
+  if (aiChartsGrid) aiChartsGrid.classList.add('hidden');
+  aiChartsRequest = (async () => {
+    try {
+      const headers = {};
+      if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+      const res = await fetch('/api/ai-charts', { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      aiChartsData = await res.json();
+      renderAiCharts();
+    } catch (err) {
+      console.error('AI charts error:', err);
+      if (aiChartsStatus) {
+        aiChartsStatus.textContent = 'Could not load the charts. Please try again.';
+        aiChartsStatus.classList.add('is-error');
+      }
+    } finally {
+      aiChartsRequest = null;
+    }
+  })();
+  return aiChartsRequest;
+}
+
+function showAiCharts() {
+  if (!aiChartsWrapper) return;
+  aiChartsOrigin = dashboardWrapper && !dashboardWrapper.classList.contains('hidden')
+    ? 'dashboard'
+    : 'picker';
+  pickerSection.classList.add('hidden');
+  dashboardWrapper.classList.add('hidden');
+  aiChartsWrapper.classList.remove('hidden');
+  applyArtistTheme(null);
+  document.title = 'AI Charts - Spotify Streams';
+  window.scrollTo(0, 0);
+  loadAiCharts();
+}
+
+function closeAiCharts() {
+  if (!aiChartsWrapper) return;
+  aiChartsWrapper.classList.add('hidden');
+  if (aiChartsOrigin === 'dashboard' && currentArtist) {
+    pickerSection.classList.add('hidden');
+    dashboardWrapper.classList.remove('hidden');
+    applyArtistTheme(currentArtist);
+    document.title = `${currentArtistName} Spotify Streams - Fan Dashboard`;
+    window.scrollTo(0, 0);
+    return;
+  }
+  showPicker();
+}
+
+document.querySelectorAll('.ai-charts-open-btn').forEach((btn) => btn.addEventListener('click', showAiCharts));
+document.getElementById('ai-charts-back-btn')?.addEventListener('click', closeAiCharts);
+document.querySelectorAll('.ai-period-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    aiChartsPeriod = btn.dataset.period === 'weekly' ? 'weekly' : 'daily';
+    renderAiCharts();
+  });
+});
+if (aiChartsGrid) {
+  aiChartsGrid.addEventListener('click', (e) => {
+    const row = e.target.closest('.ai-chart-row');
+    if (!row || !row.dataset.artist) return;
+    enterDashboard(row.dataset.artist, row.dataset.artistName || 'Artist');
+  });
 }
 
 // Function to dynamically add JC Chasez to the dropdown selector
@@ -5274,10 +5420,14 @@ function deriveThemeFromAccent(hex) {
   // open that artist's dashboard directly instead of dropping the visitor on the
   // picker. Only auto-enter active, unlocked artists; locked ones still need the code.
   try {
-    const want = (new URLSearchParams(location.search).get('artist') || '')
+    const params = new URLSearchParams(location.search);
+    if (params.get('view') === 'ai-charts') {
+      showAiCharts();
+    }
+    const want = (params.get('artist') || '')
       .replace('spotify:artist:', '').trim();
     const a = want && byId[want];
-    if (a && a.active !== false && !isArtistLocked(want)) {
+    if (params.get('view') !== 'ai-charts' && a && a.active !== false && !isArtistLocked(want)) {
       enterDashboard(want, a.name);
     }
   } catch (_) { /* on any error the picker remains as the fallback */ }

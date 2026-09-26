@@ -720,10 +720,10 @@ const ATD_REMIX_SINGLE_IDS_SQL = ATD_REMIX_SINGLE_IDS.map(id => `'${id}'`).join(
 
 // Dove Cameron's announced debut album "DC1" has no Spotify release yet, so its
 // songs only exist as standalone singles. Fold the era's singles — Too Much,
-// French Girls, Romeo, Whatever You Like, Hello My Old Lover — into one album
+// French Girls, Romeo, Whatever You Like, Hello My Old Lover, When In Rome — into one album
 // card so the era can be read as a whole (requested by a fan via the feedback
 // form). The "French Girls" single is the bucket because it already carries two
-// of the five tracks; the other three single cards vanish from the grid on their
+// of the six tracks; the other four single cards vanish from the grid on their
 // own, because the bucket CASE moves their songs' display album here and the
 // album grid inner-joins on having at least one song. Display-only: no totals,
 // no canonical links, no album_id in the DB change. When DC1 actually ships,
@@ -738,6 +738,7 @@ const DC1_SINGLE_ALBUM_IDS = [
   '257PqwE2yKKYxbLvqIkT3Y', // Romeo
   '6Ws8yG1V1JszzzS0lwk8mn', // Whatever You Like
   '576OBHrTMTv0uNbSrCZQHp', // Hello My Old Lover
+  '04Z2u8LxyvHF76JFKv5Tbn', // When In Rome
 ];
 const DC1_SINGLE_ALBUM_IDS_SQL = DC1_SINGLE_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
@@ -823,7 +824,7 @@ async function dbQuery(text, params) {
 async function refreshActiveArtistsCache() {
   try {
     const r = await dbQuery(
-      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked, active
+      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked, active, categories
        FROM tracked_artists ORDER BY sort_order, name`
     );
     if (r.rows.length) {
@@ -1081,6 +1082,218 @@ app.post('/api/verify-jc', requireAuth, (req, res) => {
     return res.json({ success: true });
   }
   return res.status(401).json({ success: false, message: 'Invalid passcode!' });
+});
+
+// AI charts: one coherent headline day for every AI-tagged artist, then six
+// leaderboards (songs / artists / albums × daily / weekly). The scope comes
+// from tracked_artists.categories, so adding or removing the `ai` tag in the
+// admin panel changes the charts without a deploy.
+//
+// Weekly figures are cumulative differences, not a sum of snapshot-day gains.
+// A song that was skipped on one scrape day still keeps every stream it earned
+// during the week. Qualified new releases get the same synthetic zero baseline
+// as the rest of the dashboard, so their debut week is not silently discarded.
+const AI_CHART_LIMIT = 20;
+app.get('/api/ai-charts', requireAuth,
+  cacheFor(CACHE_TTL_LIVE_MS, (req) =>
+    `ai-charts:${isJcAllowed(req.headers['x-jc-passcode']) ? 'unlocked' : 'public'}`),
+  async (req, res) => {
+  const canSeeLocked = isJcAllowed(req.headers['x-jc-passcode']);
+  try {
+    const query = `
+      WITH ai_artists AS (
+        SELECT
+          artist_id,
+          'spotify:artist:' || artist_id AS artist_uri,
+          name,
+          image_url,
+          accent
+        FROM tracked_artists
+        WHERE active = true
+          AND 'ai' = ANY(COALESCE(categories, '{}'::text[]))
+          AND (locked = false OR $1::boolean)
+      ),
+      ${artistLatestAggCTE(`s.canonical_id IS NULL
+          AND s.primary_artist IN (SELECT artist_uri FROM ai_artists)
+          AND s.id NOT IN (${hiddenTrackIdsSql()})`)},
+      scoped AS (
+        SELECT
+          s.id,
+          s.title,
+          s.album_id,
+          a.title AS album_title,
+          a.image_url AS cover_url,
+          ar.artist_id,
+          ar.name AS artist_name,
+          ar.image_url AS artist_image_url,
+          ar.accent,
+          COALESCE(ag.day_gain, 0)::bigint AS daily_streams
+        FROM songs s
+        JOIN albums a ON a.id = s.album_id
+        JOIN ai_artists ar ON ar.artist_uri = s.primary_artist
+        LEFT JOIN agg ag ON ag.canonical_id = s.id
+        WHERE s.canonical_id IS NULL
+          AND s.id NOT IN (${hiddenTrackIdsSql()})
+      ),
+      chart_readings AS (
+        SELECT canonical_id, recorded_date, cumulative FROM agg_runmax
+        UNION ALL
+        SELECT canonical_id, recorded_date - 1, 0::bigint
+        FROM agg_gains
+        WHERE is_debut_first
+      ),
+      weekly_by_song AS (
+        SELECT
+          canonical_id,
+          (
+            MAX(cumulative) FILTER (
+              WHERE recorded_date <= (SELECT recorded_date FROM agg_day)
+            )
+            - COALESCE(
+                MAX(cumulative) FILTER (
+                  WHERE recorded_date <= (SELECT recorded_date FROM agg_day) - 7
+                ),
+                MIN(cumulative)
+              )
+          )::bigint AS weekly_streams
+        FROM chart_readings
+        WHERE recorded_date <= (SELECT recorded_date FROM agg_day)
+        GROUP BY canonical_id
+      ),
+      daily_song_rows AS (
+        SELECT
+          'daily'::text AS period, 'songs'::text AS kind,
+          sc.id, sc.title, sc.artist_id, sc.artist_name,
+          sc.artist_image_url, sc.accent,
+          sc.album_title AS subtitle, sc.cover_url,
+          sc.daily_streams AS streams
+        FROM scoped sc
+      ),
+      weekly_song_rows AS (
+        SELECT
+          'weekly'::text AS period, 'songs'::text AS kind,
+          sc.id, sc.title, sc.artist_id, sc.artist_name,
+          sc.artist_image_url, sc.accent,
+          sc.album_title AS subtitle, sc.cover_url,
+          COALESCE(w.weekly_streams, 0)::bigint AS streams
+        FROM scoped sc
+        LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
+      ),
+      daily_artist_rows AS (
+        SELECT
+          'daily'::text AS period, 'artists'::text AS kind,
+          sc.artist_id AS id, sc.artist_name AS title,
+          sc.artist_id, sc.artist_name,
+          MAX(sc.artist_image_url) AS artist_image_url,
+          MAX(sc.accent) AS accent,
+          'AI artist'::text AS subtitle,
+          MAX(sc.artist_image_url) AS cover_url,
+          SUM(sc.daily_streams)::bigint AS streams
+        FROM scoped sc
+        GROUP BY sc.artist_id, sc.artist_name
+      ),
+      weekly_artist_rows AS (
+        SELECT
+          'weekly'::text AS period, 'artists'::text AS kind,
+          sc.artist_id AS id, sc.artist_name AS title,
+          sc.artist_id, sc.artist_name,
+          MAX(sc.artist_image_url) AS artist_image_url,
+          MAX(sc.accent) AS accent,
+          'AI artist'::text AS subtitle,
+          MAX(sc.artist_image_url) AS cover_url,
+          SUM(COALESCE(w.weekly_streams, 0))::bigint AS streams
+        FROM scoped sc
+        LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
+        GROUP BY sc.artist_id, sc.artist_name
+      ),
+      daily_album_rows AS (
+        SELECT
+          'daily'::text AS period, 'albums'::text AS kind,
+          sc.album_id AS id, sc.album_title AS title,
+          sc.artist_id, sc.artist_name,
+          MAX(sc.artist_image_url) AS artist_image_url,
+          MAX(sc.accent) AS accent,
+          sc.artist_name AS subtitle,
+          MAX(sc.cover_url) AS cover_url,
+          SUM(sc.daily_streams)::bigint AS streams
+        FROM scoped sc
+        GROUP BY sc.album_id, sc.album_title, sc.artist_id, sc.artist_name
+      ),
+      weekly_album_rows AS (
+        SELECT
+          'weekly'::text AS period, 'albums'::text AS kind,
+          sc.album_id AS id, sc.album_title AS title,
+          sc.artist_id, sc.artist_name,
+          MAX(sc.artist_image_url) AS artist_image_url,
+          MAX(sc.accent) AS accent,
+          sc.artist_name AS subtitle,
+          MAX(sc.cover_url) AS cover_url,
+          SUM(COALESCE(w.weekly_streams, 0))::bigint AS streams
+        FROM scoped sc
+        LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
+        GROUP BY sc.album_id, sc.album_title, sc.artist_id, sc.artist_name
+      ),
+      chart_rows AS (
+        SELECT * FROM daily_song_rows
+        UNION ALL SELECT * FROM weekly_song_rows
+        UNION ALL SELECT * FROM daily_artist_rows
+        UNION ALL SELECT * FROM weekly_artist_rows
+        UNION ALL SELECT * FROM daily_album_rows
+        UNION ALL SELECT * FROM weekly_album_rows
+      ),
+      ranked AS (
+        SELECT chart_rows.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY period, kind
+                 ORDER BY streams DESC, title, id
+               ) AS rank
+        FROM chart_rows
+        WHERE streams > 0
+      )
+      SELECT
+        ranked.*,
+        (SELECT recorded_date::text FROM agg_day) AS recorded_date,
+        ((SELECT recorded_date FROM agg_day) - 1)::text AS through_date,
+        ((SELECT recorded_date FROM agg_day) - 7)::text AS week_from
+      FROM ranked
+      WHERE rank <= ${AI_CHART_LIMIT}
+      ORDER BY
+        CASE period WHEN 'daily' THEN 1 ELSE 2 END,
+        CASE kind WHEN 'songs' THEN 1 WHEN 'artists' THEN 2 ELSE 3 END,
+        rank
+    `;
+    const { rows } = await dbQuery(query, [canSeeLocked]);
+    const charts = {
+      daily: { songs: [], artists: [], albums: [] },
+      weekly: { songs: [], artists: [], albums: [] },
+    };
+    for (const row of rows) {
+      const bucket = charts[row.period]?.[row.kind];
+      if (!bucket) continue;
+      bucket.push({
+        rank: Number(row.rank),
+        id: row.id,
+        title: row.title,
+        artist_id: row.artist_id,
+        artist_name: row.artist_name,
+        artist_image_url: row.artist_image_url,
+        accent: row.accent,
+        subtitle: row.subtitle,
+        cover_url: row.cover_url,
+        streams: Number(row.streams) || 0,
+      });
+    }
+    const meta = rows[0] || {};
+    res.json({
+      recorded_date: meta.recorded_date || null,
+      through_date: meta.through_date || null,
+      week_from: meta.week_from || null,
+      charts,
+    });
+  } catch (err) {
+    console.error('AI charts error:', err);
+    res.status(500).json({ error: 'Failed to load AI charts.' });
+  }
 });
 
 app.get('/api/songs', requireAuth, validateArtistAccess,

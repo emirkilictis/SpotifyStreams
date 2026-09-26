@@ -53,6 +53,10 @@
           <input type="search" id="artist-search-input" aria-label="Search artists" placeholder="Find your artist…" autocomplete="off">
           <button id="clear-search-btn" class="clear-search-btn hidden" type="button" aria-label="Clear artist search">&times;</button>
         </div>
+        <button class="compare-open-btn ai-charts-open-btn" type="button" aria-controls="ai-charts-wrapper">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9"></path><path d="M10 19V5"></path><path d="M16 19v-7"></path><path d="M22 19V2"></path></svg>
+          AI Charts
+        </button>
         <button id="open-compare-btn" class="compare-open-btn" type="button"><span aria-hidden="true">⇄</span> Compare</button>
       </div>
 
@@ -198,6 +202,53 @@
     </div>
   </section>
 
+  <!-- ========== AI Charts ========== -->
+  <section id="ai-charts-wrapper" class="ai-charts-page hidden" aria-labelledby="ai-charts-title">
+    <div class="ai-charts-orb ai-charts-orb-one" aria-hidden="true"></div>
+    <div class="ai-charts-orb ai-charts-orb-two" aria-hidden="true"></div>
+    <div class="ai-charts-shell">
+      <header class="ai-charts-header">
+        <button id="ai-charts-back-btn" class="ai-charts-back" type="button" aria-label="Go back">
+          <span aria-hidden="true">←</span> Back
+        </button>
+        <div class="ai-charts-heading">
+          <span class="ai-charts-kicker">Spotify Streams</span>
+          <h1 id="ai-charts-title">AI Charts</h1>
+          <p id="ai-charts-date" class="ai-charts-date">Latest AI artist rankings</p>
+        </div>
+        <div class="ai-charts-period" role="tablist" aria-label="Chart period">
+          <button class="ai-period-btn active" type="button" role="tab" aria-selected="true" data-period="daily">Daily</button>
+          <button class="ai-period-btn" type="button" role="tab" aria-selected="false" data-period="weekly">Weekly</button>
+        </div>
+      </header>
+
+      <div id="ai-charts-status" class="ai-charts-status" role="status" aria-live="polite">Loading charts…</div>
+      <div id="ai-charts-grid" class="ai-charts-grid hidden">
+        <article class="ai-chart-card glass">
+          <div class="ai-chart-card-head">
+            <span class="ai-chart-icon" aria-hidden="true">♪</span>
+            <div><span class="ai-chart-eyebrow" data-period-label>Daily</span><h2>Songs</h2></div>
+          </div>
+          <ol id="ai-chart-songs" class="ai-chart-list" aria-label="Most streamed AI songs"></ol>
+        </article>
+        <article class="ai-chart-card glass">
+          <div class="ai-chart-card-head">
+            <span class="ai-chart-icon" aria-hidden="true">✦</span>
+            <div><span class="ai-chart-eyebrow" data-period-label>Daily</span><h2>Artists</h2></div>
+          </div>
+          <ol id="ai-chart-artists" class="ai-chart-list" aria-label="Most streamed AI artists"></ol>
+        </article>
+        <article class="ai-chart-card glass">
+          <div class="ai-chart-card-head">
+            <span class="ai-chart-icon" aria-hidden="true">▣</span>
+            <div><span class="ai-chart-eyebrow" data-period-label>Daily</span><h2>Albums</h2></div>
+          </div>
+          <ol id="ai-chart-albums" class="ai-chart-list" aria-label="Most streamed AI albums"></ol>
+        </article>
+      </div>
+    </div>
+  </section>
+
   <!-- ========== Dashboard (hidden until artist is picked) ========== -->
   <div id="dashboard-wrapper" class="hidden">
   <header class="dashboard-header glass">
@@ -221,6 +272,10 @@
       </div>
       <div class="user-actions">
         <span class="last-update-chip" title="Last updated"><span class="lu-dot"></span><span id="last-update">—</span></span>
+        <button class="btn-secondary btn-share ai-charts-open-btn" type="button" title="AI artist charts" aria-controls="ai-charts-wrapper">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9"></path><path d="M10 19V5"></path><path d="M16 19v-7"></path><path d="M22 19V2"></path></svg>
+          <span>AI Charts</span>
+        </button>
         <button id="twitter-post-btn" class="btn-secondary btn-share" title="Share to X / Twitter">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
