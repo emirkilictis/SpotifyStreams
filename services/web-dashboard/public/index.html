@@ -204,16 +204,14 @@
 
   <!-- ========== AI Charts ========== -->
   <section id="ai-charts-wrapper" class="ai-charts-page hidden" aria-labelledby="ai-charts-title">
-    <div class="ai-charts-orb ai-charts-orb-one" aria-hidden="true"></div>
-    <div class="ai-charts-orb ai-charts-orb-two" aria-hidden="true"></div>
     <div class="ai-charts-shell">
       <header class="ai-charts-header">
         <button id="ai-charts-back-btn" class="ai-charts-back" type="button" aria-label="Go back">
           <span aria-hidden="true">←</span> Back
         </button>
         <div class="ai-charts-heading">
-          <span class="ai-charts-kicker">Spotify Streams</span>
-          <h1 id="ai-charts-title">AI Charts</h1>
+          <span class="ai-charts-kicker">Spotify Streams presents</span>
+          <h1 id="ai-charts-title"><span>AI</span> CHARTS</h1>
           <p id="ai-charts-date" class="ai-charts-date">Latest AI artist rankings</p>
         </div>
         <div class="ai-charts-period" role="tablist" aria-label="Chart period">
@@ -222,27 +220,36 @@
         </div>
       </header>
 
+      <nav class="ai-chart-kind-nav" role="tablist" aria-label="Chart category">
+        <button class="ai-kind-btn active" type="button" role="tab" aria-selected="true" data-kind="songs">Songs</button>
+        <button class="ai-kind-btn" type="button" role="tab" aria-selected="false" data-kind="artists">Artists</button>
+        <button class="ai-kind-btn" type="button" role="tab" aria-selected="false" data-kind="albums">Albums</button>
+      </nav>
+
       <div id="ai-charts-status" class="ai-charts-status" role="status" aria-live="polite">Loading charts…</div>
       <div id="ai-charts-grid" class="ai-charts-grid hidden">
-        <article class="ai-chart-card glass">
+        <article class="ai-chart-card" data-chart-kind="songs">
           <div class="ai-chart-card-head">
-            <span class="ai-chart-icon" aria-hidden="true">♪</span>
-            <div><span class="ai-chart-eyebrow" data-period-label>Daily</span><h2>Songs</h2></div>
+            <div><span class="ai-chart-eyebrow"><span data-period-label>Daily</span> ranking</span><h2>Top AI Songs</h2></div>
+            <span class="ai-chart-edition">TOP 20</span>
           </div>
+          <div class="ai-chart-columns" aria-hidden="true"><span>Rank</span><span>Title</span><span>Streams</span></div>
           <ol id="ai-chart-songs" class="ai-chart-list" aria-label="Most streamed AI songs"></ol>
         </article>
-        <article class="ai-chart-card glass">
+        <article class="ai-chart-card hidden" data-chart-kind="artists">
           <div class="ai-chart-card-head">
-            <span class="ai-chart-icon" aria-hidden="true">✦</span>
-            <div><span class="ai-chart-eyebrow" data-period-label>Daily</span><h2>Artists</h2></div>
+            <div><span class="ai-chart-eyebrow"><span data-period-label>Daily</span> ranking</span><h2>Top AI Artists</h2></div>
+            <span class="ai-chart-edition">TOP 20</span>
           </div>
+          <div class="ai-chart-columns" aria-hidden="true"><span>Rank</span><span>Artist</span><span>Streams</span></div>
           <ol id="ai-chart-artists" class="ai-chart-list" aria-label="Most streamed AI artists"></ol>
         </article>
-        <article class="ai-chart-card glass">
+        <article class="ai-chart-card hidden" data-chart-kind="albums">
           <div class="ai-chart-card-head">
-            <span class="ai-chart-icon" aria-hidden="true">▣</span>
-            <div><span class="ai-chart-eyebrow" data-period-label>Daily</span><h2>Albums</h2></div>
+            <div><span class="ai-chart-eyebrow"><span data-period-label>Daily</span> ranking</span><h2>Top AI Albums</h2></div>
+            <span class="ai-chart-edition">TOP 20</span>
           </div>
+          <div class="ai-chart-columns" aria-hidden="true"><span>Rank</span><span>Album</span><span>Streams</span></div>
           <ol id="ai-chart-albums" class="ai-chart-list" aria-label="Most streamed AI albums"></ol>
         </article>
       </div>

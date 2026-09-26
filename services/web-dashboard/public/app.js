@@ -35,6 +35,7 @@ let currentArtistStats = null; // cached stats for the current artist
 let currentArtistRawStats = null; // cached daily/cumulative stats from /api/stats
 let aiChartsData = null;
 let aiChartsPeriod = 'daily';
+let aiChartsKind = 'songs';
 let aiChartsOrigin = 'picker';
 let aiChartsRequest = null;
 
@@ -4919,7 +4920,7 @@ function aiChartDateLabel(period, data) {
   return data.through_date ? `Streams for ${formatDate(data.through_date)}` : 'Latest AI artist rankings';
 }
 
-function aiChartRow(row, kind) {
+function aiChartRow(row, kind, period) {
   const rank = Number(row.rank) || 0;
   const image = escHtml(row.cover_url || row.artist_image_url || '/images/default.jpg');
   const shape = kind === 'artists' ? ' is-artist' : '';
@@ -4932,13 +4933,14 @@ function aiChartRow(row, kind) {
     <button class="ai-chart-row${rank <= 3 ? ' is-top' : ''}" type="button"
             data-artist="${escHtml(row.artist_id || '')}"
             data-artist-name="${escHtml(row.artist_name || row.title || '')}">
-      <span class="ai-chart-rank rank-${rank}">${rank}</span>
+      <span class="ai-chart-rank-wrap"><small>No.</small><span class="ai-chart-rank rank-${rank}">${rank}</span></span>
       <img class="ai-chart-cover${shape}" src="${image}" alt="" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/images/default.jpg'">
       <span class="ai-chart-copy">
         <strong title="${escHtml(row.title)}">${escHtml(row.title)}</strong>
         <small title="${escHtml(meta)}">${escHtml(meta)}</small>
       </span>
-      <span class="ai-chart-streams"><b>${formatNumber(row.streams)}</b><small>streams</small></span>
+      <span class="ai-chart-streams"><b>${formatNumber(row.streams)}</b><small>${period === 'weekly' ? 'weekly' : 'daily'} streams</small></span>
+      <span class="ai-chart-arrow" aria-hidden="true">→</span>
     </button>
   </li>`;
 }
@@ -4955,6 +4957,14 @@ function renderAiCharts() {
   document.querySelectorAll('[data-period-label]').forEach((el) => {
     el.textContent = period === 'weekly' ? 'Weekly' : 'Daily';
   });
+  document.querySelectorAll('.ai-kind-btn').forEach((btn) => {
+    const active = btn.dataset.kind === aiChartsKind;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('[data-chart-kind]').forEach((card) => {
+    card.classList.toggle('hidden', card.dataset.chartKind !== aiChartsKind);
+  });
   if (aiChartsDate) aiChartsDate.textContent = aiChartDateLabel(period, aiChartsData);
 
   for (const kind of ['songs', 'artists', 'albums']) {
@@ -4962,7 +4972,7 @@ function renderAiCharts() {
     if (!list) continue;
     const rows = Array.isArray(bucket[kind]) ? bucket[kind] : [];
     list.innerHTML = rows.length
-      ? rows.map((row) => aiChartRow(row, kind)).join('')
+      ? rows.map((row) => aiChartRow(row, kind, period)).join('')
       : '<li class="ai-chart-empty">No chart data yet.</li>';
   }
   if (aiChartsStatus) aiChartsStatus.classList.add('hidden');
@@ -5031,6 +5041,12 @@ document.getElementById('ai-charts-back-btn')?.addEventListener('click', closeAi
 document.querySelectorAll('.ai-period-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     aiChartsPeriod = btn.dataset.period === 'weekly' ? 'weekly' : 'daily';
+    renderAiCharts();
+  });
+});
+document.querySelectorAll('.ai-kind-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    aiChartsKind = ['songs', 'artists', 'albums'].includes(btn.dataset.kind) ? btn.dataset.kind : 'songs';
     renderAiCharts();
   });
 });
