@@ -79,9 +79,13 @@ function debutBaselineSQL(src, idCol = 'canonical_id') {
         JOIN albums debut_a ON debut_a.id = debut_s.album_id
         WHERE debut_a.release_date IS NOT NULL
           AND debut_f.d1 - debut_a.release_date BETWEEN -1 AND ${DEBUT_WINDOW_DAYS}
-          AND debut_f.c2 > debut_f.c1
-          AND debut_f.c1 <= ${DEBUT_MAX_RATIO} * ((debut_f.c2 - debut_f.c1)::numeric / (debut_f.d2 - debut_f.d1))
-                            * (GREATEST(debut_f.d1 - debut_a.release_date, 0) + 1)`;
+          AND (
+            (debut_f.d2 IS NOT NULL
+             AND debut_f.c2 > debut_f.c1
+             AND debut_f.c1 <= ${DEBUT_MAX_RATIO} * ((debut_f.c2 - debut_f.c1)::numeric / (debut_f.d2 - debut_f.d1))
+                               * (GREATEST(debut_f.d1 - debut_a.release_date, 0) + 1))
+            OR (debut_f.d2 IS NULL AND debut_f.c1 > 0)
+          )`;
 }
 
 function artistLatestAggCTE(songFilter) {
@@ -180,15 +184,26 @@ function artistLatestAggCTE(songFilter) {
       agg_flag AS (
         SELECT agg_steps.*,
                CASE WHEN rn_asc = 1 THEN
-                 CASE WHEN next_count > stream_count AND EXISTS (
-                   SELECT 1 FROM agg_debut_rel r
-                   WHERE r.canonical_id = agg_steps.canonical_id
-                     AND agg_steps.recorded_date - r.release_date BETWEEN -1 AND ${DEBUT_WINDOW_DAYS}
-                     AND agg_steps.stream_count <= ${DEBUT_MAX_RATIO}
-                         * ((agg_steps.next_count - agg_steps.stream_count)::numeric
-                            / (agg_steps.next_date - agg_steps.recorded_date))
-                         * (GREATEST(agg_steps.recorded_date - r.release_date, 0) + 1)
-                 ) THEN true ELSE false END
+                 CASE
+                   WHEN next_count IS NOT NULL THEN
+                     CASE WHEN next_count > stream_count AND EXISTS (
+                       SELECT 1 FROM agg_debut_rel r
+                       WHERE r.canonical_id = agg_steps.canonical_id
+                         AND agg_steps.recorded_date - r.release_date BETWEEN -1 AND ${DEBUT_WINDOW_DAYS}
+                         AND agg_steps.stream_count <= ${DEBUT_MAX_RATIO}
+                             * ((agg_steps.next_count - agg_steps.stream_count)::numeric
+                                / (agg_steps.next_date - agg_steps.recorded_date))
+                             * (GREATEST(agg_steps.recorded_date - r.release_date, 0) + 1)
+                     ) THEN true ELSE false END
+                   ELSE
+                     -- First snapshot of a brand-new release before a second snapshot exists:
+                     -- debut gain is its initial stream count.
+                     CASE WHEN stream_count > 0 AND EXISTS (
+                       SELECT 1 FROM agg_debut_rel r
+                       WHERE r.canonical_id = agg_steps.canonical_id
+                         AND agg_steps.recorded_date - r.release_date BETWEEN -1 AND ${DEBUT_WINDOW_DAYS}
+                     ) THEN true ELSE false END
+                 END
                ELSE false END AS is_debut_first
         FROM agg_steps
       ),

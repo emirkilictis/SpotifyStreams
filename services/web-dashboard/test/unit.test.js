@@ -131,7 +131,8 @@ test('cleanTrackTitle - strips parenthetical credits & version suffixes', () => 
   assert.equal(cleanTrackTitle('Sour Candy (with BLACKPINK)'), 'Sour Candy');
   assert.equal(cleanTrackTitle('SexyBack (feat. Timbaland)'), 'SexyBack');
   assert.equal(cleanTrackTitle('Chop Me Up (feat. Timbaland & Three-6 Mafia)'), 'Chop Me Up');
-  assert.equal(cleanTrackTitle('Mirrors - Radio Edit'), 'Mirrors');
+  assert.equal(cleanTrackTitle('Mirrors - Radio Edit'), 'Mirrors - Radio Edit');
+  assert.equal(cleanTrackTitle('Mirrors - Remastered 2021'), 'Mirrors');
   assert.equal(cleanTrackTitle('Medley: Sexy Ladies / Let Me Talk to You (Prelude)'), 'Sexy Ladies / Let Me Talk to You');
   assert.equal(cleanTrackTitle('What Goes Around.../...Comes Around (Interlude)'), 'What Goes Around.../...Comes Around');
   // no dangling open-paren ever
