@@ -387,15 +387,40 @@ function shouldKeepSeparate(title) {
          lower.includes('tribute');
 }
 
+  const isFrozen = (d, pa) => {
+    if (maxDate === 0) return false;
+    if (!d) return true;
+    const ms = frozenThresholdFor(pa);
+    return new Date(d).getTime() < maxDate - ms;
+  };
+
   for (const [key, items] of groups) {
     if (items.length < 2) continue;
 
-    // Duration cluster'ları içinde grupla
+    // Live heads must exist before frozen copies are placed. Previously the DB's
+    // undefined row order decided the result: if a frozen copy appeared before
+    // its real live counterpart, it attached to the first same-title head even
+    // when that head's counter was 10x smaller. Christina's 1.234B "Say
+    // Something" copy consequently landed under an independent 124M head while
+    // the matching 1.236B live head came later. Billie, Dua and Celine showed the
+    // same pattern. Live-first makes every plausible destination available;
+    // highest-count first is only a deterministic tie-break.
+    const orderedItems = [...items].sort((a, b) => {
+      const af = isFrozen(a.last_date, a.primary_artist) ? 1 : 0;
+      const bf = isFrozen(b.last_date, b.primary_artist) ? 1 : 0;
+      if (af !== bf) return af - bf;
+      const streamDiff = (Number(b.max_streams) || 0) - (Number(a.max_streams) || 0);
+      return streamDiff || a.id.localeCompare(b.id);
+    });
+
+    // Duration cluster'ları içinde grupla. Compare every eligible cluster and
+    // pick the strongest match; never let "first row returned by Postgres" make
+    // a permanent canonical decision.
     const clusters = [];
-    for (const item of items) {
+    for (const item of orderedItems) {
       // Skip tracks that must remain independent
       if (NEVER_MERGE.has(item.id) || manualSplit.has(item.id)) continue;
-      let placed = false;
+      let best = null;
       for (const cluster of clusters) {
         const ref = cluster[0];
 
@@ -441,22 +466,22 @@ function shouldKeepSeparate(title) {
         // SKZ gibi bağımsız sayaçlı re-recording'i olan sanatçılarda eşik
         // yüksek, böylece tek günlük başarısız scrape'te re-recording'ler
         // yanlışlıkla orijinal ile birleştirilmez.
-        const isFrozen = (d, pa) => {
-          if (maxDate === 0) return false;
-          if (!d) return true;
-          const ms = frozenThresholdFor(pa);
-          return new Date(d).getTime() < maxDate - ms;
-        };
         const eitherFrozen = isFrozen(item.last_date, item.primary_artist) ||
                              isFrozen(ref.last_date, ref.primary_artist);
 
-        if (sameLinkedCount || eitherFrozen) {
-          cluster.push(item);
-          placed = true;
-          break;
+        if (!sameLinkedCount && !eitherFrozen) continue;
+
+        // A live/count-aligned match always beats the broad frozen fallback.
+        // Inside the same class, the closest counter is the safest linked copy.
+        const quality = sameLinkedCount ? 0 : 1;
+        const drift = Math.abs(a - b) / Math.max(a, b, 1);
+        if (!best || quality < best.quality ||
+            (quality === best.quality && drift < best.drift)) {
+          best = { cluster, quality, drift };
         }
       }
-      if (!placed) clusters.push([item]);
+      if (best) best.cluster.push(item);
+      else clusters.push([item]);
     }
 
     for (const cluster of clusters) {

@@ -34,6 +34,10 @@ function makeFakeClient(rows, manualMerges = []) {
       }
       if (/^SELECT/i.test(t)) return { rows };
       if (/UPDATE songs SET canonical_id = NULL/i.test(t)) return { rowCount: 0 };
+      if (/UPDATE songs s SET canonical_id = v\.canon/i.test(t)) {
+        params[0].forEach((id, i) => { assignments[id] = params[1][i]; });
+        return { rowCount: params[0].length };
+      }
       if (/UPDATE songs SET canonical_id = \$1 WHERE id = \$2/i.test(t)) {
         assignments[params[1]] = params[0];
         return { rowCount: 1 };
@@ -172,6 +176,24 @@ test('dedupCanonical merges a 2-day-stale copy under default frozen threshold (L
   await dedupCanonical(client);
   // g2 frozen (2 days back), default 1-day threshold -> merge
   assert.equal(client.assignments['g2'], 'g1', 'stale standard copy should merge under default frozen rule');
+});
+
+test('frozen copy chooses the count-aligned live head, not the first same-title row', async () => {
+  // Regression: Christina's frozen 1.234B Say Something copy was returned after
+  // an independent 124M version but before its real 1.236B linked head. The old
+  // first-match loop attached it to 124M solely because it was frozen.
+  const rows = [
+    { id: 'say-low', title: 'Say Something', duration_ms: 229404, is_featured: true,
+      album_id: 'low', primary_artist: 'art1', release_date: null, ...live(124_744_503) },
+    { id: 'say-frozen', title: 'Say Something', duration_ms: 229400, is_featured: true,
+      album_id: 'old-copy', primary_artist: 'art1', release_date: null, ...frozen(1_234_766_398) },
+    { id: 'say-live', title: 'Say Something', duration_ms: 229400, is_featured: true,
+      album_id: 'single', primary_artist: 'art1', release_date: D('2013-11-04'), ...live(1_236_660_130) },
+  ];
+  const client = makeFakeClient(rows);
+  await dedupCanonical(client);
+  assert.equal(client.assignments['say-frozen'], 'say-live', 'frozen copy must follow the nearest live counter');
+  assert.equal(client.assignments['say-low'], undefined, 'independent low-count version stays a head');
 });
 
 test('dedupCanonical respects per-artist frozen threshold (Stray Kids re-recording protected)', async () => {
