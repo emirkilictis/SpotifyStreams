@@ -353,6 +353,27 @@ const SHOWS_DAILY_REMOVAL = new Set([
   '3LHYvj5ZejV1NLqncEObSJ',   // Vaelis (Monarch)
 ]);
 
+const isCurrentArtistAi = (id = currentArtist) => {
+  if (typeof currentRoster !== 'undefined' && Array.isArray(currentRoster)) {
+    const a = currentRoster.find(x => x.artist_id === id);
+    if (a && Array.isArray(a.categories) && a.categories.includes('ai')) return true;
+  }
+  return false;
+};
+
+const showsDailyRemoval = (artistId = currentArtist) => SHOWS_DAILY_REMOVAL.has(artistId) || isCurrentArtistAi(artistId);
+
+function formatSongStreams(cumulative, isAi = isCurrentArtistAi()) {
+  if (cumulative === null || cumulative === undefined) {
+    return '<span class="streams-count streams-under-1k">&lt; 1,000</span>';
+  }
+  const n = Number(cumulative);
+  if (isAi && n < 1000) {
+    return '<span class="streams-count streams-under-1k">&lt; 1,000</span>';
+  }
+  return `<span class="streams-count">${formatNumber(n)}</span>`;
+}
+
 // Returns a YYYY-MM-DD string so downstream formatters stay on a local date.
 function toStreamDay(dateStr) {
   if (!dateStr || !STREAM_DATE_OFFSET_DAYS) return dateStr;
@@ -897,7 +918,7 @@ async function fetchData() {
     // a real event worth seeing at a glance, not noise buried under a number
     // in the billions.
     if (dailyRemovedEl) {
-      const removed = SHOWS_DAILY_REMOVAL.has(currentArtist)
+      const removed = showsDailyRemoval(currentArtist)
         ? (Number(statsData.removed_streams) || 0)
         : 0;
       if (removed < 0) {
@@ -1206,9 +1227,9 @@ function renderSongs() {
 
     // Raw last-day change. The daily_gain above comes from the running-max view
     // so it never goes negative; this surfaces a genuine playcount DROP (pulled
-    // streams / bad snapshot) — shown ONLY when it's actually negative.
+    // streams / bad snapshot) — shown ONLY when it's actually negative and dailyGain wasn't already negative.
     const realChange = showsNegatives() ? Number(song.real_daily_change) : 0;
-    if (realChange < 0) {
+    if (dailyGain >= 0 && realChange < 0) {
       gainHtml += `<span class="real-drop" title="Raw last-day change, without the running-max shield — this song's playcount went down">▼ ${formatNumber(Math.abs(realChange))}</span>`;
     }
 
@@ -1244,7 +1265,7 @@ function renderSongs() {
           </div>
         </td>
         <td>${formatDuration(song.duration_ms)}</td>
-        <td><span class="streams-count">${formatNumber(song.cumulative)}</span></td>
+        <td>${formatSongStreams(song.cumulative)}</td>
         <td>${gainHtml}</td>
       </tr>
     `;
@@ -1619,7 +1640,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
             <td><strong>${idx + 1}</strong></td>
             <td><span class="song-title song-link" onclick="openSongById('${s.id}')">${escHtml(s.title)}</span></td>
             <td class="col-duration">${formatDuration(s.duration_ms)}</td>
-            <td><span class="streams-count">${formatNumber(s.cumulative)}</span></td>
+            <td>${formatSongStreams(s.cumulative)}</td>
             <td>${gainHtml}</td>
             <td>${trendHtml}</td>
           </tr>
@@ -2428,7 +2449,7 @@ async function openDailyCard() {
           <td class="dc-track" title="${esc(s.title)}">${star}${esc(cleanTrackTitle(s.title))}</td>
           <td class="dc-dailycol">${formatNumber(daily)}</td>
           <td class="${c.cls}"><span class="dc-change-value">${c.txt}</span><span class="dc-change-percent">${c.pct}</span></td>
-          <td class="dc-totalcol">${formatNumber(s.cumulative)}</td>
+          <td class="dc-totalcol">${(isCurrentArtistAi() && (s.cumulative === null || Number(s.cumulative) < 1000)) ? '&lt; 1,000' : formatNumber(s.cumulative)}</td>
         </tr>`;
     }).join('');
 
@@ -4266,7 +4287,7 @@ window.openSongById = async function(songId) {
   }
   modalSongTitle.textContent = song.title;
   modalSongSubtitle.textContent = song.album_title || 'Single';
-  modalSongStreams.textContent = formatNumber(song.cumulative);
+  modalSongStreams.textContent = (isCurrentArtistAi() && (song.cumulative === null || Number(song.cumulative) < 1000)) ? '< 1,000' : formatNumber(song.cumulative);
   // Same rule as the songs table: a confirmed removal is the day's headline.
   const modalRemoved = showsNegatives() ? (Number(song.removed_streams) || 0) : 0;
   if (modalRemoved < 0) {

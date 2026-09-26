@@ -105,19 +105,31 @@ async function upsertSong(client, song) {
  */
 async function upsertStreamStat(client, songId, streamCount) {
   // Check if this playcount is actually newer than what we already have
-  const lastRes = await client.query(
-    `SELECT stream_count FROM stream_stats
-     WHERE song_id = $1
-     ORDER BY recorded_date DESC LIMIT 1`,
-    [songId]
-  );
+  const [lastRes, aiRes] = await Promise.all([
+    client.query(
+      `SELECT stream_count FROM stream_stats
+       WHERE song_id = $1
+       ORDER BY recorded_date DESC LIMIT 1`,
+      [songId]
+    ),
+    client.query(
+      `SELECT 1 FROM songs s
+       JOIN tracked_artists ta ON 'spotify:artist:' || ta.artist_id = s.primary_artist
+       WHERE s.id = $1 AND 'ai' = ANY(COALESCE(ta.categories, '{}'::text[])) LIMIT 1`,
+      [songId]
+    ),
+  ]);
+  const isAi = aiRes.rows.length > 0;
   const hasPrior  = lastRes.rows.length > 0;     // any earlier snapshot for this song?
   const lastCount = lastRes.rows[0]?.stream_count
     ? parseInt(lastRes.rows[0].stream_count, 10) : 0;
 
-  // Skip stale writes: only record if Spotify actually increased the count
-  if (lastCount > 0 && streamCount <= lastCount) {
-    return false;
+  // Skip stale writes: only record if Spotify actually changed the count.
+  // For AI artists, stream drops are real (Spotify deletes bot streams); do not skip drops.
+  if (isAi) {
+    if (hasPrior && streamCount === lastCount) return false;
+  } else {
+    if (lastCount > 0 && streamCount <= lastCount) return false;
   }
 
   // First-EVER snapshot → stamp yesterday so a new artist added before Spotify's
@@ -129,9 +141,12 @@ async function upsertStreamStat(client, songId, streamCount) {
              (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date - $3::int),
              NOW())
      ON CONFLICT (song_id, recorded_date) DO UPDATE
-       SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
+       SET stream_count = CASE
+             WHEN $4::boolean THEN EXCLUDED.stream_count
+             ELSE GREATEST(EXCLUDED.stream_count, stream_stats.stream_count)
+           END,
            recorded_at  = NOW()`,
-    [songId, streamCount, hasPrior ? 0 : 1]
+    [songId, streamCount, hasPrior ? 0 : 1, isAi]
   );
   return true;
 }
@@ -512,7 +527,7 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
   }
   if (!byId.size) return 0;
   const ids = [...byId.keys()];
-  const [today, lastRes] = await Promise.all([
+  const [today, lastRes, aiRes] = await Promise.all([
     todayIstanbul(client),
     client.query(
       `SELECT DISTINCT ON (song_id) song_id, stream_count, recorded_date::text AS recorded_date
@@ -520,21 +535,35 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
        ORDER BY song_id, recorded_date DESC`,
       [ids]
     ),
+    client.query(
+      `SELECT s.id AS song_id
+       FROM songs s
+       JOIN tracked_artists ta ON 'spotify:artist:' || ta.artist_id = s.primary_artist
+       WHERE s.id = ANY($1) AND 'ai' = ANY(COALESCE(ta.categories, '{}'::text[]))`,
+      [ids]
+    ),
   ]);
   const last = new Map();
   for (const r of lastRes.rows) {
     last.set(r.song_id, { count: parseInt(r.stream_count, 10) || 0, date: r.recorded_date });
   }
+  const aiSongIds = new Set(aiRes.rows.map(r => r.song_id));
 
   const values = [];
   const params = [];
   const drops = [];                              // Spotify came back LOWER than we hold
   let p = 0;
   for (const [songId, streamCount] of byId) {
+    const isAi      = aiSongIds.has(songId);
     const prior     = last.get(songId);          // any earlier snapshot for this song?
     const hasPrior  = !!prior;
     if (hasPrior && streamCount < prior.count) drops.push({ songId, streamCount, stored: prior.count });
-    if (hasPrior && streamCount <= prior.count) continue; // stale → skip (same rule)
+    // AI artists: drops are real purges; only skip if playcount is unchanged (stale).
+    if (isAi) {
+      if (hasPrior && streamCount === prior.count) continue;
+    } else {
+      if (hasPrior && streamCount <= prior.count) continue; // stale/drop → skip (normal artists)
+    }
     // First-EVER snapshot of a brand-new ARTIST → stamp YESTERDAY, not today, so a
     // new artist scraped before Spotify's daily rollover gets a baseline instead of
     // a double-day spike. Gated on backdateFirst (artist had zero prior snapshots):
@@ -549,12 +578,16 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
   }
   await recordStreamDrops(client, drops, today);
   if (!values.length) return 0;
+  params.push([...aiSongIds]);
   await client.query(
     `INSERT INTO stream_stats (song_id, stream_count, recorded_date, recorded_at)
      SELECT v.song_id::text, v.stream_count::bigint, v.target_date, NOW()
      FROM (VALUES ${values.join(', ')}) AS v(song_id, stream_count, target_date)
      ON CONFLICT (song_id, recorded_date) DO UPDATE
-       SET stream_count = GREATEST(EXCLUDED.stream_count, stream_stats.stream_count),
+       SET stream_count = CASE
+             WHEN EXCLUDED.song_id = ANY($${++p}::text[]) THEN EXCLUDED.stream_count
+             ELSE GREATEST(EXCLUDED.stream_count, stream_stats.stream_count)
+           END,
            recorded_at  = NOW()`,
     params
   );

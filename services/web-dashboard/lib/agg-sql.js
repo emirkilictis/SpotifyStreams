@@ -91,10 +91,13 @@ function debutBaselineSQL(src, idCol = 'canonical_id') {
 function artistLatestAggCTE(songFilter) {
   return `
       agg_scope AS (
-        SELECT DISTINCT COALESCE(s.canonical_id, s.id) AS canonical_id
+        SELECT COALESCE(s.canonical_id, s.id) AS canonical_id,
+               BOOL_OR(COALESCE('ai' = ANY(ta.categories), false)) AS is_ai
         FROM songs s
         LEFT JOIN albums a ON s.album_id = a.id
+        LEFT JOIN tracked_artists ta ON 'spotify:artist:' || ta.artist_id = s.primary_artist
         WHERE ${songFilter}
+        GROUP BY COALESCE(s.canonical_id, s.id)
       ),
       agg_cs AS (
         SELECT COALESCE(s2.canonical_id, s2.id) AS canonical_id,
@@ -118,12 +121,17 @@ function artistLatestAggCTE(songFilter) {
           AND da.release_date >= DATE '${DEBUT_EARLIEST_RELEASE}'
       ),
       agg_runmax AS (
-        SELECT canonical_id, recorded_date, stream_count,
-               MAX(stream_count) OVER (
-                 PARTITION BY canonical_id ORDER BY recorded_date
-                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-               ) AS cumulative
-        FROM agg_cs
+        SELECT cs.canonical_id, cs.recorded_date, cs.stream_count,
+               CASE
+                 WHEN sc.is_ai THEN cs.stream_count
+                 ELSE MAX(cs.stream_count) OVER (
+                   PARTITION BY cs.canonical_id ORDER BY cs.recorded_date
+                   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                 )
+               END AS cumulative,
+               sc.is_ai
+        FROM agg_cs cs
+        JOIN agg_scope sc ON sc.canonical_id = cs.canonical_id
       ),
       -- A jump belongs to every day it covers, not just the day we saw it.
       --
@@ -159,10 +167,11 @@ function artistLatestAggCTE(songFilter) {
       -- Yerlesik sanatcilarda sonuc birebir ayni: JT 7,336,835 ve Taylor
       -- 42,248,513 degismedi; degisen yalnizca isinma penceresindeki sarkilar.
       agg_steps AS (
-        SELECT canonical_id, recorded_date, cumulative, stream_count,
+        SELECT canonical_id, recorded_date, cumulative, stream_count, is_ai,
                CASE WHEN cumulative > LAG(cumulative) OVER w
                       OR LAG(cumulative) OVER w IS NULL THEN 1 ELSE 0 END AS is_step,
                (stream_count - LAG(stream_count) OVER w)::bigint AS real_change,
+               NULLIF(recorded_date - LAG(recorded_date) OVER w, 0)::numeric AS date_gap,
                -- Debut inputs: which row is the first, and the reading after
                -- it. Same window as the two LAGs above, so no extra sort.
                ROW_NUMBER() OVER w AS rn_asc,
@@ -222,14 +231,22 @@ function artistLatestAggCTE(songFilter) {
       -- Geriye bakan pencere CURRENT ROW'u disliyor (1 PRECEDING): bir yukselis
       -- satirinin "onceki yukselisi" kendisi olamaz.
       agg_gains AS (
-        SELECT canonical_id, recorded_date, cumulative, real_change, is_debut_first,
-               CASE WHEN is_debut_first THEN stream_count::numeric ELSE (
-                 MIN(CASE WHEN is_step = 1 THEN cumulative END) OVER ileri
-                 - MAX(CASE WHEN is_step = 1 THEN cumulative END) OVER geri
-               ) / NULLIF(
-                 MIN(CASE WHEN is_step = 1 THEN recorded_date END) OVER ileri
-                 - MAX(CASE WHEN is_step = 1 THEN recorded_date END) OVER geri, 0
-               ) END AS daily_gain,
+        SELECT canonical_id, recorded_date, cumulative, real_change, is_debut_first, is_ai,
+               CASE
+                 WHEN is_debut_first THEN stream_count::numeric
+                 WHEN is_ai THEN
+                   CASE
+                     WHEN date_gap IS NOT NULL THEN (real_change / date_gap)
+                     ELSE NULL
+                   END
+                 ELSE (
+                   MIN(CASE WHEN is_step = 1 THEN cumulative END) OVER ileri
+                   - MAX(CASE WHEN is_step = 1 THEN cumulative END) OVER geri
+                 ) / NULLIF(
+                   MIN(CASE WHEN is_step = 1 THEN recorded_date END) OVER ileri
+                   - MAX(CASE WHEN is_step = 1 THEN recorded_date END) OVER geri, 0
+                 )
+               END AS daily_gain,
                ROW_NUMBER() OVER (PARTITION BY canonical_id ORDER BY recorded_date DESC) AS rn
         FROM agg_flag
         WINDOW
@@ -285,7 +302,11 @@ function artistLatestAggCTE(songFilter) {
       agg AS (
         SELECT canonical_id,
                MAX(recorded_date) FILTER (WHERE rn = 1) AS recorded_date,
-               MAX(cumulative)    FILTER (WHERE rn = 1) AS cumulative,
+               CASE
+                 WHEN BOOL_OR(is_ai) AND (MAX(cumulative) FILTER (WHERE rn = 1)) < 1000
+                 THEN NULL
+                 ELSE MAX(cumulative) FILTER (WHERE rn = 1)
+               END AS cumulative,
                CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
                          < (SELECT recorded_date FROM agg_day) - 7
                     THEN NULL ELSE MAX(daily_gain) FILTER (WHERE rn = 1) END AS daily_gain,

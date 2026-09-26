@@ -919,6 +919,7 @@ tbody tr.featured-row:hover {
 
 /* Column-align the big numbers in the songs table + carry a hover accent bar. */
 .streams-count { font-variant-numeric: tabular-nums; }
+.streams-count.streams-under-1k { color: var(--text-muted); font-size: 0.9em; font-style: italic; }
 #songs-table tbody tr:hover td { background: rgba(30, 215, 96, 0.045); }
 #songs-table tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--accent-green); }
 

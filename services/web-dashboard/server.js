@@ -1113,9 +1113,8 @@ app.get('/api/ai-charts', requireAuth,
           AND 'ai' = ANY(COALESCE(categories, '{}'::text[]))
           AND (locked = false OR $1::boolean)
       ),
-      ${artistLatestAggCTE(`s.canonical_id IS NULL
-          AND s.primary_artist IN (SELECT artist_uri FROM ai_artists)
-          AND s.id NOT IN (${hiddenTrackIdsSql()})`)},
+      ${artistLatestAggCTE(`s.primary_artist IN (SELECT artist_uri FROM ai_artists)
+          AND COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})`)},
       scoped AS (
         SELECT
           s.id,
@@ -1206,32 +1205,48 @@ app.get('/api/ai-charts', requireAuth,
         LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
         GROUP BY sc.artist_id, sc.artist_name
       ),
+      album_tracks AS (
+        SELECT DISTINCT
+          a.id AS album_id,
+          a.title AS album_title,
+          a.image_url AS cover_url,
+          ar.artist_id,
+          ar.name AS artist_name,
+          ar.image_url AS artist_image_url,
+          ar.accent,
+          COALESCE(s.canonical_id, s.id) AS canonical_id
+        FROM albums a
+        JOIN songs s ON s.album_id = a.id
+        JOIN ai_artists ar ON ar.artist_uri = s.primary_artist
+        WHERE COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})
+      ),
       daily_album_rows AS (
         SELECT
           'daily'::text AS period, 'albums'::text AS kind,
-          sc.album_id AS id, sc.album_title AS title,
-          sc.artist_id, sc.artist_name,
-          MAX(sc.artist_image_url) AS artist_image_url,
-          MAX(sc.accent) AS accent,
-          sc.artist_name AS subtitle,
-          MAX(sc.cover_url) AS cover_url,
-          SUM(sc.daily_streams)::bigint AS streams
-        FROM scoped sc
-        GROUP BY sc.album_id, sc.album_title, sc.artist_id, sc.artist_name
+          at.album_id AS id, at.album_title AS title,
+          at.artist_id, at.artist_name,
+          MAX(at.artist_image_url) AS artist_image_url,
+          MAX(at.accent) AS accent,
+          at.artist_name AS subtitle,
+          MAX(at.cover_url) AS cover_url,
+          SUM(COALESCE(ag.day_gain, 0))::bigint AS streams
+        FROM album_tracks at
+        LEFT JOIN agg ag ON ag.canonical_id = at.canonical_id
+        GROUP BY at.album_id, at.album_title, at.artist_id, at.artist_name
       ),
       weekly_album_rows AS (
         SELECT
           'weekly'::text AS period, 'albums'::text AS kind,
-          sc.album_id AS id, sc.album_title AS title,
-          sc.artist_id, sc.artist_name,
-          MAX(sc.artist_image_url) AS artist_image_url,
-          MAX(sc.accent) AS accent,
-          sc.artist_name AS subtitle,
-          MAX(sc.cover_url) AS cover_url,
+          at.album_id AS id, at.album_title AS title,
+          at.artist_id, at.artist_name,
+          MAX(at.artist_image_url) AS artist_image_url,
+          MAX(at.accent) AS accent,
+          at.artist_name AS subtitle,
+          MAX(at.cover_url) AS cover_url,
           SUM(COALESCE(w.weekly_streams, 0))::bigint AS streams
-        FROM scoped sc
-        LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
-        GROUP BY sc.album_id, sc.album_title, sc.artist_id, sc.artist_name
+        FROM album_tracks at
+        LEFT JOIN weekly_by_song w ON w.canonical_id = at.canonical_id
+        GROUP BY at.album_id, at.album_title, at.artist_id, at.artist_name
       ),
       chart_rows AS (
         SELECT * FROM daily_song_rows
@@ -1337,7 +1352,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
           ELSE a.image_url
         END AS album_cover_url,
         dsc.recorded_date,
-        COALESCE(dsc.cumulative, 0)::bigint AS cumulative,
+        dsc.cumulative::bigint AS cumulative,
         COALESCE(dsc.daily_gain, 0)::bigint AS daily_gain,
         -- 7-day trailing average daily gain — smooths Spotify's weekly cadence
         -- (weekend spikes / Monday drops) so ETA estimates aren't whipsawed by
