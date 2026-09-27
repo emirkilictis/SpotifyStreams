@@ -4950,6 +4950,20 @@ function aiChartRow(row, kind, period) {
     : kind === 'artists'
       ? (row.subtitle || 'AI artist')
       : (row.artist_name || row.subtitle || 'AI artist');
+  const onChart = Number(row.periods_on_chart) || 1;
+  const atPeak = Number(row.periods_at_peak) || 1;
+  const peak = Number(row.peak_rank) || rank;
+  const previous = row.previous_rank == null
+    ? (onChart === 1 ? 'NEW' : 'RE')
+    : String(Number(row.previous_rank));
+  const periodWord = period === 'weekly' ? 'Weeks' : 'Days';
+  const previousLabel = period === 'weekly' ? 'LW' : 'YD';
+  const history = [
+    [previousLabel, previous],
+    [periodWord, String(onChart)],
+    ['Peak', String(peak)],
+    [`${periodWord} @ peak`, String(atPeak)],
+  ].map(([label, value]) => `<span><small>${label}</small><b>${value}</b></span>`).join('');
   return `<li>
     <button class="ai-chart-row${rank <= 3 ? ' is-top' : ''}" type="button"
             data-artist="${escHtml(row.artist_id || '')}"
@@ -4959,6 +4973,7 @@ function aiChartRow(row, kind, period) {
       <span class="ai-chart-copy">
         <strong title="${escHtml(row.title)}">${escHtml(row.title)}</strong>
         <small title="${escHtml(meta)}">${escHtml(meta)}</small>
+        <span class="ai-chart-history" aria-label="Chart history">${history}</span>
       </span>
       <span class="ai-chart-streams"><b>${formatNumber(row.streams)}</b><small>${period === 'weekly' ? 'weekly' : 'daily'} streams</small></span>
       <span class="ai-chart-arrow" aria-hidden="true">→</span>

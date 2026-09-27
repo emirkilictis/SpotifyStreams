@@ -1145,13 +1145,13 @@ app.get('/api/ai-charts', requireAuth,
         SELECT
           canonical_id,
           (
-            MAX(cumulative) FILTER (
+            (ARRAY_AGG(cumulative ORDER BY recorded_date DESC) FILTER (
               WHERE recorded_date <= (SELECT recorded_date FROM agg_day)
-            )
+            ))[1]
             - COALESCE(
-                MAX(cumulative) FILTER (
+                (ARRAY_AGG(cumulative ORDER BY recorded_date DESC) FILTER (
                   WHERE recorded_date <= (SELECT recorded_date FROM agg_day) - 7
-                ),
+                ))[1],
                 MIN(cumulative)
               )
           )::bigint AS weekly_streams
@@ -1256,6 +1256,119 @@ app.get('/api/ai-charts', requireAuth,
         UNION ALL SELECT * FROM daily_album_rows
         UNION ALL SELECT * FROM weekly_album_rows
       ),
+      -- Rebuild the historical Top 20 frames from the stored snapshots. Daily
+      -- frames advance one day at a time; weekly frames are non-overlapping
+      -- seven-day steps anchored to the current chart date. This makes LW/YD,
+      -- time on chart and peak stats deterministic without a separate cron job.
+      daily_history_values AS (
+        SELECT g.recorded_date AS chart_date, 'songs'::text AS kind,
+               sc.id, sc.title, g.daily_gain::bigint AS streams
+        FROM agg_gains g
+        JOIN scoped sc ON sc.id = g.canonical_id
+        WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
+        UNION ALL
+        SELECT g.recorded_date, 'artists', sc.artist_id, sc.artist_name,
+               SUM(g.daily_gain)::bigint
+        FROM agg_gains g
+        JOIN scoped sc ON sc.id = g.canonical_id
+        WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
+        GROUP BY g.recorded_date, sc.artist_id, sc.artist_name
+        UNION ALL
+        SELECT g.recorded_date, 'albums', at.album_id, at.album_title,
+               SUM(g.daily_gain)::bigint
+        FROM agg_gains g
+        JOIN album_tracks at ON at.canonical_id = g.canonical_id
+        WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
+        GROUP BY g.recorded_date, at.album_id, at.album_title
+        UNION ALL
+        SELECT (SELECT recorded_date FROM agg_day), kind, id, title, streams
+        FROM chart_rows
+        WHERE period = 'daily'
+      ),
+      weekly_frames AS (
+        SELECT generate_series(
+          (SELECT recorded_date FROM agg_day)::timestamp,
+          (SELECT MIN(recorded_date) FROM chart_readings)::timestamp,
+          INTERVAL '-7 days'
+        )::date AS chart_date
+      ),
+      weekly_song_history AS (
+        SELECT
+          wf.chart_date,
+          sc.id,
+          sc.title,
+          (
+            (ARRAY_AGG(cr.cumulative ORDER BY cr.recorded_date DESC) FILTER (
+              WHERE cr.recorded_date <= wf.chart_date
+            ))[1]
+            - COALESCE(
+                (ARRAY_AGG(cr.cumulative ORDER BY cr.recorded_date DESC) FILTER (
+                  WHERE cr.recorded_date <= wf.chart_date - 7
+                ))[1],
+                MIN(cr.cumulative)
+              )
+          )::bigint AS streams
+        FROM weekly_frames wf
+        CROSS JOIN scoped sc
+        LEFT JOIN chart_readings cr
+          ON cr.canonical_id = sc.id AND cr.recorded_date <= wf.chart_date
+        GROUP BY wf.chart_date, sc.id, sc.title
+      ),
+      weekly_history_values AS (
+        SELECT chart_date, 'songs'::text AS kind, id, title, streams
+        FROM weekly_song_history
+        UNION ALL
+        SELECT wh.chart_date, 'artists', sc.artist_id, sc.artist_name,
+               SUM(wh.streams)::bigint
+        FROM weekly_song_history wh
+        JOIN scoped sc ON sc.id = wh.id
+        GROUP BY wh.chart_date, sc.artist_id, sc.artist_name
+        UNION ALL
+        SELECT wh.chart_date, 'albums', at.album_id, at.album_title,
+               SUM(wh.streams)::bigint
+        FROM weekly_song_history wh
+        JOIN album_tracks at ON at.canonical_id = wh.id
+        GROUP BY wh.chart_date, at.album_id, at.album_title
+      ),
+      history_values AS (
+        SELECT 'daily'::text AS period, * FROM daily_history_values
+        UNION ALL
+        SELECT 'weekly'::text AS period, * FROM weekly_history_values
+      ),
+      history_ranked AS (
+        SELECT history_values.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY period, kind, chart_date
+                 ORDER BY streams DESC, title, id
+               ) AS rank
+        FROM history_values
+        WHERE streams > 0
+      ),
+      history_top AS (
+        SELECT * FROM history_ranked WHERE rank <= ${AI_CHART_LIMIT}
+      ),
+      metric_base AS (
+        SELECT
+          period, kind, id,
+          MAX(rank) FILTER (
+            WHERE chart_date = (SELECT recorded_date FROM agg_day)
+                               - CASE WHEN period = 'weekly' THEN 7 ELSE 1 END
+          )::int AS previous_rank,
+          COUNT(*)::int AS periods_on_chart,
+          MIN(rank)::int AS peak_rank
+        FROM history_top
+        GROUP BY period, kind, id
+      ),
+      chart_metrics AS (
+        SELECT mb.period, mb.kind, mb.id, mb.previous_rank,
+               mb.periods_on_chart, mb.peak_rank,
+               COUNT(*) FILTER (WHERE ht.rank = mb.peak_rank)::int AS periods_at_peak
+        FROM metric_base mb
+        JOIN history_top ht
+          ON ht.period = mb.period AND ht.kind = mb.kind AND ht.id = mb.id
+        GROUP BY mb.period, mb.kind, mb.id, mb.previous_rank,
+                 mb.periods_on_chart, mb.peak_rank
+      ),
       ranked AS (
         SELECT chart_rows.*,
                ROW_NUMBER() OVER (
@@ -1267,15 +1380,23 @@ app.get('/api/ai-charts', requireAuth,
       )
       SELECT
         ranked.*,
+        chart_metrics.previous_rank,
+        chart_metrics.periods_on_chart,
+        chart_metrics.peak_rank,
+        chart_metrics.periods_at_peak,
         (SELECT recorded_date::text FROM agg_day) AS recorded_date,
         ((SELECT recorded_date FROM agg_day) - 1)::text AS through_date,
         ((SELECT recorded_date FROM agg_day) - 7)::text AS week_from
       FROM ranked
-      WHERE rank <= ${AI_CHART_LIMIT}
+      LEFT JOIN chart_metrics
+        ON chart_metrics.period = ranked.period
+       AND chart_metrics.kind = ranked.kind
+       AND chart_metrics.id = ranked.id
+      WHERE ranked.rank <= ${AI_CHART_LIMIT}
       ORDER BY
-        CASE period WHEN 'daily' THEN 1 ELSE 2 END,
-        CASE kind WHEN 'songs' THEN 1 WHEN 'artists' THEN 2 ELSE 3 END,
-        rank
+        CASE ranked.period WHEN 'daily' THEN 1 ELSE 2 END,
+        CASE ranked.kind WHEN 'songs' THEN 1 WHEN 'artists' THEN 2 ELSE 3 END,
+        ranked.rank
     `;
     const { rows } = await dbQuery(query, [canSeeLocked]);
     const charts = {
@@ -1296,6 +1417,10 @@ app.get('/api/ai-charts', requireAuth,
         subtitle: row.subtitle,
         cover_url: row.cover_url,
         streams: Number(row.streams) || 0,
+        previous_rank: row.previous_rank == null ? null : Number(row.previous_rank),
+        periods_on_chart: Number(row.periods_on_chart) || 1,
+        peak_rank: Number(row.peak_rank) || Number(row.rank),
+        periods_at_peak: Number(row.periods_at_peak) || 1,
       });
     }
     const meta = rows[0] || {};

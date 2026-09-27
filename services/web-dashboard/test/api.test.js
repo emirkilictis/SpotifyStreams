@@ -78,6 +78,25 @@ test('/api/stats, /api/artist-stats, /api/albums, /api/milestones-reached -> 200
   }
 });
 
+test('/api/ai-charts returns daily and weekly chart-history metrics', async () => {
+  const res = await get('/api/ai-charts');
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  for (const period of ['daily', 'weekly']) {
+    for (const kind of ['songs', 'artists', 'albums']) {
+      const rows = body.charts?.[period]?.[kind];
+      assert.ok(Array.isArray(rows), `${period}.${kind} is an array`);
+      for (const row of rows.slice(0, 3)) {
+        assert.ok(Number.isInteger(row.rank) && row.rank > 0, 'rank is positive');
+        assert.ok(row.previous_rank === null || Number.isInteger(row.previous_rank), 'previous rank is nullable integer');
+        assert.ok(Number.isInteger(row.periods_on_chart) && row.periods_on_chart >= 1, 'time on chart is positive');
+        assert.ok(Number.isInteger(row.peak_rank) && row.peak_rank <= row.rank, 'peak is at least as good as current rank');
+        assert.ok(Number.isInteger(row.periods_at_peak) && row.periods_at_peak >= 1, 'time at peak is positive');
+      }
+    }
+  }
+});
+
 // --- Robustness: malformed / malicious input must never 5xx ----------------
 test('unknown artist id never crashes (no 5xx)', async () => {
   const res = await get(`/api/songs?artist=doesnotexist123`);

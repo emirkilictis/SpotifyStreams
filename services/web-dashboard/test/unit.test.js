@@ -176,6 +176,31 @@ test('filterHistoryByRange', () => {
   assert.equal(last7[last7.length - 1].v, 30);
 });
 
+test('aiChartRow renders daily and weekly chart-history labels', () => {
+  const { aiChartRow, escHtml, formatNumber } = loadAppFunctions(['aiChartRow', 'escHtml', 'formatNumber']);
+  const base = {
+    rank: 4,
+    title: 'Rewind',
+    artist_name: 'Vaelis',
+    subtitle: 'Rewind (Deluxe)',
+    streams: 2355,
+    previous_rank: 2,
+    periods_on_chart: 7,
+    peak_rank: 1,
+    periods_at_peak: 3,
+  };
+  const weekly = aiChartRow(base, 'songs', 'weekly');
+  assert.match(weekly, />LW</);
+  assert.match(weekly, />Weeks</);
+  assert.match(weekly, />Weeks @ peak</);
+  assert.match(weekly, />2,355</);
+
+  const daily = aiChartRow({ ...base, previous_rank: null, periods_on_chart: 1 }, 'songs', 'daily');
+  assert.match(daily, />YD</);
+  assert.match(daily, />Days</);
+  assert.match(daily, />NEW</);
+});
+
 // ---------------------------------------------------------------------------
 // dedup.normalizeTitle  (canonical grouping key)
 // ---------------------------------------------------------------------------

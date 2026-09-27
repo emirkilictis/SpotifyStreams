@@ -102,10 +102,14 @@ function artistLatestAggCTE(songFilter) {
       agg_cs AS (
         SELECT COALESCE(s2.canonical_id, s2.id) AS canonical_id,
                ss.recorded_date,
-               MAX(ss.stream_count) AS stream_count
+               CASE
+                 WHEN BOOL_OR(sc.is_ai) THEN
+                   (ARRAY_AGG(ss.stream_count ORDER BY ss.recorded_at DESC, s2.id DESC))[1]
+                 ELSE MAX(ss.stream_count)
+               END AS stream_count
         FROM stream_stats ss
         JOIN songs s2 ON s2.id = ss.song_id
-        WHERE COALESCE(s2.canonical_id, s2.id) IN (SELECT canonical_id FROM agg_scope)
+        JOIN agg_scope sc ON sc.canonical_id = COALESCE(s2.canonical_id, s2.id)
         GROUP BY 1, 2
       ),
       -- Release dates of the heads that could possibly be a debut (see

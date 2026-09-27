@@ -390,6 +390,7 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
      JOIN held   h ON h.head = a.head
      LEFT JOIN owner o ON o.head = a.head
      WHERE l.new_count < h.old_count
+       AND COALESCE(o.is_ai, false) = false
        AND a.days_seen >= (CASE WHEN COALESCE(o.is_ai, false)
                                 THEN LEAST($3::int, $4::int) ELSE $3::int END)
      ORDER BY (h.old_count - l.new_count) DESC`,
@@ -517,16 +518,12 @@ async function reconcileStreamDrops(client, { minConfirmations = DROP_CONFIRM_DA
  */
 async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
   if (!items || !items.length) return 0;
-  // Collapse to one entry per song (max count) so the INSERT never hits the same
-  // (song_id, today) conflict twice.
-  const byId = new Map();
-  for (const it of items) {
-    if (!(it.streamCount > 0)) continue;
-    const prev = byId.get(it.songId);
-    if (prev === undefined || it.streamCount > prev) byId.set(it.songId, it.streamCount);
-  }
-  if (!byId.size) return 0;
-  const ids = [...byId.keys()];
+  // Resolve ownership before collapsing duplicate observations. Normal catalogues
+  // keep the largest same-batch count as a stale-page shield; AI catalogues keep
+  // the LAST observation because a lower value can be a real Spotify purge.
+  const validItems = items.filter(it => it.streamCount > 0);
+  if (!validItems.length) return 0;
+  const ids = [...new Set(validItems.map(it => it.songId))];
   const [today, lastRes, aiRes] = await Promise.all([
     todayIstanbul(client),
     client.query(
@@ -548,6 +545,13 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
     last.set(r.song_id, { count: parseInt(r.stream_count, 10) || 0, date: r.recorded_date });
   }
   const aiSongIds = new Set(aiRes.rows.map(r => r.song_id));
+  const byId = new Map();
+  for (const it of validItems) {
+    const prev = byId.get(it.songId);
+    if (aiSongIds.has(it.songId) || prev === undefined || it.streamCount > prev) {
+      byId.set(it.songId, it.streamCount);
+    }
+  }
 
   const values = [];
   const params = [];
@@ -557,7 +561,12 @@ async function upsertStreamStatsBatch(client, items, backdateFirst = false) {
     const isAi      = aiSongIds.has(songId);
     const prior     = last.get(songId);          // any earlier snapshot for this song?
     const hasPrior  = !!prior;
-    if (hasPrior && streamCount < prior.count) drops.push({ songId, streamCount, stored: prior.count });
+    // AI drops are ordinary raw observations. Sending them to the legacy drop
+    // reconciler would shave every older row down to the new value and erase the
+    // negative daily change we deliberately preserve for these artists.
+    if (!isAi && hasPrior && streamCount < prior.count) {
+      drops.push({ songId, streamCount, stored: prior.count });
+    }
     // AI artists: drops are real purges; only skip if playcount is unchanged (stale).
     if (isAi) {
       if (hasPrior && streamCount === prior.count) continue;
