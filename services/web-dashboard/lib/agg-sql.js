@@ -375,6 +375,53 @@ function artistLatestAggCTE(songFilter) {
       )`;
 }
 
+// Category charts need the whole selected roster at once (Female currently has
+// 8K+ canonical heads). Rebuilding canonical streams and window gains for that
+// catalogue on every request takes tens of seconds, so the scraper refreshes a
+// materialized copy of daily_streams_canonical after each completed run. This
+// CTE only scopes and ranks that already-correct data. The cache therefore keeps
+// the normal running-max rule, the AI raw/latest-observation rule, the AI <1K
+// hiding rule and debut baselines exactly in sync with every artist page.
+function chartLatestAggCTE(songFilter) {
+  return `
+      agg_scope AS (
+        SELECT COALESCE(s.canonical_id, s.id) AS canonical_id
+        FROM songs s
+        LEFT JOIN albums a ON s.album_id = a.id
+        WHERE ${songFilter}
+        GROUP BY COALESCE(s.canonical_id, s.id)
+      ),
+      agg_runmax AS (
+        SELECT cached.canonical_id, cached.recorded_date, cached.cumulative
+        FROM chart_daily_streams cached
+        JOIN agg_scope sc ON sc.canonical_id = cached.canonical_id
+      ),
+      agg_gains AS (
+        SELECT cached.canonical_id, cached.recorded_date, cached.cumulative,
+               cached.daily_gain, false AS is_debut_first
+        FROM chart_daily_streams cached
+        JOIN agg_scope sc ON sc.canonical_id = cached.canonical_id
+      ),
+      agg_days AS (
+        SELECT recorded_date, COUNT(*) AS heads
+        FROM agg_gains WHERE daily_gain IS NOT NULL
+        GROUP BY recorded_date
+      ),
+      agg_day AS (
+        SELECT recorded_date FROM agg_days
+        WHERE heads >= GREATEST((SELECT MAX(heads) FROM agg_days) / 4, 1)
+        ORDER BY recorded_date DESC LIMIT 1
+      ),
+      agg AS (
+        SELECT canonical_id,
+               MAX(daily_gain) FILTER (
+                 WHERE recorded_date = (SELECT recorded_date FROM agg_day)
+               ) AS day_gain
+        FROM agg_gains
+        GROUP BY canonical_id
+      )`;
+}
+
 
 // agg_gains with each debut's 0 reading the day before it added back, for the
 // queries that sum PER DATE (album history). agg_gains itself leaves the row
@@ -387,4 +434,4 @@ const AGG_GAINS_WITH_DEBUT_BASE = `(
         FROM agg_gains WHERE is_debut_first
       )`;
 
-module.exports = { artistLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE };
+module.exports = { artistLatestAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE };

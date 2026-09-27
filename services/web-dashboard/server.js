@@ -617,7 +617,7 @@ function artistBucketMatchSQL(s, a) {
 // dashboard actually serves can be run against a real database by
 // scripts/check-stats-sql.js — the arithmetic here is where a wrong headline
 // comes from, and it was previously only checkable by loading the page.
-const { artistLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE } = require('./lib/agg-sql');
+const { artistLatestAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE } = require('./lib/agg-sql');
 
 // Dynamically generate the album exclusion clauses for albums query based on active artists.
 function artistAlbumMatchSQL(s) {
@@ -1084,24 +1084,34 @@ app.post('/api/verify-jc', requireAuth, (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid passcode!' });
 });
 
-// AI charts: one coherent headline day for every AI-tagged artist, then six
-// leaderboards (songs / artists / albums × daily / weekly). The scope comes
-// from tracked_artists.categories, so adding or removing the `ai` tag in the
-// admin panel changes the charts without a deploy.
+// Category charts: one coherent headline day for every artist tagged AI, male,
+// female or K-pop, then six leaderboards (songs / artists / albums × daily /
+// weekly). The scope comes from tracked_artists.categories, so roster changes
+// take effect without a deploy. /api/ai-charts stays as a compatibility alias.
 //
 // Weekly figures are cumulative differences, not a sum of snapshot-day gains.
 // A song that was skipped on one scrape day still keeps every stream it earned
 // during the week. Qualified new releases get the same synthetic zero baseline
 // as the rest of the dashboard, so their debut week is not silently discarded.
-const AI_CHART_LIMIT = 20;
-app.get('/api/ai-charts', requireAuth,
+const CHART_LIMIT = 20;
+const CHART_CATEGORIES = new Set(['ai', 'male', 'female', 'kpop']);
+const CHART_CATEGORY_LABELS = { ai: 'AI', male: 'Male', female: 'Female', kpop: 'K-pop' };
+const chartCategory = (req) => {
+  const raw = String(req.query.category || 'ai').toLowerCase();
+  return CHART_CATEGORIES.has(raw) ? raw : null;
+};
+app.get(['/api/charts', '/api/ai-charts'], requireAuth,
   cacheFor(CACHE_TTL_LIVE_MS, (req) =>
-    `ai-charts:${isJcAllowed(req.headers['x-jc-passcode']) ? 'unlocked' : 'public'}`),
+    `charts:${chartCategory(req) || 'invalid'}:${req.query.metrics === '1' ? 'with-metrics' : 'current'}:${isJcAllowed(req.headers['x-jc-passcode']) ? 'unlocked' : 'public'}`),
   async (req, res) => {
   const canSeeLocked = isJcAllowed(req.headers['x-jc-passcode']);
+  const category = chartCategory(req);
+  const includeMetrics = req.query.metrics === '1';
+  if (!category) return res.status(400).json({ error: 'Invalid chart category.' });
+  const categoryLabel = CHART_CATEGORY_LABELS[category];
   try {
     const query = `
-      WITH ai_artists AS (
+      WITH chart_artists AS (
         SELECT
           artist_id,
           'spotify:artist:' || artist_id AS artist_uri,
@@ -1110,10 +1120,10 @@ app.get('/api/ai-charts', requireAuth,
           accent
         FROM tracked_artists
         WHERE active = true
-          AND 'ai' = ANY(COALESCE(categories, '{}'::text[]))
+          AND $2::text = ANY(COALESCE(categories, '{}'::text[]))
           AND (locked = false OR $1::boolean)
       ),
-      ${artistLatestAggCTE(`s.primary_artist IN (SELECT artist_uri FROM ai_artists)
+      ${chartLatestAggCTE(`s.primary_artist IN (SELECT artist_uri FROM chart_artists)
           AND COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})`)},
       scoped AS (
         SELECT
@@ -1129,7 +1139,7 @@ app.get('/api/ai-charts', requireAuth,
           COALESCE(ag.day_gain, 0)::bigint AS daily_streams
         FROM songs s
         JOIN albums a ON a.id = s.album_id
-        JOIN ai_artists ar ON ar.artist_uri = s.primary_artist
+        JOIN chart_artists ar ON ar.artist_uri = s.primary_artist
         LEFT JOIN agg ag ON ag.canonical_id = s.id
         WHERE s.canonical_id IS NULL
           AND s.id NOT IN (${hiddenTrackIdsSql()})
@@ -1141,23 +1151,47 @@ app.get('/api/ai-charts', requireAuth,
         FROM agg_gains
         WHERE is_debut_first
       ),
+      chart_reading_spans AS (
+        SELECT canonical_id, recorded_date, cumulative,
+               LEAD(recorded_date) OVER (
+                 PARTITION BY canonical_id ORDER BY recorded_date
+               ) AS next_recorded_date
+        FROM chart_readings
+      ),
+      chart_first_reading AS (
+        SELECT DISTINCT ON (canonical_id) canonical_id, cumulative
+        FROM chart_readings
+        ORDER BY canonical_id, recorded_date
+      ),
       weekly_by_song AS (
         SELECT
-          canonical_id,
-          (
-            (ARRAY_AGG(cumulative ORDER BY recorded_date DESC) FILTER (
-              WHERE recorded_date <= (SELECT recorded_date FROM agg_day)
-            ))[1]
-            - COALESCE(
-                (ARRAY_AGG(cumulative ORDER BY recorded_date DESC) FILTER (
-                  WHERE recorded_date <= (SELECT recorded_date FROM agg_day) - 7
-                ))[1],
-                MIN(cumulative)
-              )
-          )::bigint AS weekly_streams
-        FROM chart_readings
-        WHERE recorded_date <= (SELECT recorded_date FROM agg_day)
-        GROUP BY canonical_id
+          sc.id AS canonical_id,
+          (ending.cumulative - COALESCE(starting.cumulative, first_read.cumulative))::bigint
+            AS weekly_streams
+        FROM scoped sc
+        LEFT JOIN LATERAL (
+          SELECT cached.cumulative
+          FROM chart_daily_streams cached
+          WHERE cached.canonical_id = sc.id
+            AND cached.recorded_date <= (SELECT recorded_date FROM agg_day)
+          ORDER BY cached.recorded_date DESC
+          LIMIT 1
+        ) ending ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT cached.cumulative
+          FROM chart_daily_streams cached
+          WHERE cached.canonical_id = sc.id
+            AND cached.recorded_date <= (SELECT recorded_date FROM agg_day) - 7
+          ORDER BY cached.recorded_date DESC
+          LIMIT 1
+        ) starting ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT cached.cumulative
+          FROM chart_daily_streams cached
+          WHERE cached.canonical_id = sc.id
+          ORDER BY cached.recorded_date
+          LIMIT 1
+        ) first_read ON TRUE
       ),
       daily_song_rows AS (
         SELECT
@@ -1185,7 +1219,7 @@ app.get('/api/ai-charts', requireAuth,
           sc.artist_id, sc.artist_name,
           MAX(sc.artist_image_url) AS artist_image_url,
           MAX(sc.accent) AS accent,
-          'AI artist'::text AS subtitle,
+          ($3::text || ' artist') AS subtitle,
           MAX(sc.artist_image_url) AS cover_url,
           SUM(sc.daily_streams)::bigint AS streams
         FROM scoped sc
@@ -1198,7 +1232,7 @@ app.get('/api/ai-charts', requireAuth,
           sc.artist_id, sc.artist_name,
           MAX(sc.artist_image_url) AS artist_image_url,
           MAX(sc.accent) AS accent,
-          'AI artist'::text AS subtitle,
+          ($3::text || ' artist') AS subtitle,
           MAX(sc.artist_image_url) AS cover_url,
           SUM(COALESCE(w.weekly_streams, 0))::bigint AS streams
         FROM scoped sc
@@ -1217,7 +1251,7 @@ app.get('/api/ai-charts', requireAuth,
           COALESCE(s.canonical_id, s.id) AS canonical_id
         FROM albums a
         JOIN songs s ON s.album_id = a.id
-        JOIN ai_artists ar ON ar.artist_uri = s.primary_artist
+        JOIN chart_artists ar ON ar.artist_uri = s.primary_artist
         WHERE COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})
       ),
       daily_album_rows AS (
@@ -1297,22 +1331,18 @@ app.get('/api/ai-charts', requireAuth,
           wf.chart_date,
           sc.id,
           sc.title,
-          (
-            (ARRAY_AGG(cr.cumulative ORDER BY cr.recorded_date DESC) FILTER (
-              WHERE cr.recorded_date <= wf.chart_date
-            ))[1]
-            - COALESCE(
-                (ARRAY_AGG(cr.cumulative ORDER BY cr.recorded_date DESC) FILTER (
-                  WHERE cr.recorded_date <= wf.chart_date - 7
-                ))[1],
-                MIN(cr.cumulative)
-              )
-          )::bigint AS streams
+          (ending.cumulative - COALESCE(starting.cumulative, first_read.cumulative))::bigint AS streams
         FROM weekly_frames wf
         CROSS JOIN scoped sc
-        LEFT JOIN chart_readings cr
-          ON cr.canonical_id = sc.id AND cr.recorded_date <= wf.chart_date
-        GROUP BY wf.chart_date, sc.id, sc.title
+        LEFT JOIN chart_reading_spans ending
+          ON ending.canonical_id = sc.id
+         AND ending.recorded_date <= wf.chart_date
+         AND (ending.next_recorded_date > wf.chart_date OR ending.next_recorded_date IS NULL)
+        LEFT JOIN chart_reading_spans starting
+          ON starting.canonical_id = sc.id
+         AND starting.recorded_date <= wf.chart_date - 7
+         AND (starting.next_recorded_date > wf.chart_date - 7 OR starting.next_recorded_date IS NULL)
+        LEFT JOIN chart_first_reading first_read ON first_read.canonical_id = sc.id
       ),
       weekly_history_values AS (
         SELECT chart_date, 'songs'::text AS kind, id, title, streams
@@ -1345,7 +1375,7 @@ app.get('/api/ai-charts', requireAuth,
         WHERE streams > 0
       ),
       history_top AS (
-        SELECT * FROM history_ranked WHERE rank <= ${AI_CHART_LIMIT}
+        SELECT * FROM history_ranked WHERE rank <= ${CHART_LIMIT}
       ),
       metric_base AS (
         SELECT
@@ -1380,25 +1410,28 @@ app.get('/api/ai-charts', requireAuth,
       )
       SELECT
         ranked.*,
-        chart_metrics.previous_rank,
+        ${includeMetrics ? `chart_metrics.previous_rank,
         chart_metrics.periods_on_chart,
         chart_metrics.peak_rank,
-        chart_metrics.periods_at_peak,
+        chart_metrics.periods_at_peak` : `NULL::int AS previous_rank,
+        NULL::int AS periods_on_chart,
+        NULL::int AS peak_rank,
+        NULL::int AS periods_at_peak`},
         (SELECT recorded_date::text FROM agg_day) AS recorded_date,
         ((SELECT recorded_date FROM agg_day) - 1)::text AS through_date,
         ((SELECT recorded_date FROM agg_day) - 7)::text AS week_from
       FROM ranked
-      LEFT JOIN chart_metrics
+      ${includeMetrics ? `LEFT JOIN chart_metrics
         ON chart_metrics.period = ranked.period
        AND chart_metrics.kind = ranked.kind
-       AND chart_metrics.id = ranked.id
-      WHERE ranked.rank <= ${AI_CHART_LIMIT}
+       AND chart_metrics.id = ranked.id` : ''}
+      WHERE ranked.rank <= ${CHART_LIMIT}
       ORDER BY
         CASE ranked.period WHEN 'daily' THEN 1 ELSE 2 END,
         CASE ranked.kind WHEN 'songs' THEN 1 WHEN 'artists' THEN 2 ELSE 3 END,
         ranked.rank
     `;
-    const { rows } = await dbQuery(query, [canSeeLocked]);
+    const { rows } = await dbQuery(query, [canSeeLocked, category, categoryLabel]);
     const charts = {
       daily: { songs: [], artists: [], albums: [] },
       weekly: { songs: [], artists: [], albums: [] },
@@ -1418,21 +1451,24 @@ app.get('/api/ai-charts', requireAuth,
         cover_url: row.cover_url,
         streams: Number(row.streams) || 0,
         previous_rank: row.previous_rank == null ? null : Number(row.previous_rank),
-        periods_on_chart: Number(row.periods_on_chart) || 1,
-        peak_rank: Number(row.peak_rank) || Number(row.rank),
-        periods_at_peak: Number(row.periods_at_peak) || 1,
+        periods_on_chart: includeMetrics ? (Number(row.periods_on_chart) || 1) : null,
+        peak_rank: includeMetrics ? (Number(row.peak_rank) || Number(row.rank)) : null,
+        periods_at_peak: includeMetrics ? (Number(row.periods_at_peak) || 1) : null,
       });
     }
     const meta = rows[0] || {};
     res.json({
+      category,
+      category_label: categoryLabel,
+      metrics_complete: includeMetrics,
       recorded_date: meta.recorded_date || null,
       through_date: meta.through_date || null,
       week_from: meta.week_from || null,
       charts,
     });
   } catch (err) {
-    console.error('AI charts error:', err);
-    res.status(500).json({ error: 'Failed to load AI charts.' });
+    console.error('Charts error:', err);
+    res.status(500).json({ error: 'Failed to load charts.' });
   }
 });
 

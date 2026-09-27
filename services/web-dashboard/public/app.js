@@ -34,10 +34,12 @@ let loadingAlbumHistory = false;
 let currentArtistStats = null; // cached stats for the current artist
 let currentArtistRawStats = null; // cached daily/cumulative stats from /api/stats
 let aiChartsData = null;
+let aiChartsCategory = 'ai';
+const aiChartsCache = Object.create(null);
 let aiChartsPeriod = 'daily';
 let aiChartsKind = 'songs';
 let aiChartsOrigin = 'picker';
-let aiChartsRequest = null;
+const aiChartsRequests = new Map();
 
 // Artists that should only show the Albums view (no Songs tab)
 const ALBUM_ONLY_ARTISTS = new Set([
@@ -4929,33 +4931,38 @@ function showPicker() {
   renderPickerRoster();
 }
 
-// ===== AI Charts =====
-// This is a top-level view rather than another per-artist tab: its whole job is
-// to compare the artists tagged `ai`, so it must stay reachable from both the
-// roster and an artist dashboard without changing the currently selected artist.
+// ===== Category Charts =====
+// This is a top-level view rather than another per-artist tab: it compares the
+// roster by category, so it stays reachable from both the picker and an artist
+// dashboard without changing the currently selected artist.
+const CHART_CATEGORY_LABELS = { ai: 'AI', male: 'Male', female: 'Female', kpop: 'K-pop' };
+
 function aiChartDateLabel(period, data) {
-  if (!data) return 'Latest AI artist rankings';
+  if (!data) return 'Latest artist rankings';
+  const label = data.category_label || CHART_CATEGORY_LABELS[aiChartsCategory] || 'Artist';
   if (period === 'weekly' && data.week_from && data.through_date) {
-    return `${formatDate(data.week_from)} – ${formatDate(data.through_date)}`;
+    return `${label} · ${formatDate(data.week_from)} – ${formatDate(data.through_date)}`;
   }
-  return data.through_date ? `Streams for ${formatDate(data.through_date)}` : 'Latest AI artist rankings';
+  return data.through_date ? `${label} · Streams for ${formatDate(data.through_date)}` : `Latest ${label} rankings`;
 }
 
-function aiChartRow(row, kind, period) {
+function aiChartRow(row, kind, period, metricsReady = true) {
   const rank = Number(row.rank) || 0;
   const image = escHtml(row.cover_url || row.artist_image_url || '/images/default.jpg');
   const shape = kind === 'artists' ? ' is-artist' : '';
   const meta = kind === 'songs'
     ? [row.artist_name, row.subtitle].filter(Boolean).join(' · ')
     : kind === 'artists'
-      ? (row.subtitle || 'AI artist')
-      : (row.artist_name || row.subtitle || 'AI artist');
-  const onChart = Number(row.periods_on_chart) || 1;
-  const atPeak = Number(row.periods_at_peak) || 1;
-  const peak = Number(row.peak_rank) || rank;
-  const previous = row.previous_rank == null
-    ? (onChart === 1 ? 'NEW' : 'RE')
-    : String(Number(row.previous_rank));
+      ? (row.subtitle || 'Artist')
+      : (row.artist_name || row.subtitle || 'Artist');
+  const onChart = metricsReady ? (Number(row.periods_on_chart) || 1) : '…';
+  const atPeak = metricsReady ? (Number(row.periods_at_peak) || 1) : '…';
+  const peak = metricsReady ? (Number(row.peak_rank) || rank) : '…';
+  const previous = !metricsReady
+    ? '…'
+    : row.previous_rank == null
+      ? (onChart === 1 ? 'NEW' : 'RE')
+      : String(Number(row.previous_rank));
   const periodWord = period === 'weekly' ? 'Weeks' : 'Days';
   const previousLabel = period === 'weekly' ? 'LW' : 'YD';
   const history = [
@@ -4985,6 +4992,15 @@ function renderAiCharts() {
   if (!aiChartsData || !aiChartsGrid) return;
   const period = aiChartsPeriod;
   const bucket = aiChartsData.charts?.[period] || {};
+  const categoryLabel = aiChartsData.category_label || CHART_CATEGORY_LABELS[aiChartsCategory] || 'Artist';
+  document.querySelectorAll('.ai-category-btn').forEach((btn) => {
+    const active = btn.dataset.chartCategory === aiChartsCategory;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('[data-category-name]').forEach((el) => {
+    el.textContent = categoryLabel;
+  });
   document.querySelectorAll('.ai-period-btn').forEach((btn) => {
     const active = btn.dataset.period === period;
     btn.classList.toggle('active', active);
@@ -5008,7 +5024,7 @@ function renderAiCharts() {
     if (!list) continue;
     const rows = Array.isArray(bucket[kind]) ? bucket[kind] : [];
     list.innerHTML = rows.length
-      ? rows.map((row) => aiChartRow(row, kind, period)).join('')
+      ? rows.map((row) => aiChartRow(row, kind, period, aiChartsData.metrics_complete !== false)).join('')
       : '<li class="ai-chart-empty">No chart data yet.</li>';
   }
   if (aiChartsStatus) aiChartsStatus.classList.add('hidden');
@@ -5016,32 +5032,71 @@ function renderAiCharts() {
 }
 
 async function loadAiCharts() {
-  if (aiChartsData) { renderAiCharts(); return; }
-  if (aiChartsRequest) return aiChartsRequest;
+  const category = aiChartsCategory;
+  if (aiChartsCache[category]) {
+    aiChartsData = aiChartsCache[category];
+    renderAiCharts();
+    if (!aiChartsData.metrics_complete) loadAiChartMetrics(category);
+    return;
+  }
+  const requestKey = `${category}:current`;
+  if (aiChartsRequests.has(requestKey)) return aiChartsRequests.get(requestKey);
   if (aiChartsStatus) {
-    aiChartsStatus.textContent = 'Loading charts…';
+    aiChartsStatus.textContent = `Loading ${CHART_CATEGORY_LABELS[category]} charts…`;
     aiChartsStatus.classList.remove('is-error', 'hidden');
   }
   if (aiChartsGrid) aiChartsGrid.classList.add('hidden');
-  aiChartsRequest = (async () => {
+  const request = (async () => {
     try {
       const headers = {};
       if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
-      const res = await fetch('/api/ai-charts', { headers });
+      const res = await fetch(`/api/charts?category=${encodeURIComponent(category)}`, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      aiChartsData = await res.json();
-      renderAiCharts();
+      const data = await res.json();
+      aiChartsCache[category] = data;
+      if (aiChartsCategory === category) {
+        aiChartsData = data;
+        renderAiCharts();
+      }
+      if (!data.metrics_complete) loadAiChartMetrics(category, headers);
     } catch (err) {
-      console.error('AI charts error:', err);
-      if (aiChartsStatus) {
+      console.error('Charts error:', err);
+      if (aiChartsStatus && aiChartsCategory === category) {
         aiChartsStatus.textContent = 'Could not load the charts. Please try again.';
         aiChartsStatus.classList.add('is-error');
       }
     } finally {
-      aiChartsRequest = null;
+      aiChartsRequests.delete(requestKey);
     }
   })();
-  return aiChartsRequest;
+  aiChartsRequests.set(requestKey, request);
+  return request;
+}
+
+async function loadAiChartMetrics(category, suppliedHeaders = null) {
+  const requestKey = `${category}:metrics`;
+  if (aiChartsCache[category]?.metrics_complete || aiChartsRequests.has(requestKey)) return;
+  const request = (async () => {
+    try {
+      const headers = suppliedHeaders || {};
+      if (!suppliedHeaders && jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+      const res = await fetch(`/api/charts?category=${encodeURIComponent(category)}&metrics=1`, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      aiChartsCache[category] = data;
+      if (aiChartsCategory === category) {
+        aiChartsData = data;
+        renderAiCharts();
+      }
+    } catch (err) {
+      // The ranking itself is already usable. Leave the history cells in their
+      // loading state and retry on the next visit instead of hiding the chart.
+      console.error('Chart metrics error:', err);
+    } finally {
+      aiChartsRequests.delete(requestKey);
+    }
+  })();
+  aiChartsRequests.set(requestKey, request);
 }
 
 function showAiCharts() {
@@ -5053,7 +5108,7 @@ function showAiCharts() {
   dashboardWrapper.classList.add('hidden');
   aiChartsWrapper.classList.remove('hidden');
   applyArtistTheme(null);
-  document.title = 'AI Charts - Spotify Streams';
+  document.title = 'Charts - Spotify Streams';
   window.scrollTo(0, 0);
   loadAiCharts();
 }
@@ -5074,6 +5129,20 @@ function closeAiCharts() {
 
 document.querySelectorAll('.ai-charts-open-btn').forEach((btn) => btn.addEventListener('click', showAiCharts));
 document.getElementById('ai-charts-back-btn')?.addEventListener('click', closeAiCharts);
+document.querySelectorAll('.ai-category-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const category = btn.dataset.chartCategory;
+    if (!CHART_CATEGORY_LABELS[category] || category === aiChartsCategory) return;
+    aiChartsCategory = category;
+    aiChartsData = aiChartsCache[category] || null;
+    document.querySelectorAll('.ai-category-btn').forEach((item) => {
+      const active = item.dataset.chartCategory === category;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-selected', String(active));
+    });
+    loadAiCharts();
+  });
+});
 document.querySelectorAll('.ai-period-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     aiChartsPeriod = btn.dataset.period === 'weekly' ? 'weekly' : 'daily';
@@ -5473,13 +5542,16 @@ function deriveThemeFromAccent(hex) {
   // picker. Only auto-enter active, unlocked artists; locked ones still need the code.
   try {
     const params = new URLSearchParams(location.search);
-    if (params.get('view') === 'ai-charts') {
+    const chartView = ['charts', 'ai-charts'].includes(params.get('view'));
+    if (chartView) {
+      const category = params.get('category');
+      if (CHART_CATEGORY_LABELS[category]) aiChartsCategory = category;
       showAiCharts();
     }
     const want = (params.get('artist') || '')
       .replace('spotify:artist:', '').trim();
     const a = want && byId[want];
-    if (params.get('view') !== 'ai-charts' && a && a.active !== false && !isArtistLocked(want)) {
+    if (!chartView && a && a.active !== false && !isArtistLocked(want)) {
       enterDashboard(want, a.name);
     }
   } catch (_) { /* on any error the picker remains as the fallback */ }

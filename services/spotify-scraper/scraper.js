@@ -1118,6 +1118,18 @@ async function run() {
         console.error('[scraper] Deduplication step failed (rolled back):', dedupErr.message);
       }
       try {
+        // Category charts read this indexed snapshot instead of rebuilding the
+        // canonical daily-stream window for thousands of songs on every page
+        // load. Refresh only after dedup commits so readers see either the old
+        // coherent mapping or the new one, never an in-between state.
+        await setScraperStatus(client, 'refreshing charts');
+        await client.query('REFRESH MATERIALIZED VIEW CONCURRENTLY chart_daily_streams');
+      } catch (chartRefreshErr) {
+        // A missing view means migration 029 has not reached this environment
+        // yet. Do not turn a successful scrape red; the next run will refresh.
+        console.error('[scraper] Chart cache refresh failed (skipped):', chartRefreshErr.message);
+      }
+      try {
         await setScraperStatus(client, 'idle');
       } catch (statusErr) {
         console.error('[scraper] Failed to set idle status:', statusErr.message);

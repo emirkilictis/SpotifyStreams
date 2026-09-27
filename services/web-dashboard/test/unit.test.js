@@ -199,6 +199,10 @@ test('aiChartRow renders daily and weekly chart-history labels', () => {
   assert.match(daily, />YD</);
   assert.match(daily, />Days</);
   assert.match(daily, />NEW</);
+
+  const pending = aiChartRow(base, 'songs', 'weekly', false);
+  assert.match(pending, />…</);
+  assert.doesNotMatch(pending, />NEW</);
 });
 
 // ---------------------------------------------------------------------------

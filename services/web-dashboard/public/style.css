@@ -6354,7 +6354,7 @@ body.modal-open .sync-banner {
 #daily-card .dc-total-num { margin: 0; font-size: 30px; line-height: 36px; font-weight: 800; color: var(--dc-text); white-space: nowrap; }
 
 /* ==========================================================================
-   AI Charts
+   Category Charts
    ========================================================================== */
 .picker-toolbar .ai-charts-open-btn {
   color: #ff4968;
@@ -6455,13 +6455,33 @@ body.modal-open .sync-banner {
   color: #fff;
   background: #ed174c;
 }
-.ai-charts-back:focus-visible, .ai-period-btn:focus-visible, .ai-kind-btn:focus-visible, .ai-chart-row:focus-visible {
+.ai-charts-back:focus-visible, .ai-period-btn:focus-visible, .ai-category-btn:focus-visible, .ai-kind-btn:focus-visible, .ai-chart-row:focus-visible {
   outline: 3px solid #ed174c;
   outline-offset: 3px;
 }
+.ai-chart-category-nav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 22px 0 0;
+}
+.ai-category-btn {
+  min-height: 48px;
+  padding: 0 16px;
+  border: 1px solid #343439;
+  background: #111113;
+  color: #8f8f95;
+  font: 800 12px 'Inter', sans-serif;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color .18s ease, border-color .18s ease, background .18s ease;
+}
+.ai-category-btn:hover { color: #fff; border-color: #68686f; background: #18181b; }
+.ai-category-btn.active { color: #fff; border-color: #ed174c; background: #ed174c; }
 .ai-chart-kind-nav {
   display: flex;
-  margin: 0 0 34px;
+  margin: 12px 0 34px;
   border-bottom: 1px solid #303034;
 }
 .ai-kind-btn {
@@ -6671,6 +6691,8 @@ body.modal-open .sync-banner {
   .ai-charts-header { border-bottom-width: 6px; }
   .ai-charts-heading h1 { font-size: clamp(2.55rem, 15vw, 4rem); }
   .ai-chart-kind-nav { margin-bottom: 22px; }
+  .ai-chart-category-nav { gap: 5px; padding-top: 16px; }
+  .ai-category-btn { min-height: 42px; padding: 0 8px; font-size: 10px; }
   .ai-kind-btn { min-height: 52px; }
   .ai-chart-card-head { min-height: 92px; padding: 18px; border-top-width: 8px; }
   .ai-chart-card-head h2 { font-size: 2rem; }
@@ -6716,5 +6738,5 @@ body.modal-open .sync-banner {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ai-chart-row, .ai-period-btn, .ai-kind-btn, .ai-kind-btn::after, .ai-charts-back, .ai-chart-arrow { transition: none; }
+.ai-chart-row, .ai-period-btn, .ai-category-btn, .ai-kind-btn, .ai-kind-btn::after, .ai-charts-back, .ai-chart-arrow { transition: none; }
 }

@@ -78,10 +78,23 @@ test('/api/stats, /api/artist-stats, /api/albums, /api/milestones-reached -> 200
   }
 });
 
-test('/api/ai-charts returns daily and weekly chart-history metrics', async () => {
-  const res = await get('/api/ai-charts');
+test('/api/charts returns the requested category before history finishes', async () => {
+  const res = await get('/api/charts?category=kpop');
   assert.equal(res.status, 200);
   const body = await res.json();
+  assert.equal(body.category, 'kpop');
+  assert.equal(body.category_label, 'K-pop');
+  assert.equal(body.metrics_complete, false);
+  assert.ok(Array.isArray(body.charts?.daily?.songs));
+  assert.ok(Array.isArray(body.charts?.weekly?.albums));
+});
+
+test('/api/ai-charts compatibility route returns daily and weekly chart-history metrics', async () => {
+  const res = await get('/api/ai-charts?metrics=1');
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.category, 'ai');
+  assert.equal(body.metrics_complete, true);
   for (const period of ['daily', 'weekly']) {
     for (const kind of ['songs', 'artists', 'albums']) {
       const rows = body.charts?.[period]?.[kind];
@@ -95,6 +108,11 @@ test('/api/ai-charts returns daily and weekly chart-history metrics', async () =
       }
     }
   }
+});
+
+test('/api/charts rejects unknown categories', async () => {
+  const res = await get('/api/charts?category=rock');
+  assert.equal(res.status, 400);
 });
 
 // --- Robustness: malformed / malicious input must never 5xx ----------------
