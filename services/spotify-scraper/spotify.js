@@ -106,6 +106,9 @@ async function fetchArtistDiscographyGroup(page, artistId, operationName, fieldN
         title:        a.name,
         release_date: parseSpotifyDate(a.date),
         image_url:    a.coverArt?.sources?.[0]?.url ?? null,
+        album_group:  fieldName === 'albums' ? 'album'
+          : fieldName === 'singles' ? 'single'
+            : 'compilation',
       });
     }
 
@@ -171,7 +174,7 @@ async function fetchArtistAlbums(page, artistId) {
   if (!page.capturedToken) {
     console.warn('[fetchArtistAlbums] Token not captured. Falling back to non-paginated overview.');
     const albums = [];
-    const push = (releases) => {
+    const push = (releases, albumGroup) => {
       for (const item of (releases?.items ?? [])) {
         const a = item.releases?.items?.[0];
         if (!a) continue;
@@ -180,13 +183,14 @@ async function fetchArtistAlbums(page, artistId) {
           title:        a.name,
           release_date: parseSpotifyDate(a.date),
           image_url:    a.coverArt?.sources?.[0]?.url ?? null,
+          album_group:  albumGroup,
         });
       }
     };
     const disc = result.discography;
-    push(disc?.albums);
-    push(disc?.singles);
-    push(disc?.compilations);
+    push(disc?.albums, 'album');
+    push(disc?.singles, 'single');
+    push(disc?.compilations, 'compilation');
     return albums;
   }
 
@@ -200,7 +204,7 @@ async function fetchArtistAlbums(page, artistId) {
   } catch (err) {
     console.warn('[fetchArtistAlbums] Paginated GraphQL fetch failed, falling back to overview:', err.message);
     const albums = [];
-    const push = (releases) => {
+    const push = (releases, albumGroup) => {
       for (const item of (releases?.items ?? [])) {
         const a = item.releases?.items?.[0];
         if (!a) continue;
@@ -209,13 +213,14 @@ async function fetchArtistAlbums(page, artistId) {
           title:        a.name,
           release_date: parseSpotifyDate(a.date),
           image_url:    a.coverArt?.sources?.[0]?.url ?? null,
+          album_group:  albumGroup,
         });
       }
     };
     const disc = result.discography;
-    push(disc?.albums);
-    push(disc?.singles);
-    push(disc?.compilations);
+    push(disc?.albums, 'album');
+    push(disc?.singles, 'single');
+    push(disc?.compilations, 'compilation');
     return albums;
   }
 }

@@ -382,42 +382,42 @@ function artistLatestAggCTE(songFilter) {
 // CTE only scopes and ranks that already-correct data. The cache therefore keeps
 // the normal running-max rule, the AI raw/latest-observation rule, the AI <1K
 // hiding rule and debut baselines exactly in sync with every artist page.
-function chartLatestAggCTE(songFilter) {
+function chartLatestAggCTE(filterOrMinDate = null, maybeMinDate = null) {
+  const minRecordedDate = maybeMinDate || (typeof filterOrMinDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(filterOrMinDate) ? filterOrMinDate : null);
+  const chartDateFilter = minRecordedDate
+    ? `\n        WHERE cached.recorded_date >= DATE '${minRecordedDate}' - 7`
+    : '';
   return `
-      agg_scope AS (
-        SELECT COALESCE(s.canonical_id, s.id) AS canonical_id
-        FROM songs s
-        LEFT JOIN albums a ON s.album_id = a.id
-        WHERE ${songFilter}
-        GROUP BY COALESCE(s.canonical_id, s.id)
-      ),
-      agg_runmax AS (
-        SELECT cached.canonical_id, cached.recorded_date, cached.cumulative
+      agg_raw AS MATERIALIZED (
+        SELECT cached.canonical_id, cached.recorded_date, cached.cumulative, cached.daily_gain
         FROM chart_daily_streams cached
-        JOIN agg_scope sc ON sc.canonical_id = cached.canonical_id
+        JOIN chart_song_ids sc ON sc.canonical_id = cached.canonical_id
+        ${chartDateFilter}
       ),
-      agg_gains AS (
-        SELECT cached.canonical_id, cached.recorded_date, cached.cumulative,
-               cached.daily_gain, false AS is_debut_first
-        FROM chart_daily_streams cached
-        JOIN agg_scope sc ON sc.canonical_id = cached.canonical_id
+      agg_runmax AS MATERIALIZED (
+        SELECT canonical_id, recorded_date, cumulative
+        FROM agg_raw
+      ),
+      agg_gains AS MATERIALIZED (
+        SELECT canonical_id, recorded_date, cumulative, daily_gain, false AS is_debut_first
+        FROM agg_raw
       ),
       agg_days AS (
         SELECT recorded_date, COUNT(*) AS heads
-        FROM agg_gains WHERE daily_gain IS NOT NULL
+        FROM agg_raw WHERE daily_gain IS NOT NULL
         GROUP BY recorded_date
       ),
-      agg_day AS (
+      agg_day AS MATERIALIZED (
         SELECT recorded_date FROM agg_days
         WHERE heads >= GREATEST((SELECT MAX(heads) FROM agg_days) / 4, 1)
         ORDER BY recorded_date DESC LIMIT 1
       ),
-      agg AS (
+      agg AS MATERIALIZED (
         SELECT canonical_id,
                MAX(daily_gain) FILTER (
                  WHERE recorded_date = (SELECT recorded_date FROM agg_day)
                ) AS day_gain
-        FROM agg_gains
+        FROM agg_raw
         GROUP BY canonical_id
       )`;
 }

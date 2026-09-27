@@ -106,6 +106,7 @@ async function discoverAllAlbumsPuppeteer(page, artistId, { includeAppearsOn = t
       primary_artist: artistUri,
       is_featured:    false,
       image_url:      a.image_url ?? null,
+      album_group:    a.album_group ?? null,
     });
   }
   for (const a of feat) {

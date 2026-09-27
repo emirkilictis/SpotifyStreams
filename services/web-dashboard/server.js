@@ -655,6 +655,7 @@ const FSLS_ALBUM_IDS_SQL = FSLS_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 // total; it just has no album card, like any other single.
 const TT20_ALBUM_IDS = [
   '0O82niJ0NpcptYRxogeEZu', '28GWVLkctSuSWQ1EUIxZ8m', '5jlQrOtSuTXojcvBCpivyo',
+  '5lYzReGzcSNF0Gx47wm6qU', '6NTQnlMBfYpPhDy1sXtVRG',
 ];
 const TT20_ALBUM_IDS_SQL = TT20_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
@@ -816,6 +817,29 @@ async function dbQuery(text, params) {
       if (attempt >= RETRY_DELAYS_MS.length || !isTransientDbError(err)) throw err;
       console.warn(`[db] Transient error "${err.code || err.message}", retry ${attempt + 1}/${RETRY_DELAYS_MS.length}...`);
       await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
+async function dbQueryWithNestloopOff(text, params) {
+  for (let attempt = 0; ; attempt++) {
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await client.query('SET LOCAL enable_nestloop = off');
+      const res = await client.query(text, params);
+      await client.query('COMMIT');
+      return res;
+    } catch (err) {
+      if (client) {
+        await client.query('ROLLBACK').catch(() => {});
+      }
+      if (attempt >= RETRY_DELAYS_MS.length || !isTransientDbError(err)) throw err;
+      console.warn(`[db] Transient error in tx "${err.code || err.message}", retry ${attempt + 1}/${RETRY_DELAYS_MS.length}...`);
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    } finally {
+      if (client) client.release();
     }
   }
 }
@@ -1094,6 +1118,10 @@ app.post('/api/verify-jc', requireAuth, (req, res) => {
 // during the week. Qualified new releases get the same synthetic zero baseline
 // as the rest of the dashboard, so their debut week is not silently discarded.
 const CHART_LIMIT = 20;
+// Chart records start with the first complete roster week. Older ranks were
+// produced while only a small subset of artists existed, so carrying those
+// peaks forward would permanently advantage the launch artists.
+const CHART_HISTORY_START = '2026-09-19';
 const CHART_CATEGORIES = new Set(['ai', 'male', 'female', 'kpop']);
 const CHART_CATEGORY_LABELS = { ai: 'AI', male: 'Male', female: 'Female', kpop: 'K-pop' };
 const chartCategory = (req) => {
@@ -1110,8 +1138,15 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
   if (!category) return res.status(400).json({ error: 'Invalid chart category.' });
   const categoryLabel = CHART_CATEGORY_LABELS[category];
   try {
+    // JT is the dashboard's catch-all bucket: his artist chart must include
+    // every unclaimed primary recording as well as every explicit extra credit.
+    // Other artists stay on their exact Spotify primary/extra-credit scope.
+    const jtUnclaimedPrimarySql = allArtistsCache
+      .filter((artist) => artist.artist_id !== '31TPClRtHm23RisEBtV3X7')
+      .map((artist) => `s.primary_artist IS DISTINCT FROM 'spotify:artist:${artist.artist_id}'`)
+      .join(' AND ') || 'TRUE';
     const query = `
-      WITH chart_artists AS (
+      WITH chart_artists AS MATERIALIZED (
         SELECT
           artist_id,
           'spotify:artist:' || artist_id AS artist_uri,
@@ -1132,7 +1167,13 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
                ar.image_url AS artist_image_url, ar.accent, ar.album_only,
                s.id AS canonical_id, true AS is_primary
         FROM chart_artists ar
-        JOIN songs s ON s.primary_artist = ar.artist_uri
+        JOIN songs s ON (
+          s.primary_artist = ar.artist_uri
+          OR (
+            ar.artist_id = '31TPClRtHm23RisEBtV3X7'
+            AND ${jtUnclaimedPrimarySql}
+          )
+        )
         WHERE s.canonical_id IS NULL
           AND s.id NOT IN (${hiddenTrackIdsSql()})
         UNION ALL
@@ -1144,27 +1185,28 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         JOIN songs s ON s.id = eas.song_id
         WHERE COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})
       ),
-      chart_credit_songs AS (
+      chart_credit_songs AS MATERIALIZED (
         SELECT DISTINCT ON (artist_id, canonical_id) *
         FROM chart_credit_songs_raw
         ORDER BY artist_id, canonical_id, is_primary DESC
       ),
-      chart_song_ids AS (
+      chart_song_ids AS MATERIALIZED (
         SELECT DISTINCT canonical_id FROM chart_credit_songs
       ),
-      ${chartLatestAggCTE(`COALESCE(s.canonical_id, s.id) IN (SELECT canonical_id FROM chart_song_ids)
-          AND COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})`)},
-      scoped AS (
+      ${chartLatestAggCTE(CHART_HISTORY_START)},
+      scoped AS MATERIALIZED (
         SELECT DISTINCT ON (s.id)
           s.id,
           s.title,
           s.album_id,
           a.title AS album_title,
           a.image_url AS cover_url,
+          a.album_group,
           credit.artist_id,
           credit.artist_name,
           credit.artist_image_url,
           credit.accent,
+          s.is_featured,
           COALESCE(ag.day_gain, 0)::bigint AS daily_streams
         FROM songs s
         JOIN albums a ON a.id = s.album_id
@@ -1174,7 +1216,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           AND s.id NOT IN (${hiddenTrackIdsSql()})
         ORDER BY s.id, credit.is_primary DESC, credit.artist_name, credit.artist_id
       ),
-      artist_scoped AS (
+      artist_scoped AS MATERIALIZED (
         SELECT
           credit.canonical_id AS id,
           s.title,
@@ -1188,35 +1230,16 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         JOIN songs s ON s.id = credit.canonical_id
         LEFT JOIN agg ag ON ag.canonical_id = credit.canonical_id
       ),
-      chart_readings AS (
-        SELECT canonical_id, recorded_date, cumulative FROM agg_runmax
-        UNION ALL
-        SELECT canonical_id, recorded_date - 1, 0::bigint
-        FROM agg_gains
-        WHERE is_debut_first
-      ),
-      chart_reading_spans AS (
-        SELECT canonical_id, recorded_date, cumulative,
-               LEAD(recorded_date) OVER (
-                 PARTITION BY canonical_id ORDER BY recorded_date
-               ) AS next_recorded_date
-        FROM chart_readings
-      ),
-      chart_first_reading AS (
-        SELECT DISTINCT ON (canonical_id) canonical_id, cumulative
-        FROM chart_readings
-        ORDER BY canonical_id, recorded_date
-      ),
-      weekly_by_song AS (
+      weekly_by_song AS MATERIALIZED (
         SELECT
-          sc.id AS canonical_id,
+          sc.canonical_id,
           (ending.cumulative - COALESCE(starting.cumulative, first_read.cumulative))::bigint
             AS weekly_streams
-        FROM scoped sc
+        FROM chart_song_ids sc
         LEFT JOIN LATERAL (
           SELECT cached.cumulative
           FROM chart_daily_streams cached
-          WHERE cached.canonical_id = sc.id
+          WHERE cached.canonical_id = sc.canonical_id
             AND cached.recorded_date <= (SELECT recorded_date FROM agg_day)
           ORDER BY cached.recorded_date DESC
           LIMIT 1
@@ -1224,7 +1247,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         LEFT JOIN LATERAL (
           SELECT cached.cumulative
           FROM chart_daily_streams cached
-          WHERE cached.canonical_id = sc.id
+          WHERE cached.canonical_id = sc.canonical_id
             AND cached.recorded_date <= (SELECT recorded_date FROM agg_day) - 7
           ORDER BY cached.recorded_date DESC
           LIMIT 1
@@ -1232,7 +1255,8 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         LEFT JOIN LATERAL (
           SELECT cached.cumulative
           FROM chart_daily_streams cached
-          WHERE cached.canonical_id = sc.id
+          WHERE cached.canonical_id = sc.canonical_id
+            AND cached.recorded_date >= DATE '${CHART_HISTORY_START}' - 7
           ORDER BY cached.recorded_date
           LIMIT 1
         ) first_read ON TRUE
@@ -1285,17 +1309,108 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         WHERE NOT sc.album_only
         GROUP BY sc.artist_id, sc.artist_name
       ),
-      album_tracks AS (
-        SELECT DISTINCT
-          sc.album_id,
-          sc.album_title,
-          sc.cover_url,
-          sc.artist_id,
-          sc.artist_name,
-          sc.artist_image_url,
-          sc.accent,
-          sc.id AS canonical_id
+      -- Billboard-style album families: regional pressings, duplicate Spotify
+      -- ids, and standard/deluxe/complete editions chart as ONE album. Physical
+      -- rows are mapped back to their canonical recording before DISTINCT, so
+      -- the same recording is never double-counted while edition-only bonus
+      -- tracks and official alternate versions remain part of the family.
+      album_source_rows AS MATERIALIZED (
+        SELECT sc.artist_id, sc.album_id, sc.album_title,
+               sc.cover_url, sc.album_group, sc.id AS canonical_id, sc.title AS track_title
         FROM scoped sc
+        UNION ALL
+        -- Rewind and other editions can have their physical tracks rooted on
+        -- the deluxe edition. Pull those copies only for albums already in the
+        -- category scope; the old all-songs join caused multi-minute spills.
+        SELECT credit.artist_id, s.album_id, a.title, a.image_url, a.album_group,
+               COALESCE(s.canonical_id, s.id), s.title
+        FROM songs s
+        JOIN albums a ON a.id = s.album_id
+        JOIN chart_credit_songs credit
+          ON credit.canonical_id = COALESCE(s.canonical_id, s.id)
+         AND credit.is_primary
+        JOIN chart_song_ids eligible_song
+          ON eligible_song.canonical_id = COALESCE(s.canonical_id, s.id)
+        WHERE (s.album_id IN (${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL}, '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL}, '2aDXy3PJUnjdFwAw5UNgJb')
+            OR LOWER(a.title) ~ '(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|3am edition|til dawn edition|uk version|2\\.0)')
+          AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
+      ),
+      album_track_candidates AS MATERIALIZED (
+        SELECT DISTINCT
+          source.artist_id,
+          CASE
+            WHEN source.album_id IN (${FSLS_ALBUM_IDS_SQL}) THEN 'fixed:0tcExuDWMQdBbwSpqN8Ku2'
+            WHEN source.album_id IN (${TT20_ALBUM_IDS_SQL}) THEN 'fixed:0O82niJ0NpcptYRxogeEZu'
+            WHEN source.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) OR source.album_id = '${ATD_ULTIMATE_ID}'
+              THEN 'fixed:${ATD_ULTIMATE_ID}'
+            WHEN source.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN 'fixed:${DC1_ALBUM_ID}'
+            ELSE 'title:' || REGEXP_REPLACE(
+              LOWER(REGEXP_REPLACE(
+                source.album_title,
+                '[[:space:]]*(\\([^)]*(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|3am edition|til dawn edition)[^)]*\\)|(deluxe|expanded|complete|remaster(ed)?|anniversary|uk version|2\\.0)([[:space:]].*)?|:[[:space:]]*the encore)[[:space:]]*$',
+                '', 'i'
+              )),
+              '[^a-z0-9]+', '', 'g'
+            )
+          END AS family_key,
+          CASE
+            WHEN source.album_id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
+            WHEN source.album_id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
+            WHEN source.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) OR source.album_id = '${ATD_ULTIMATE_ID}' THEN '${ATD_ULTIMATE_ID}'
+            WHEN source.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
+            ELSE source.album_id
+          END AS display_album_id,
+          CASE
+            WHEN source.album_id IN (${FSLS_ALBUM_IDS_SQL}) THEN 'FutureSex/LoveSounds (Complete)'
+            WHEN source.album_id IN (${TT20_ALBUM_IDS_SQL}) THEN 'The 20/20 Experience (Deluxe Version)'
+            WHEN source.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) OR source.album_id = '${ATD_ULTIMATE_ID}' THEN '${ATD_ULTIMATE_TITLE}'
+            WHEN source.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_TITLE}'
+            ELSE source.album_title
+          END AS display_title,
+          CASE
+            WHEN source.album_id IN (${FSLS_ALBUM_IDS_SQL}) THEN 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473'
+            WHEN source.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) OR source.album_id = '${ATD_ULTIMATE_ID}' THEN '${ATD_ULTIMATE_COVER}'
+            ELSE source.cover_url
+          END AS cover_url,
+          source.canonical_id,
+          LOWER(REGEXP_REPLACE(source.track_title, '\\s*[-–—(].*$', '', 'g')) AS base_track_title
+        FROM album_source_rows source
+        WHERE source.canonical_id NOT IN (${albumHiddenTrackIdsSql()})
+          AND (
+            source.album_id IN (${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL}, '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL})
+            OR (
+              COALESCE(source.album_group, '') NOT IN ('compilation', 'single')
+              AND NOT (LOWER(source.album_title) ~
+                '(soundtrack|original cast|greatest[[:space:]]+hits|best[[:space:]]+of|(^|[^a-z])the best([^a-z]|$)|(^|[^a-z])hits([^a-z]|$)|collection|collector|essentials?|essenciais|ícones[[:space:]]+pop|playlist|compilation|karaoke|various artists|now that''s what i call|sing-along|decade of|number ones|ladies & gentlemen|twenty five|(^|[^a-z])celebration([^a-z]|$)|ghv2|(^|[^a-z])tour([^a-z]|$)|setlist|(^|[^a-z0-9])skz[- ]?replay([^a-z0-9]|$)|(^|[^a-z0-9])skz20(20|21)([^a-z0-9]|$)|(^|[^a-z0-9])nkotbsb([^a-z0-9]|$))'
+              )
+            )
+          )
+      ),
+      album_family_labels AS MATERIALIZED (
+        SELECT
+          artist_id, family_key,
+          (ARRAY_AGG(display_album_id ORDER BY LENGTH(display_title), display_title, display_album_id))[1] AS album_id,
+          (ARRAY_AGG(display_title ORDER BY LENGTH(display_title), display_title, display_album_id))[1] AS album_title,
+          (ARRAY_AGG(cover_url ORDER BY LENGTH(display_title), display_title, display_album_id))[1] AS cover_url
+        FROM album_track_candidates
+        GROUP BY artist_id, family_key
+        HAVING COUNT(DISTINCT canonical_id) >= 4 AND COUNT(DISTINCT base_track_title) >= 4
+      ),
+      album_tracks AS MATERIALIZED (
+        SELECT DISTINCT
+          label.album_id,
+          label.album_title,
+          label.cover_url,
+          candidate.artist_id,
+          ar.name AS artist_name,
+          ar.image_url AS artist_image_url,
+          ar.accent,
+          candidate.canonical_id
+        FROM album_track_candidates candidate
+        JOIN album_family_labels label
+          ON label.artist_id = candidate.artist_id
+         AND label.family_key = candidate.family_key
+        JOIN chart_artists ar ON ar.artist_id = candidate.artist_id
       ),
       daily_album_rows AS (
         SELECT
@@ -1325,7 +1440,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         LEFT JOIN weekly_by_song w ON w.canonical_id = at.canonical_id
         GROUP BY at.album_id, at.album_title, at.artist_id, at.artist_name
       ),
-      chart_rows AS (
+      chart_rows AS MATERIALIZED (
         SELECT * FROM daily_song_rows
         UNION ALL SELECT * FROM weekly_song_rows
         UNION ALL SELECT * FROM daily_artist_rows
@@ -1343,12 +1458,14 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         FROM agg_gains g
         JOIN scoped sc ON sc.id = g.canonical_id
         WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
+          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'
         UNION ALL
         SELECT g.recorded_date, 'artists', sc.artist_id, sc.artist_name,
                SUM(g.daily_gain)::bigint
         FROM agg_gains g
         JOIN artist_scoped sc ON sc.id = g.canonical_id
         WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
+          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'
           AND NOT sc.album_only
         GROUP BY g.recorded_date, sc.artist_id, sc.artist_name
         UNION ALL
@@ -1357,58 +1474,74 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         FROM agg_gains g
         JOIN album_tracks at ON at.canonical_id = g.canonical_id
         WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
+          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'
         GROUP BY g.recorded_date, at.album_id, at.album_title
         UNION ALL
         SELECT (SELECT recorded_date FROM agg_day), kind, id, title, streams
         FROM chart_rows
         WHERE period = 'daily'
       ),
-      weekly_frames AS (
+      weekly_frames AS MATERIALIZED (
         SELECT generate_series(
           (SELECT recorded_date FROM agg_day)::timestamp,
-          (SELECT MIN(recorded_date) FROM chart_readings)::timestamp,
+          DATE '${CHART_HISTORY_START}'::timestamp,
           INTERVAL '-7 days'
         )::date AS chart_date
       ),
-      weekly_song_history AS (
+      past_weekly_song_history AS MATERIALIZED (
         SELECT
           wf.chart_date,
           sc.id,
           sc.title,
           (ending.cumulative - COALESCE(starting.cumulative, first_read.cumulative))::bigint AS streams
-        FROM weekly_frames wf
+        FROM (SELECT chart_date FROM weekly_frames WHERE chart_date < (SELECT recorded_date FROM agg_day)) wf
         CROSS JOIN scoped sc
-        LEFT JOIN chart_reading_spans ending
-          ON ending.canonical_id = sc.id
-         AND ending.recorded_date <= wf.chart_date
-         AND (ending.next_recorded_date > wf.chart_date OR ending.next_recorded_date IS NULL)
-        LEFT JOIN chart_reading_spans starting
-          ON starting.canonical_id = sc.id
-         AND starting.recorded_date <= wf.chart_date - 7
-         AND (starting.next_recorded_date > wf.chart_date - 7 OR starting.next_recorded_date IS NULL)
-        LEFT JOIN chart_first_reading first_read ON first_read.canonical_id = sc.id
+        LEFT JOIN LATERAL (
+          SELECT cached.cumulative
+          FROM chart_daily_streams cached
+          WHERE cached.canonical_id = sc.id AND cached.recorded_date <= wf.chart_date
+          ORDER BY cached.recorded_date DESC LIMIT 1
+        ) ending ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT cached.cumulative
+          FROM chart_daily_streams cached
+          WHERE cached.canonical_id = sc.id AND cached.recorded_date <= wf.chart_date - 7
+          ORDER BY cached.recorded_date DESC LIMIT 1
+        ) starting ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT cached.cumulative
+          FROM chart_daily_streams cached
+          WHERE cached.canonical_id = sc.id AND cached.recorded_date >= DATE '${CHART_HISTORY_START}' - 7
+          ORDER BY cached.recorded_date LIMIT 1
+        ) first_read ON TRUE
       ),
       weekly_history_values AS (
         SELECT chart_date, 'songs'::text AS kind, id, title, streams
-        FROM weekly_song_history
+        FROM past_weekly_song_history
         UNION ALL
         SELECT wh.chart_date, 'artists', sc.artist_id, sc.artist_name,
                SUM(wh.streams)::bigint
-        FROM weekly_song_history wh
+        FROM past_weekly_song_history wh
         JOIN artist_scoped sc ON sc.id = wh.id
         WHERE NOT sc.album_only
         GROUP BY wh.chart_date, sc.artist_id, sc.artist_name
         UNION ALL
         SELECT wh.chart_date, 'albums', at.album_id, at.album_title,
                SUM(wh.streams)::bigint
-        FROM weekly_song_history wh
+        FROM past_weekly_song_history wh
         JOIN album_tracks at ON at.canonical_id = wh.id
         GROUP BY wh.chart_date, at.album_id, at.album_title
+        UNION ALL
+        SELECT (SELECT recorded_date FROM agg_day), kind, id, title, streams
+        FROM chart_rows
+        WHERE period = 'weekly'
       ),
       history_values AS (
         SELECT 'daily'::text AS period, * FROM daily_history_values
+        WHERE chart_date >= DATE '${CHART_HISTORY_START}'
         UNION ALL
         SELECT 'weekly'::text AS period, * FROM weekly_history_values
+        WHERE chart_date >= DATE '${CHART_HISTORY_START}'
       ),
       history_ranked AS (
         SELECT history_values.*,
@@ -1419,7 +1552,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         FROM history_values
         WHERE streams > 0
       ),
-      history_top AS (
+      history_top AS MATERIALIZED (
         SELECT * FROM history_ranked WHERE rank <= ${CHART_LIMIT}
       ),
       metric_base AS (
@@ -1476,7 +1609,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         CASE ranked.kind WHEN 'songs' THEN 1 WHEN 'artists' THEN 2 ELSE 3 END,
         ranked.rank
     `;
-    const { rows } = await dbQuery(query, [canSeeLocked, category, categoryLabel]);
+    const { rows } = await dbQueryWithNestloopOff(query, [canSeeLocked, category, categoryLabel]);
     const charts = {
       daily: { songs: [], artists: [], albums: [] },
       weekly: { songs: [], artists: [], albums: [] },

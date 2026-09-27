@@ -138,6 +138,43 @@ test('album-only artists are excluded from artist charts', async () => {
   }
 });
 
+test('album charts exclude compilation, playlist and single containers', async () => {
+  // Keep this probe serial: the live chart query is intentionally broad for
+  // the large female catalogue, and concurrent cold queries make Neon spill.
+  const charts = [];
+  for (const category of ['ai', 'male']) {
+    const res = await get(`/api/charts?category=${category}`);
+    assert.equal(res.status, 200);
+    charts.push(await res.json());
+  }
+  const excludedAlbumIds = new Set([
+    '65ayND23IInUPHJKsaAqe7', // TROLLS Band Together soundtrack
+    '0IJcpy0eM4o63J43qij68g', // Ladies & Gentlemen compilation
+    '3r3lR28Ybv6d5N5DPWfQ1L', // Patient Zero single container
+    '4T8wBxIvoSRVfoFZzuwOXR', // One Of The Girls single container
+    '3UXrliH0JUQvcaLnBD8Txz', // SKZ-REPLAY compilation
+    '6xS6wVbYu6DtNh6J1KZ1Gp', // SKZ-REPLAY 2026 compilation
+    '5dkqH8Cr6MHhxGV0vzIMOM', // SKZ2020 compilation
+  ]);
+  for (const chart of charts) {
+    for (const period of ['daily', 'weekly']) {
+      const ids = chart.charts[period].albums.map((album) => album.id);
+      assert.equal(new Set(ids).size, ids.length, `${chart.category} ${period} has no duplicate album cards`);
+      assert.ok(
+        chart.charts[period].albums.every((album) => !excludedAlbumIds.has(album.id)),
+        `${chart.category} ${period} album chart excludes non-album containers`
+      );
+    }
+  }
+
+  const aiChart = charts.find((chart) => chart.category === 'ai');
+  const aiAlbumIds = new Set([
+    ...aiChart.charts.daily.albums,
+    ...aiChart.charts.weekly.albums,
+  ].map((album) => album.id));
+  assert.ok(aiAlbumIds.has('2aDXy3PJUnjdFwAw5UNgJb'), 'Rewind remains eligible as a real album');
+});
+
 // --- Robustness: malformed / malicious input must never 5xx ----------------
 test('unknown artist id never crashes (no 5xx)', async () => {
   const res = await get(`/api/songs?artist=doesnotexist123`);
