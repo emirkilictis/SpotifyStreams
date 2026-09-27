@@ -51,57 +51,12 @@ async function runTests() {
     assert.strictEqual(res.status, 200, "LISA stats should return 200 OK");
   });
 
-  // 5. Authenticated Request to JC Chasez (Locked, no header)
-  await test("Authenticated request to JC Chasez stats without passcode header should return 403 Forbidden", async () => {
+  // 5. Authenticated Request to JC Chasez (Unlocked)
+  await test("Authenticated user should access JC Chasez stats without extra passcode", async () => {
     const res = await fetch(`${BASE_URL}/api/stats?artist=3p3U04w2DaiBzuYMZnYr00`, {
       headers: { 'Cookie': loginCookie }
     });
-    assert.strictEqual(res.status, 403, "Should return 403 Forbidden");
-  });
-
-  // 6. Authenticated Request to JC Chasez (Locked, wrong header)
-  await test("Authenticated request to JC Chasez stats with incorrect passcode header should return 403 Forbidden", async () => {
-    const res = await fetch(`${BASE_URL}/api/stats?artist=3p3U04w2DaiBzuYMZnYr00`, {
-      headers: { 
-        'Cookie': loginCookie,
-        'X-JC-Passcode': 'wrong_password'
-      }
-    });
-    assert.strictEqual(res.status, 403, "Should return 403 Forbidden");
-  });
-
-  // 7. Authenticated Request to JC Chasez (Locked, correct header)
-  await test("Authenticated request to JC Chasez stats with correct passcode header should return 200 OK", async () => {
-    const res = await fetch(`${BASE_URL}/api/stats?artist=3p3U04w2DaiBzuYMZnYr00`, {
-      headers: { 
-        'Cookie': loginCookie,
-        'X-JC-Passcode': 'peakedinhighschool'
-      }
-    });
-    assert.strictEqual(res.status, 200, "Should return 200 OK");
-    const data = await res.json();
-    assert.ok(data.total_streams, "Should return stream stats data");
-  });
-
-  // 8. Authenticated Request to JC Chasez album songs (Locked, no header)
-  await test("Authenticated request to JC Chasez album songs without passcode header should return 403 Forbidden", async () => {
-    const res = await fetch(`${BASE_URL}/api/albums/2BSWztobDwPRNdoICigWNY/songs`, {
-      headers: { 'Cookie': loginCookie }
-    });
-    assert.strictEqual(res.status, 403, "Should return 403 Forbidden");
-  });
-
-  // 9. Authenticated Request to JC Chasez album songs (Locked, correct header)
-  await test("Authenticated request to JC Chasez album songs with correct passcode header should return 200 OK", async () => {
-    const res = await fetch(`${BASE_URL}/api/albums/2BSWztobDwPRNdoICigWNY/songs`, {
-      headers: { 
-        'Cookie': loginCookie,
-        'X-JC-Passcode': 'peakedinhighschool'
-      }
-    });
-    assert.strictEqual(res.status, 200, "Should return 200 OK");
-    const data = await res.json();
-    assert.ok(Array.isArray(data), "Should return an array of songs");
+    assert.strictEqual(res.status, 200, "JC Chasez stats should return 200 OK");
   });
 
   // 10. Passcode Verification Endpoint (Wrong)

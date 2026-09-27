@@ -210,17 +210,6 @@ test('stats for unknown artist -> no 5xx', async () => {
   assert.ok(res.status < 500, `got ${res.status}`);
 });
 
-// --- JC Chasez lock (access control) ---------------------------------------
-test('locked artist (JC Chasez) is forbidden without passcode header', async () => {
-  const res = await get(`/api/stats?artist=3p3U04w2DaiBzuYMZnYr00`);
-  assert.equal(res.status, 403);
-});
-
-test('locked artist accessible with correct passcode header', async () => {
-  const res = await get(`/api/stats?artist=3p3U04w2DaiBzuYMZnYr00`, { 'X-JC-Passcode': 'peakedinhighschool' });
-  assert.equal(res.status, 200);
-});
-
 // --- Method handling -------------------------------------------------------
 test('POST to a GET-only API route does not 5xx', async () => {
   const res = await fetch(`${BASE_URL}/api/songs?artist=${JT}`, { method: 'POST' });

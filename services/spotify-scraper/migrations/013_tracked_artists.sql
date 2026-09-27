@@ -32,5 +32,5 @@ INSERT INTO tracked_artists (artist_id, name, image_url, accent, sort_order, alb
   ('66CXWjxzNUsdJxJ2JdwvnR', 'Ariana Grande',     'https://i.scdn.co/image/ab6761610000e5eb766397ec42a573a53eb5fb87', '#b39ddb',  8, TRUE,  FALSE),
   ('6Ff53KvcvAj5U7Z1vojB5o', '*NSYNC',            'https://i.scdn.co/image/ab6761610000e5eb9414ef07d0ca697726912df1', '#3498db',  9, FALSE, FALSE),
   ('3LHYvj5ZejV1NLqncEObSJ', 'Vaelis',            'https://i.scdn.co/image/ab6761610000e5eb05e2f96f53a2810f5dcdd6c1', '#8b5cf6', 10, FALSE, FALSE),
-  ('3p3U04w2DaiBzuYMZnYr00', 'JC Chasez',         'https://i.scdn.co/image/ab6761610000e5eb784d1c3b5bb30c5db83c8fe2', '#e74c3c', 11, FALSE, TRUE)
+  ('3p3U04w2DaiBzuYMZnYr00', 'JC Chasez',         'https://i.scdn.co/image/ab6761610000e5eb784d1c3b5bb30c5db83c8fe2', '#e74c3c', 11, FALSE, FALSE)
 ON CONFLICT (artist_id) DO NOTHING;
