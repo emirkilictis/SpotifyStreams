@@ -1332,6 +1332,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         JOIN chart_song_ids eligible_song
           ON eligible_song.canonical_id = COALESCE(s.canonical_id, s.id)
         WHERE (s.album_id IN (${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL}, '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL}, '2aDXy3PJUnjdFwAw5UNgJb')
+            OR s.album_id IN (SELECT album_id FROM scoped)
             OR LOWER(a.title) ~ '(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|3am edition|til dawn edition|uk version|2\\.0|encore)')
           AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
       ),
@@ -1381,7 +1382,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
             OR (
               COALESCE(source.album_group, '') NOT IN ('compilation', 'single')
               AND NOT (LOWER(source.album_title) ~
-                '(soundtrack|original cast|greatest[[:space:]]+hits|best[[:space:]]+of|(^|[^a-z])the best([^a-z]|$)|(^|[^a-z])hits([^a-z]|$)|collection|collector|essentials?|essenciais|ícones[[:space:]]+pop|playlist|compilation|karaoke|various artists|now that''s what i call|sing-along|decade of|number ones|ladies & gentlemen|twenty five|(^|[^a-z])celebration([^a-z]|$)|ghv2|(^|[^a-z])tour([^a-z]|$)|setlist|(^|[^a-z0-9])skz[- ]?replay([^a-z0-9]|$)|(^|[^a-z0-9])skz20(20|21)([^a-z0-9]|$)|(^|[^a-z0-9])nkotbsb([^a-z0-9]|$))'
+                '(soundtrack|original cast|greatest[[:space:]]+hits|best[[:space:]]+of|(^|[^a-z])the best([^a-z]|$)|(^|[^a-z])hits([^a-z]|$)|collection|collector|essentials?|essenciais|ícones[[:space:]]+pop|playlist|compilation|karaoke|various artists|now that''s what i call|sing-along|decade of|number ones|ladies & gentlemen|twenty five|(^|[^a-z])celebration([^a-z]|$)|ghv2|(^|[^a-z])tour([^a-z]|$)|setlist|(^|[^a-z0-9])skz[- ]?replay([^a-z0-9]|$)|(^|[^a-z0-9])skz20(20|21)([^a-z0-9]|$)|(^|[^a-z0-9])nkotbsb([^a-z0-9]|$)|track[[:space:]]*by[[:space:]]*track|commentary|(^|[^a-z])live[[:space:]]+from([^a-z]|$))'
               )
             )
           )
