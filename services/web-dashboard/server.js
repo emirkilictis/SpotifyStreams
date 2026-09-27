@@ -1117,32 +1117,76 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           'spotify:artist:' || artist_id AS artist_uri,
           name,
           image_url,
-          accent
+          accent,
+          album_only
         FROM tracked_artists
         WHERE active = true
           AND $2::text = ANY(COALESCE(categories, '{}'::text[]))
           AND (locked = false OR $1::boolean)
       ),
-      ${chartLatestAggCTE(`s.primary_artist IN (SELECT artist_uri FROM chart_artists)
+      -- A recording belongs to every tracked artist Spotify credits, not only
+      -- the one stored in songs.primary_artist. extra_artist_songs is the
+      -- canonical DB mapping used by reconciliation for secondary credits.
+      chart_credit_songs_raw AS (
+        SELECT ar.artist_id, ar.name AS artist_name,
+               ar.image_url AS artist_image_url, ar.accent, ar.album_only,
+               s.id AS canonical_id, true AS is_primary
+        FROM chart_artists ar
+        JOIN songs s ON s.primary_artist = ar.artist_uri
+        WHERE s.canonical_id IS NULL
+          AND s.id NOT IN (${hiddenTrackIdsSql()})
+        UNION ALL
+        SELECT ar.artist_id, ar.name AS artist_name,
+               ar.image_url AS artist_image_url, ar.accent, ar.album_only,
+               COALESCE(s.canonical_id, s.id) AS canonical_id, false AS is_primary
+        FROM chart_artists ar
+        JOIN extra_artist_songs eas ON eas.artist_id = ar.artist_id
+        JOIN songs s ON s.id = eas.song_id
+        WHERE COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})
+      ),
+      chart_credit_songs AS (
+        SELECT DISTINCT ON (artist_id, canonical_id) *
+        FROM chart_credit_songs_raw
+        ORDER BY artist_id, canonical_id, is_primary DESC
+      ),
+      chart_song_ids AS (
+        SELECT DISTINCT canonical_id FROM chart_credit_songs
+      ),
+      ${chartLatestAggCTE(`COALESCE(s.canonical_id, s.id) IN (SELECT canonical_id FROM chart_song_ids)
           AND COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})`)},
       scoped AS (
-        SELECT
+        SELECT DISTINCT ON (s.id)
           s.id,
           s.title,
           s.album_id,
           a.title AS album_title,
           a.image_url AS cover_url,
-          ar.artist_id,
-          ar.name AS artist_name,
-          ar.image_url AS artist_image_url,
-          ar.accent,
+          credit.artist_id,
+          credit.artist_name,
+          credit.artist_image_url,
+          credit.accent,
           COALESCE(ag.day_gain, 0)::bigint AS daily_streams
         FROM songs s
         JOIN albums a ON a.id = s.album_id
-        JOIN chart_artists ar ON ar.artist_uri = s.primary_artist
+        JOIN chart_credit_songs credit ON credit.canonical_id = s.id
         LEFT JOIN agg ag ON ag.canonical_id = s.id
         WHERE s.canonical_id IS NULL
           AND s.id NOT IN (${hiddenTrackIdsSql()})
+        ORDER BY s.id, credit.is_primary DESC, credit.artist_name, credit.artist_id
+      ),
+      artist_scoped AS (
+        SELECT
+          credit.canonical_id AS id,
+          s.title,
+          credit.artist_id,
+          credit.artist_name,
+          credit.artist_image_url,
+          credit.accent,
+          credit.album_only,
+          COALESCE(ag.day_gain, 0)::bigint AS daily_streams
+        FROM chart_credit_songs credit
+        JOIN songs s ON s.id = credit.canonical_id
+        LEFT JOIN agg ag ON ag.canonical_id = credit.canonical_id
       ),
       chart_readings AS (
         SELECT canonical_id, recorded_date, cumulative FROM agg_runmax
@@ -1222,7 +1266,8 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           ($3::text || ' artist') AS subtitle,
           MAX(sc.artist_image_url) AS cover_url,
           SUM(sc.daily_streams)::bigint AS streams
-        FROM scoped sc
+        FROM artist_scoped sc
+        WHERE NOT sc.album_only
         GROUP BY sc.artist_id, sc.artist_name
       ),
       weekly_artist_rows AS (
@@ -1235,24 +1280,22 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           ($3::text || ' artist') AS subtitle,
           MAX(sc.artist_image_url) AS cover_url,
           SUM(COALESCE(w.weekly_streams, 0))::bigint AS streams
-        FROM scoped sc
+        FROM artist_scoped sc
         LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
+        WHERE NOT sc.album_only
         GROUP BY sc.artist_id, sc.artist_name
       ),
       album_tracks AS (
         SELECT DISTINCT
-          a.id AS album_id,
-          a.title AS album_title,
-          a.image_url AS cover_url,
-          ar.artist_id,
-          ar.name AS artist_name,
-          ar.image_url AS artist_image_url,
-          ar.accent,
-          COALESCE(s.canonical_id, s.id) AS canonical_id
-        FROM albums a
-        JOIN songs s ON s.album_id = a.id
-        JOIN chart_artists ar ON ar.artist_uri = s.primary_artist
-        WHERE COALESCE(s.canonical_id, s.id) NOT IN (${hiddenTrackIdsSql()})
+          sc.album_id,
+          sc.album_title,
+          sc.cover_url,
+          sc.artist_id,
+          sc.artist_name,
+          sc.artist_image_url,
+          sc.accent,
+          sc.id AS canonical_id
+        FROM scoped sc
       ),
       daily_album_rows AS (
         SELECT
@@ -1304,8 +1347,9 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         SELECT g.recorded_date, 'artists', sc.artist_id, sc.artist_name,
                SUM(g.daily_gain)::bigint
         FROM agg_gains g
-        JOIN scoped sc ON sc.id = g.canonical_id
+        JOIN artist_scoped sc ON sc.id = g.canonical_id
         WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
+          AND NOT sc.album_only
         GROUP BY g.recorded_date, sc.artist_id, sc.artist_name
         UNION ALL
         SELECT g.recorded_date, 'albums', at.album_id, at.album_title,
@@ -1351,7 +1395,8 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         SELECT wh.chart_date, 'artists', sc.artist_id, sc.artist_name,
                SUM(wh.streams)::bigint
         FROM weekly_song_history wh
-        JOIN scoped sc ON sc.id = wh.id
+        JOIN artist_scoped sc ON sc.id = wh.id
+        WHERE NOT sc.album_only
         GROUP BY wh.chart_date, sc.artist_id, sc.artist_name
         UNION ALL
         SELECT wh.chart_date, 'albums', at.album_id, at.album_title,

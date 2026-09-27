@@ -115,6 +115,29 @@ test('/api/charts rejects unknown categories', async () => {
   assert.equal(res.status, 400);
 });
 
+test('album-only artists are excluded from artist charts', async () => {
+  const [rosterRes, chartRes] = await Promise.all([
+    get('/api/artists'),
+    get('/api/charts?category=female'),
+  ]);
+  assert.equal(rosterRes.status, 200);
+  assert.equal(chartRes.status, 200);
+  const roster = await rosterRes.json();
+  const chart = await chartRes.json();
+  const albumOnlyIds = new Set(
+    roster
+      .filter((artist) => artist.album_only && artist.categories?.includes('female'))
+      .map((artist) => artist.artist_id)
+  );
+  assert.ok(albumOnlyIds.size > 0, 'fixture has at least one female album-only artist');
+  for (const period of ['daily', 'weekly']) {
+    assert.ok(
+      chart.charts[period].artists.every((artist) => !albumOnlyIds.has(artist.artist_id)),
+      `${period} artist chart excludes partial catalogues`
+    );
+  }
+});
+
 // --- Robustness: malformed / malicious input must never 5xx ----------------
 test('unknown artist id never crashes (no 5xx)', async () => {
   const res = await get(`/api/songs?artist=doesnotexist123`);
