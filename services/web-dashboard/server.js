@@ -1122,8 +1122,8 @@ const CHART_LIMIT = 20;
 // produced while only a small subset of artists existed, so carrying those
 // peaks forward would permanently advantage the launch artists.
 const CHART_HISTORY_START = '2026-09-19';
-const CHART_CATEGORIES = new Set(['ai', 'male', 'female', 'kpop']);
-const CHART_CATEGORY_LABELS = { ai: 'AI', male: 'Male', female: 'Female', kpop: 'K-pop' };
+const CHART_CATEGORIES = new Set(['ai', 'male', 'female', 'kpop', 'y2k']);
+const CHART_CATEGORY_LABELS = { ai: 'AI', male: 'Male', female: 'Female', kpop: 'K-pop', y2k: 'Y2K' };
 const chartCategory = (req) => {
   const raw = String(req.query.category || 'ai').toLowerCase();
   return CHART_CATEGORIES.has(raw) ? raw : null;
@@ -3511,7 +3511,7 @@ function temizEtiketler(x) {
   for (const raw of x) {
     const t = String(raw || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
     if (t && !out.includes(t)) out.push(t);
-    if (out.length >= 6) break;
+    if (out.length >= 10) break;
   }
   return out;
 }

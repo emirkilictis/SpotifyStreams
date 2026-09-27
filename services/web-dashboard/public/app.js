@@ -4812,12 +4812,12 @@ function syncFavoriteBtn() {
   btn.title = fav ? 'Remove from your favorites' : 'Pin this artist to the top of the list';
 }
 
-const KATEGORI_ETIKET = { female: 'Female', male: 'Male', band: 'Band', kpop: 'K-pop', latin: 'Latin', ai: 'AI' };
+const KATEGORI_ETIKET = { female: 'Female', male: 'Male', band: 'Band', kpop: 'K-pop', latin: 'Latin', y2k: 'Y2K', ai: 'AI' };
 // Sira: once kim ('female'/'male'/'band'), sonra tur ('kpop'/'latin'), en sonda
 // 'ai'. Bilinmeyen bir etiket yine calisir — alfabetik olarak sona duser ve
 // etiketi slug'in kendisi olur, yani yeni bir kategori kod degisikligi
 // olmadan da gorunur; buradaki liste sadece sirayi ve adi guzellestiriyor.
-const KATEGORI_SIRA = ['female', 'male', 'band', 'kpop', 'latin', 'ai'];
+const KATEGORI_SIRA = ['female', 'male', 'band', 'kpop', 'latin', 'y2k', 'ai'];
 
 // Kac gun "yeni" sayilir. Iki hafta: bir donusu kacirsan bile duyuruyu
 // goruyorsun, ama Eylul'de hala "yeni" diye durmuyor.
@@ -4935,7 +4935,7 @@ function showPicker() {
 // This is a top-level view rather than another per-artist tab: it compares the
 // roster by category, so it stays reachable from both the picker and an artist
 // dashboard without changing the currently selected artist.
-const CHART_CATEGORY_LABELS = { ai: 'AI', male: 'Male', female: 'Female', kpop: 'K-pop' };
+const CHART_CATEGORY_LABELS = { ai: 'AI', male: 'Male', female: 'Female', kpop: 'K-pop', y2k: 'Y2K' };
 
 function aiChartDateLabel(period, data) {
   if (!data) return 'Latest artist rankings';

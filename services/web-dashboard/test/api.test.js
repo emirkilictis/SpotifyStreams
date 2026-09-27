@@ -115,6 +115,16 @@ test('/api/charts rejects unknown categories', async () => {
   assert.equal(res.status, 400);
 });
 
+test('/api/charts supports y2k category', async () => {
+  const res = await get('/api/charts?category=y2k');
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.category, 'y2k');
+  assert.equal(data.category_label, 'Y2K');
+  assert.ok(data.charts?.daily);
+  assert.ok(data.charts?.weekly);
+});
+
 test('album-only artists are excluded from artist charts', async () => {
   const [rosterRes, chartRes] = await Promise.all([
     get('/api/artists'),

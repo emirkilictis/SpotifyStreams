@@ -6461,7 +6461,7 @@ body.modal-open .sync-banner {
 }
 .ai-chart-category-nav {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 22px 0 0;
 }
