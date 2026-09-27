@@ -1230,20 +1230,24 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         JOIN songs s ON s.id = credit.canonical_id
         LEFT JOIN agg ag ON ag.canonical_id = credit.canonical_id
       ),
-      weekly_by_song AS MATERIALIZED (
+      weekly_recent_points AS MATERIALIZED (
         SELECT
-          sc.canonical_id,
-          (ending.cumulative - COALESCE(starting.cumulative, first_read.cumulative))::bigint
-            AS weekly_streams
+          canonical_id,
+          (ARRAY_AGG(cumulative ORDER BY recorded_date DESC) FILTER (
+            WHERE recorded_date <= (SELECT recorded_date FROM agg_day)
+          ))[1] AS ending,
+          (ARRAY_AGG(cumulative ORDER BY recorded_date) FILTER (
+            WHERE recorded_date >= DATE '${CHART_HISTORY_START}' - 7
+          ))[1] AS first_read
+        FROM agg_raw
+        GROUP BY canonical_id
+      ),
+      weekly_starting AS MATERIALIZED (
+        -- Some older tracks have no observation inside the recent agg_raw
+        -- window. One indexed lookup per song preserves their real baseline;
+        -- the former implementation performed three such lookups per song.
+        SELECT sc.canonical_id, starting.cumulative
         FROM chart_song_ids sc
-        LEFT JOIN LATERAL (
-          SELECT cached.cumulative
-          FROM chart_daily_streams cached
-          WHERE cached.canonical_id = sc.canonical_id
-            AND cached.recorded_date <= (SELECT recorded_date FROM agg_day)
-          ORDER BY cached.recorded_date DESC
-          LIMIT 1
-        ) ending ON TRUE
         LEFT JOIN LATERAL (
           SELECT cached.cumulative
           FROM chart_daily_streams cached
@@ -1252,14 +1256,14 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           ORDER BY cached.recorded_date DESC
           LIMIT 1
         ) starting ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT cached.cumulative
-          FROM chart_daily_streams cached
-          WHERE cached.canonical_id = sc.canonical_id
-            AND cached.recorded_date >= DATE '${CHART_HISTORY_START}' - 7
-          ORDER BY cached.recorded_date
-          LIMIT 1
-        ) first_read ON TRUE
+      ),
+      weekly_by_song AS MATERIALIZED (
+        SELECT
+          recent.canonical_id,
+          (recent.ending - COALESCE(starting.cumulative, recent.first_read))::bigint
+            AS weekly_streams
+        FROM weekly_recent_points recent
+        LEFT JOIN weekly_starting starting USING (canonical_id)
       ),
       daily_song_rows AS (
         SELECT
@@ -1314,6 +1318,23 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
       -- rows are mapped back to their canonical recording before DISTINCT, so
       -- the same recording is never double-counted while edition-only bonus
       -- tracks and official alternate versions remain part of the family.
+      album_candidate_ids AS MATERIALIZED (
+        -- Resolve the much smaller album set first. Joining songs through its
+        -- album_id index avoids the old category-wide sequential scan (most
+        -- visible on the large Female catalogue).
+        SELECT DISTINCT album_id
+        FROM scoped
+        WHERE album_id IS NOT NULL
+        UNION
+        SELECT id
+        FROM albums
+        WHERE LOWER(title) ~ '(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|platinum edition|the anthology|3am edition|til dawn edition|uk version|2\\.0|encore)'
+        UNION
+        SELECT UNNEST(ARRAY[
+          ${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL},
+          '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL}, '2aDXy3PJUnjdFwAw5UNgJb'
+        ]::text[])
+      ),
       album_source_rows AS MATERIALIZED (
         SELECT sc.artist_id, sc.album_id, sc.album_title,
                sc.cover_url, sc.album_group, sc.id AS canonical_id, sc.title AS track_title
@@ -1324,17 +1345,15 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         -- category scope; the old all-songs join caused multi-minute spills.
         SELECT credit.artist_id, s.album_id, a.title, a.image_url, a.album_group,
                COALESCE(s.canonical_id, s.id), s.title
-        FROM songs s
+        FROM album_candidate_ids candidate_album
+        JOIN songs s ON s.album_id = candidate_album.album_id
         JOIN albums a ON a.id = s.album_id
         JOIN chart_credit_songs credit
           ON credit.canonical_id = COALESCE(s.canonical_id, s.id)
          AND credit.is_primary
         JOIN chart_song_ids eligible_song
           ON eligible_song.canonical_id = COALESCE(s.canonical_id, s.id)
-        WHERE (s.album_id IN (${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL}, '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL}, '2aDXy3PJUnjdFwAw5UNgJb')
-            OR s.album_id IN (SELECT album_id FROM scoped)
-            OR LOWER(a.title) ~ '(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|3am edition|til dawn edition|uk version|2\\.0|encore)')
-          AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
+        WHERE COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
       ),
       album_track_candidates AS MATERIALIZED (
         SELECT DISTINCT
@@ -1348,7 +1367,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
             ELSE 'title:' || REGEXP_REPLACE(
               LOWER(REGEXP_REPLACE(
                 source.album_title,
-                '[[:space:]]*(\\([^)]*(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|3am edition|til dawn edition)[^)]*\\)|(deluxe|expanded|complete|remaster(ed)?|anniversary|uk version|2\\.0)([[:space:]].*)?|:[[:space:]]*the encore)[[:space:]]*$',
+                '[[:space:]]*(\\([^)]*(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|platinum edition|the anthology|3am edition|til dawn edition)[^)]*\\)|\\[[^]]*(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|platinum edition|the anthology)[^]]*\\]|[-–—:]?[[:space:]]*(deluxe|expanded|complete|remaster(ed)?|anniversary|uk version|platinum edition|the anthology|2\\.0)([[:space:]].*)?|:[[:space:]]*the encore)[[:space:]]*$',
                 '', 'i'
               )),
               '[^a-z0-9]+', '', 'g'

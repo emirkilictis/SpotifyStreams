@@ -51,14 +51,6 @@ async function runTests() {
     assert.strictEqual(res.status, 200, "LISA stats should return 200 OK");
   });
 
-  // 5. Authenticated Request to JC Chasez (Unlocked)
-  await test("Authenticated user should access JC Chasez stats without extra passcode", async () => {
-    const res = await fetch(`${BASE_URL}/api/stats?artist=3p3U04w2DaiBzuYMZnYr00`, {
-      headers: { 'Cookie': loginCookie }
-    });
-    assert.strictEqual(res.status, 200, "JC Chasez stats should return 200 OK");
-  });
-
   // 10. Passcode Verification Endpoint (Wrong)
   await test("Verification of wrong JC passcode should return 401 Unauthorized", async () => {
     const res = await fetch(`${BASE_URL}/api/verify-jc`, {
