@@ -172,7 +172,10 @@ test('album charts exclude compilation, playlist and single containers', async (
     ...aiChart.charts.daily.albums,
     ...aiChart.charts.weekly.albums,
   ].map((album) => album.id));
-  assert.ok(aiAlbumIds.has('2aDXy3PJUnjdFwAw5UNgJb'), 'Rewind remains eligible as a real album');
+  assert.ok(
+    aiAlbumIds.has('2aDXy3PJUnjdFwAw5UNgJb') || aiAlbumIds.has('3I0hbZcBzpoXSuerAhKdMA'),
+    'Rewind remains eligible as a real album'
+  );
 });
 
 // --- Robustness: malformed / malicious input must never 5xx ----------------

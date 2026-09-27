@@ -1332,7 +1332,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         JOIN chart_song_ids eligible_song
           ON eligible_song.canonical_id = COALESCE(s.canonical_id, s.id)
         WHERE (s.album_id IN (${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL}, '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL}, '2aDXy3PJUnjdFwAw5UNgJb')
-            OR LOWER(a.title) ~ '(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|3am edition|til dawn edition|uk version|2\\.0)')
+            OR LOWER(a.title) ~ '(deluxe|expanded|complete|remaster|anniversary|bonus|special edition|3am edition|til dawn edition|uk version|2\\.0|encore)')
           AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
       ),
       album_track_candidates AS MATERIALIZED (
@@ -1389,9 +1389,9 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
       album_family_labels AS MATERIALIZED (
         SELECT
           artist_id, family_key,
-          (ARRAY_AGG(display_album_id ORDER BY LENGTH(display_title), display_title, display_album_id))[1] AS album_id,
-          (ARRAY_AGG(display_title ORDER BY LENGTH(display_title), display_title, display_album_id))[1] AS album_title,
-          (ARRAY_AGG(cover_url ORDER BY LENGTH(display_title), display_title, display_album_id))[1] AS cover_url
+          (ARRAY_AGG(display_album_id ORDER BY LENGTH(display_title) DESC, display_title, display_album_id))[1] AS album_id,
+          (ARRAY_AGG(display_title ORDER BY LENGTH(display_title) DESC, display_title, display_album_id))[1] AS album_title,
+          (ARRAY_AGG(cover_url ORDER BY LENGTH(display_title) DESC, display_title, display_album_id))[1] AS cover_url
         FROM album_track_candidates
         GROUP BY artist_id, family_key
         HAVING COUNT(DISTINCT canonical_id) >= 4 AND COUNT(DISTINCT base_track_title) >= 4
