@@ -78,6 +78,25 @@ test('/api/stats, /api/artist-stats, /api/albums, /api/milestones-reached -> 200
   }
 });
 
+test('The 20/20 Experience editions remain separate album cards', async () => {
+  const res = await get(`/api/albums?artist=${JT}`);
+  assert.equal(res.status, 200);
+  const albums = await res.json();
+  const byId = new Map(albums.map(album => [album.album_id, album]));
+
+  const part1 = byId.get('0O82niJ0NpcptYRxogeEZu');
+  const part2 = byId.get('5lYzReGzcSNF0Gx47wm6qU');
+  const complete = byId.get('6NTQnlMBfYpPhDy1sXtVRG');
+  assert.ok(part1, 'Part 1 Deluxe card is present');
+  assert.ok(part2, '2 of 2 Deluxe card is present');
+  assert.ok(complete, 'Complete Experience card is present');
+  assert.equal(part1.album_title, 'The 20/20 Experience (Deluxe Version)');
+  assert.equal(part2.album_title, 'The 20/20 Experience - 2 of 2 (Deluxe)');
+  assert.equal(complete.album_title, 'The 20/20 Experience - The Complete Experience');
+  assert.ok(Number(part1.track_count) < 20, 'Part 1 must not absorb Part 2 or Complete');
+  assert.ok(Number(complete.track_count) > 20, 'Complete keeps its physical tracks and radio-edit extras');
+});
+
 test('/api/charts returns the requested category before history finishes', async () => {
   const res = await get('/api/charts?category=kpop');
   assert.equal(res.status, 200);

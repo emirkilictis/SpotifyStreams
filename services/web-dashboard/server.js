@@ -653,9 +653,14 @@ const FSLS_ALBUM_IDS_SQL = FSLS_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 // 2026-09-14 and taken back out the next day: its radio edit looked out of
 // place on the deluxe card. The radio edit still counts in JT's song list and
 // total; it just has no album card, like any other single.
+//
+// Keep 2 of 2 and The Complete Experience OUT of this family. The latter
+// repeats Part 1 + Part 2 physically, but both are intentional, separately
+// addressable album cards. Folding them in here moves all 21 Complete tracks
+// onto the Part 1 card and leaves the Complete card with only its display-only
+// radio-edit extras.
 const TT20_ALBUM_IDS = [
   '0O82niJ0NpcptYRxogeEZu', '28GWVLkctSuSWQ1EUIxZ8m', '5jlQrOtSuTXojcvBCpivyo',
-  '5lYzReGzcSNF0Gx47wm6qU', '6NTQnlMBfYpPhDy1sXtVRG',
 ];
 const TT20_ALBUM_IDS_SQL = TT20_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
