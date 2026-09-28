@@ -782,6 +782,14 @@ const FSLS_REMIX_EXCLUSION_SQL =
         AND COALESCE(s.canonical_id, s.id) NOT IN (
           SELECT COALESCE(fp.canonical_id, fp.id) FROM songs fp WHERE fp.id IN (${FSLS_PICKED_TRACK_IDS_SQL})))`;
 
+function positiveIntEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const DB_POOL_MAX = positiveIntEnv('DB_POOL_MAX', 3);
+const DB_STATEMENT_TIMEOUT_MS = positiveIntEnv('DB_STATEMENT_TIMEOUT_MS', 30000);
+
 // PostgreSQL Connection Pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -791,13 +799,13 @@ const pool = new Pool({
   // A Nano Supabase instance is easily saturated by several of the aggregate
   // endpoints at once. Keeping three queries in flight leaves headroom for
   // Supabase's own monitoring and for the scraper/status connection.
-  max: Number(process.env.DB_POOL_MAX || 3),
+  max: DB_POOL_MAX,
   // A browser can disappear while Postgres keeps doing the work. Without a
   // server-side timeout those abandoned aggregates remain active, fill the
   // pool, and continue burning Disk IO long after the caller has gone away.
   // `options` is sent as a Postgres startup parameter, so the database itself
   // cancels the statement rather than merely timing out the Node promise.
-  options: `-c statement_timeout=${Number(process.env.DB_STATEMENT_TIMEOUT_MS || 30000)}`,
+  options: `-c statement_timeout=${DB_STATEMENT_TIMEOUT_MS}`,
   // Recycle idle clients rather than holding them open indefinitely: the
   // Supabase session pooler sits between us and Postgres and will drop a
   // long-idle connection, so we would rather reconnect on our own terms than
@@ -826,12 +834,24 @@ const isTransientDbError = (err) =>
 const RETRY_DELAYS_MS = [500, 1500, 4000, 8000];
 async function dbQuery(text, params) {
   for (let attempt = 0; ; attempt++) {
+    let client;
     try {
-      return await pool.query(text, params);
+      client = await pool.connect();
+      await client.query('BEGIN');
+      // Supavisor can ignore startup `options` while proxying a pooled
+      // connection. SET LOCAL is executed on the exact backend that will run
+      // the query, so the limit is guaranteed even through the pooler.
+      await client.query(`SET LOCAL statement_timeout = '${DB_STATEMENT_TIMEOUT_MS}ms'`);
+      const result = await client.query(text, params);
+      await client.query('COMMIT');
+      return result;
     } catch (err) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
       if (attempt >= RETRY_DELAYS_MS.length || !isTransientDbError(err)) throw err;
       console.warn(`[db] Transient error "${err.code || err.message}", retry ${attempt + 1}/${RETRY_DELAYS_MS.length}...`);
       await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    } finally {
+      if (client) client.release();
     }
   }
 }
@@ -842,6 +862,7 @@ async function dbQueryWithNestloopOff(text, params) {
     try {
       client = await pool.connect();
       await client.query('BEGIN');
+      await client.query(`SET LOCAL statement_timeout = '${DB_STATEMENT_TIMEOUT_MS}ms'`);
       await client.query('SET LOCAL enable_nestloop = off');
       const res = await client.query(text, params);
       await client.query('COMMIT');
