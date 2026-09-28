@@ -976,6 +976,7 @@ async function run() {
 
         if (pendingArtists.length === 0) {
           console.log('[scraper] All artists already have today\'s data. Nothing to do. Exiting gracefully.');
+          console.log('[scraper] OUTCOME=noop');
           if (!artistFilterArg) await maybeFixLateUpdateDay(client, allTrackedArtistIds);
           await backfillMissingArtistPhotos(page, client);
           await setScraperStatus(client, 'idle');
@@ -991,6 +992,7 @@ async function run() {
         // run since the canary's last positive detection, so we scrape them.)
         if (!spotifyUpdatedToday && pendingArtists.length === artistsToRun.length) {
           console.log('[scraper] No fresh update and no artist captured yet today. Exiting gracefully.');
+          console.log('[scraper] OUTCOME=noop');
           await backfillMissingArtistPhotos(page, client);
           await setScraperStatus(client, 'idle');
           client.release();
@@ -1052,6 +1054,10 @@ async function run() {
       }
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
+      // Machine-readable marker for the GitHub workflow. Expensive maintenance
+      // steps must run only after a real catalogue pass, never on every hourly
+      // canary check.
+      console.log('[scraper] OUTCOME=updated');
 
       if (failedArtists.length) {
         console.error(`[scraper] ⚠️ ${failedArtists.length}/${attempted} sanatçı başarısız:`);

@@ -60,6 +60,7 @@ jobs:
         run: npm ci
 
       - name: Run scraper
+        id: scraper
         working-directory: services/spotify-scraper
         env:
           SP_DC:        ${{ secrets.SP_DC }}
@@ -68,10 +69,19 @@ jobs:
           FORCE_SCRAPE: ${{ inputs.force }}
           SCRAPE_ARTISTS: ${{ inputs.artists }}
         run: |
+          set -o pipefail
           ARGS=""
           if [ -n "$SCRAPE_ARTISTS" ]; then ARGS="--artists=$SCRAPE_ARTISTS"; fi
           echo "Running: node scraper.js $ARGS (force=$FORCE_SCRAPE)"
-          node scraper.js $ARGS
+          SCRAPER_LOG=$(mktemp)
+          node scraper.js $ARGS | tee "$SCRAPER_LOG"
+          if grep -q '^\[scraper\] OUTCOME=updated$' "$SCRAPER_LOG"; then
+            echo "did_update=true" >> "$GITHUB_OUTPUT"
+            echo "Yeni Spotify verisi işlendi; bakım adımları çalışacak."
+          else
+            echo "did_update=false" >> "$GITHUB_OUTPUT"
+            echo "Yeni veri yok; ağır bakım adımları atlanacak."
+          fi
 
       # Self-healing kworb reconciliation. A newly added artist virtually always
       # sits below their kworb page — a co-tracked collab lands in the OTHER
@@ -87,7 +97,7 @@ jobs:
       # without ever threatening the scrape job's timeout. Non-fatal by design:
       # a kworb outage must never fail the run that already captured the data.
       - name: Reconcile against kworb
-        if: always()
+        if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
         timeout-minutes: 10
         working-directory: services/spotify-scraper
@@ -120,7 +130,7 @@ jobs:
       # 12 degil 30 sarkiya bakabiliyor; esik de 1M'den 100k'ya indi, boylece
       # kucuk featured surumler de kapsaniyor.
       - name: Repair stale playcounts
-        if: always()
+        if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
         timeout-minutes: 12
         working-directory: services/spotify-scraper
@@ -130,10 +140,9 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node repair-stale-playcounts.js --limit=30 --min=100000 --apply
 
-      # Saatlik dedup. Dedup normalde sadece GERCEK tarama yapan run'in sonunda
-      # calisiyor, yani gunde bir; arada ortaya cikan kopyalar (yeni kesfedilen
-      # bir derleme edition'i, Spotify'in bir kaydi baskasina baglamasi) ertesi
-      # gune kadar duruyor ve o sure boyunca toplamlar sisik gorunuyor.
+      # Dedup only after a REAL update. Running this on every hourly no-op canary
+      # check needlessly rebuilt the catalogue and chart cache, exhausting the
+      # Supabase Nano Disk IO budget.
       #
       # Bu adim vaktiyle Neon yuzunden kaldirilmisti: her calisma compute'u
       # uyandiriyor, fatura da uyanik kalma suresine gore kesiliyordu. Supabase
@@ -144,7 +153,7 @@ jobs:
       # kaniti kesin olanlari — ayni gunde birebir ayni playcount, 3+ gun —
       # manual_merges kurali olarak birlestirir. Geri kalani rapora yazar.
       - name: Deduplicate + audit
-        if: always()
+        if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
         timeout-minutes: 10
         working-directory: services/spotify-scraper
@@ -169,7 +178,7 @@ jobs:
       #
       # X anahtarlari yoksa sessizce atlanir; hicbir kosulda run'i dusurmez.
       - name: Tweet monthly listeners
-        if: always()
+        if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
         timeout-minutes: 5
         working-directory: services/spotify-scraper
@@ -192,7 +201,7 @@ jobs:
       # tarama surerken gunluk rakam oturana kadar oynuyor (9.8M → 9.4M), yarim
       # bir gunle atilan tweet birkac dakika sonra yanlisa donebilir.
       - name: Tweet daily recap
-        if: always()
+        if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
         timeout-minutes: 5
         working-directory: services/spotify-scraper
@@ -215,7 +224,7 @@ jobs:
       # Hicbir sekilde run'i dusurmez: veri zaten yazildi, bildirim sadece bir
       # ikram — ve bir sonraki saatlik run zaten tekrar dener.
       - name: Notify followers (web push)
-        if: always()
+        if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
         env:
           DISPATCH_SECRET: ${{ secrets.PUSH_DISPATCH_SECRET }}
@@ -234,4 +243,3 @@ jobs:
         if: failure()
         run: |
           echo "Scraper başarısız oldu! Loglara bak: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
