@@ -374,6 +374,7 @@ function fmtStreamsShort(n) {
 // request that arrives after the TTL means an idle site costs nothing.
 const ROSTER_CACHE_TTL_MS = 10 * 60 * 1000;
 const OG_CACHE_TTL_MS = 30 * 60 * 1000;
+const OG_STATS_CACHE_ENABLED = process.env.ENABLE_OG_STATS_CACHE === 'true';
 let rosterCacheAt = 0;
 let ogCacheAt = 0;
 let rosterRefreshInFlight = null;
@@ -422,7 +423,7 @@ function touchRosterCaches() {
   if (now - rosterCacheAt >= ROSTER_CACHE_TTL_MS) {
     startRosterRefresh();
   }
-  if (now - ogCacheAt >= OG_CACHE_TTL_MS) {
+  if (OG_STATS_CACHE_ENABLED && now - ogCacheAt >= OG_CACHE_TTL_MS) {
     ogCacheAt = now;
     refreshOgStatsCache().catch(() => {});
   }
@@ -787,7 +788,16 @@ const pool = new Pool({
   ssl: {
     rejectUnauthorized: false
   },
-  max: 5,
+  // A Nano Supabase instance is easily saturated by several of the aggregate
+  // endpoints at once. Keeping three queries in flight leaves headroom for
+  // Supabase's own monitoring and for the scraper/status connection.
+  max: Number(process.env.DB_POOL_MAX || 3),
+  // A browser can disappear while Postgres keeps doing the work. Without a
+  // server-side timeout those abandoned aggregates remain active, fill the
+  // pool, and continue burning Disk IO long after the caller has gone away.
+  // `options` is sent as a Postgres startup parameter, so the database itself
+  // cancels the statement rather than merely timing out the Node promise.
+  options: `-c statement_timeout=${Number(process.env.DB_STATEMENT_TIMEOUT_MS || 30000)}`,
   // Recycle idle clients rather than holding them open indefinitely: the
   // Supabase session pooler sits between us and Postgres and will drop a
   // long-idle connection, so we would rather reconnect on our own terms than
@@ -1011,7 +1021,11 @@ const validateArtistAccess = (req, res, next) => {
 // ---------------------------------------------------------------------------
 const responseCache = new Map();       // key -> { at, value, pending, settle, fail }
 const RESPONSE_CACHE_MAX = 400;
-const CACHE_TTL_LIVE_MS = 5 * 60 * 1000;    // moves only when a scrape lands
+// A successful scrape transition explicitly clears this cache in
+// /api/scraper-status below. Keeping a warm answer for an hour therefore does
+// not make the site stale; it only avoids rebuilding the same expensive daily
+// aggregates every five minutes when the database has not changed.
+const CACHE_TTL_LIVE_MS = Number(process.env.LIVE_CACHE_TTL_MS || 60 * 60 * 1000);
 const CACHE_TTL_ROSTER_MS = 10 * 60 * 1000; // moves only when the admin edits it
 const CACHE_TTL_PAST_MS = 6 * 60 * 60 * 1000; // a finished day never changes again
 
@@ -5133,6 +5147,9 @@ app.get('*', requireAuth, (req, res) => {
 app.listen(PORT, async () => {
   console.log(`Server running at http://localhost:${PORT}`);
   await whenRosterReady();
-  // OG preview stats depend on the roster cache above being populated first.
-  refreshOgStatsCache();
+  // Numeric Open Graph previews are optional decoration. On a Nano database,
+  // recomputing every artist at each Render restart can consume the whole IO
+  // budget before a visitor's page queries get a turn. Keep the feature behind
+  // an explicit opt-in; ordinary previews already have a plain-text fallback.
+  if (OG_STATS_CACHE_ENABLED) refreshOgStatsCache();
 });
