@@ -176,6 +176,38 @@ test('filterHistoryByRange', () => {
   assert.equal(last7[last7.length - 1].v, 30);
 });
 
+test('selectedSnapshotState waits for the artist completion stamp', () => {
+  const { selectedSnapshotState, snapshotDay } = loadAppFunctions([
+    'selectedSnapshotState', 'snapshotDay'
+  ]);
+  const artistId = '31TPClRtHm23RisEBtV3X7';
+  const base = {
+    status: 'scraping',
+    target_date: '2026-09-29',
+    current_artist_id: artistId,
+    artists: [{
+      artist_id: artistId,
+      // The first album has already written today's rows, but the full artist
+      // has not received its completion stamp yet.
+      last_date: '2026-09-29',
+      last_scanned_date: '2026-09-28',
+    }],
+  };
+  const writing = selectedSnapshotState(base, artistId);
+  assert.equal(writing.pending, true);
+  assert.equal(writing.complete, false);
+  assert.equal(writing.viewedIsCurrent, true);
+
+  const finished = selectedSnapshotState({
+    ...base,
+    current_artist_id: 'another-artist',
+    artists: [{ ...base.artists[0], last_scanned_date: '2026-09-29' }],
+  }, artistId);
+  assert.equal(finished.pending, false);
+  assert.equal(finished.complete, true);
+  assert.equal(snapshotDay('2026-09-29T00:00:00.000Z'), '2026-09-29');
+});
+
 test('aiChartRow renders daily and weekly chart-history labels', () => {
   const { aiChartRow, escHtml, formatNumber } = loadAppFunctions(['aiChartRow', 'escHtml', 'formatNumber']);
   const base = {

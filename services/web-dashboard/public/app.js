@@ -70,6 +70,8 @@ const sortHeaders = document.querySelectorAll('th.sortable');
 
 // Stats Elements
 const totalStreamsEl = document.getElementById('total-streams');
+const totalStreamsLabelEl = document.getElementById('total-streams-label');
+const totalSnapshotNoteEl = document.getElementById('total-snapshot-note');
 const monthlyListenersEl = document.getElementById('monthly-listeners');
 const monthlyListenersChangeEl = document.getElementById('monthly-listeners-change');
 const monthlyListenersPeakEl = document.getElementById('monthly-listeners-peak');
@@ -104,6 +106,96 @@ const dailyStreamsEl = document.getElementById('daily-streams');
 const totalSongsEl = document.getElementById('total-songs');
 const lastUpdateEl = document.getElementById('last-update');
 const statsGrid = document.querySelector('.stats-grid');
+
+// A scrape writes one artist album-by-album. Keep a tiny browser-side history
+// of complete headline responses so the card can show yesterday's coherent
+// total while today's snapshot is still being assembled.
+const COMPLETED_STATS_KEY = 'spotify-streams-complete-stats-v1';
+let currentSnapshotState = { pending: false, targetDate: null };
+
+function snapshotDay(value) {
+  return value ? String(value).slice(0, 10) : null;
+}
+
+function selectedSnapshotState(data, artistId) {
+  const status = data?.status || 'idle';
+  const targetDate = snapshotDay(data?.target_date);
+  const artists = Array.isArray(data?.artists) ? data.artists : [];
+  const selected = artists.find(a => a.artist_id === artistId) || null;
+  const scannedDate = snapshotDay(selected?.last_scanned_date);
+  const viewedIsCurrent = !!artistId && status === 'scraping' && data?.current_artist_id === artistId;
+  const complete = !!(targetDate && scannedDate && scannedDate >= targetDate);
+  return {
+    selected,
+    targetDate,
+    scannedDate,
+    viewedIsCurrent,
+    complete,
+    pending: !!artistId && status === 'scraping' && (viewedIsCurrent || !complete),
+  };
+}
+
+function readStatsHistory(artistId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(COMPLETED_STATS_KEY) || '{}');
+    return Array.isArray(all[artistId]) ? all[artistId] : [];
+  } catch { return []; }
+}
+
+function rememberStatsSnapshot(artistId, stats) {
+  const date = snapshotDay(stats?.last_update);
+  if (!artistId || !date || stats?.total_streams == null) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(COMPLETED_STATS_KEY) || '{}');
+    const rows = Array.isArray(all[artistId]) ? all[artistId] : [];
+    all[artistId] = [{ ...stats, _snapshot_date: date }, ...rows.filter(r => r._snapshot_date !== date)]
+      .sort((a, b) => String(b._snapshot_date).localeCompare(String(a._snapshot_date)))
+      .slice(0, 3);
+    localStorage.setItem(COMPLETED_STATS_KEY, JSON.stringify(all));
+  } catch { /* private mode / storage full: the loading label still remains honest */ }
+}
+
+function lastCompleteStats(artistId, targetDate) {
+  return readStatsHistory(artistId)
+    .filter(r => !targetDate || r._snapshot_date < targetDate)
+    .sort((a, b) => String(b._snapshot_date).localeCompare(String(a._snapshot_date)))[0] || null;
+}
+
+function applySnapshotLoadingUI(state) {
+  currentSnapshotState = state || { pending: false, targetDate: null };
+  const pending = !!currentSnapshotState.pending;
+  if (totalStreamsLabelEl) totalStreamsLabelEl.textContent = pending ? 'Last Snapshot' : 'Total Streams';
+  if (totalSnapshotNoteEl) {
+    totalSnapshotNoteEl.textContent = pending
+      ? `${currentSnapshotState.targetDate ? formatDate(currentSnapshotState.targetDate) + ' · ' : ''}Today snapshot: Loading…`
+      : '';
+    totalSnapshotNoteEl.classList.toggle('hidden', !pending);
+  }
+  if (breakdownToggle) breakdownToggle.disabled = pending;
+  if (dailyBreakdownToggle) dailyBreakdownToggle.disabled = pending;
+  if (!pending) return;
+
+  const previous = lastCompleteStats(currentArtist, currentSnapshotState.targetDate);
+  if (previous) {
+    totalStreamsEl.textContent = formatNumber(previous.total_streams);
+    leadStreamsEl.textContent = formatNumber(previous.lead_streams);
+    featStreamsEl.textContent = formatNumber(previous.feat_streams);
+    soloStreamsEl.textContent = formatNumber(previous.solo_streams);
+    totalSongsEl.textContent = previous.total_songs ?? '0';
+    lastUpdateEl.textContent = formatDate(previous.last_update);
+    setSharePct(leadStreamsPctEl, previous.lead_streams, previous.total_streams);
+    setSharePct(featStreamsPctEl, previous.feat_streams, previous.total_streams);
+    setSharePct(soloStreamsPctEl, previous.solo_streams, previous.total_streams);
+  } else {
+    // Never label a rolling half-scraped value as the last snapshot.
+    totalStreamsEl.textContent = '—';
+    leadStreamsEl.textContent = '—';
+    featStreamsEl.textContent = '—';
+    soloStreamsEl.textContent = '—';
+  }
+  dailyStreamsEl.textContent = 'Loading…';
+  dailyStreamsEl.classList.remove('gain-positive', 'gain-negative');
+}
 
 // View Toggle Elements
 const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
@@ -878,6 +970,13 @@ async function fetchData() {
     const statsData = await statsRes.json();
     if (artist !== currentArtist) return; // switched away while loading
     currentArtistRawStats = statsData;
+    rememberStatsSnapshot(artist, statsData);
+    if (statsData.snapshot_loading) {
+      currentSnapshotState = {
+        pending: true,
+        targetDate: snapshotDay(statsData.target_snapshot_date),
+      };
+    }
     totalStreamsEl.textContent = formatNumber(statsData.total_streams);
     leadStreamsEl.textContent = formatNumber(statsData.lead_streams);
     featStreamsEl.textContent = formatNumber(statsData.feat_streams);
@@ -892,6 +991,8 @@ async function fetchData() {
     // Bind daily streams. Show the raw daily streams (daily gain).
     const dailyGain = Number(statsData.daily_gain);
     dailyStreamsEl.textContent = (dailyGain > 0 ? '+' : '') + formatNumber(dailyGain);
+    dailyStreamsEl.classList.toggle('gain-positive', dailyGain >= 0);
+    dailyStreamsEl.classList.toggle('gain-negative', dailyGain < 0);
 
     // Lead / Featured split of the daily gain (mirrors the Total Streams breakdown).
     if (leadDailyStreamsEl) {
@@ -936,6 +1037,9 @@ async function fetchData() {
     
     totalSongsEl.textContent = statsData.total_songs ?? '0';
     lastUpdateEl.textContent = formatDate(statsData.last_update);
+    // If this artist is still being assembled, replace the rolling aggregate
+    // above with the last complete browser-cached snapshot (or an honest dash).
+    applySnapshotLoadingUI(currentSnapshotState);
 
     // Fetch artist-level stats (monthly listeners)
     try {
@@ -5728,7 +5832,9 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   if (!banner) return;
 
   let lastStatus = 'idle';
-  let lastSelectedDate = null; // last seen snapshot date for the viewed artist
+  let lastSelectedScanDate = null; // completion stamp, not the first row written
+  let wasViewedCurrent = false;
+  let statusArtistId = null;
 
   async function checkScraperStatus() {
     try {
@@ -5739,24 +5845,6 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       console.error('Failed to fetch scraper status:', err);
       await updateSync({ status: 'idle', artists: [] });
     }
-  }
-
-  const dayOf = (d) => (d ? String(d).slice(0, 10) : null);
-
-  // Work out, from the per-artist snapshot dates, whether the artist the user is
-  // currently looking at is already up to date for this run. The scrape updates
-  // artists one by one, so the "leading edge" is the newest snapshot date across
-  // the roster; an artist already at that date is done and safe to view.
-  function selectedInfo(data) {
-    const arts = Array.isArray(data.artists) ? data.artists : [];
-    let maxDate = null;
-    for (const a of arts) {
-      const d = dayOf(a.last_date);
-      if (d && (!maxDate || d > maxDate)) maxDate = d;
-    }
-    const sel = arts.find(a => a.artist_id === currentArtist) || null;
-    const selDate = sel ? dayOf(sel.last_date) : null;
-    return { maxDate, sel, selDate, selectedFresh: !!(selDate && maxDate && selDate >= maxDate) };
   }
 
   async function reloadCurrent() {
@@ -5771,10 +5859,19 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
   let syncIsActive = false;
 
   async function updateSync(data) {
+    if (statusArtistId !== currentArtist) {
+      statusArtistId = currentArtist;
+      lastSelectedScanDate = null;
+      wasViewedCurrent = false;
+    }
     const status = data.status || 'idle';
-    const active = status === 'scraping' || status === 'deduping';
+    const active = status === 'scraping' || status === 'deduping' || status === 'refreshing charts';
     syncIsActive = active;
-    const { sel, selDate, selectedFresh } = selectedInfo(data);
+    const snap = selectedSnapshotState(data, currentArtist);
+    const sel = snap.selected;
+    const selDate = snap.scannedDate;
+    const selectedFresh = snap.complete && !snap.viewedIsCurrent;
+    const viewedIsCurrent = snap.viewedIsCurrent;
 
     if (active) {
       let msg, fresh = false;
@@ -5786,14 +5883,13 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       const nowOf = nowName && data.progress_total
         ? ` · ${(Number(data.progress_done) || 0) + 1}/${data.progress_total}` : '';
       const nowTag = nowName ? ` <span class="sync-now">Now: ${escName(nowName)}${nowOf}</span>` : '';
-      const viewedIsCurrent = !!(nowName && data.current_artist_id === currentArtist);
-      if (status === 'deduping') {
+      if (status === 'deduping' || status === 'refreshing charts') {
         msg = 'Merging duplicates & finalizing — refreshing shortly…';
+      } else if (viewedIsCurrent) {
+        msg = `Syncing ${escName(currentArtistName || 'this artist')}’s latest playcounts now${nowOf}…`;
       } else if (sel && selectedFresh) {
         msg = `<span class="check">✓</span> ${escName(currentArtistName || 'This artist')} is up to date — syncing other artists…${nowTag}`;
         fresh = true;
-      } else if (viewedIsCurrent) {
-        msg = `Syncing ${escName(currentArtistName || 'this artist')}’s latest playcounts now${nowOf}…`;
       } else if (sel) {
         msg = `Syncing ${escName(currentArtistName || 'this artist')}’s latest playcounts…${nowTag}`;
       } else {
@@ -5810,15 +5906,27 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     // Refresh the dashboard the moment the *viewed* artist's data lands — either
     // when the whole run finishes, or mid-run when this artist's snapshot date
     // advances (so a ready artist shows immediately without waiting for the rest).
-    const finishedRun = (lastStatus === 'scraping' || lastStatus === 'deduping') && status === 'idle';
-    const becameFresh = currentArtist && selDate && lastSelectedDate && selDate > lastSelectedDate;
-    if (currentArtist && (finishedRun || becameFresh)) {
+    const wasActive = lastStatus === 'scraping' || lastStatus === 'deduping' || lastStatus === 'refreshing charts';
+    const finishedRun = wasActive && status === 'idle';
+    const becameFresh = currentArtist && selDate && lastSelectedScanDate && selDate > lastSelectedScanDate;
+    const finishedViewedArtist = wasViewedCurrent && !viewedIsCurrent && selectedFresh;
+    const shouldReload = currentArtist && (finishedRun || becameFresh || finishedViewedArtist);
+
+    // Keep the coherent previous total visible while this artist is pending.
+    // When its completion stamp lands, reload first and only then remove the
+    // loading treatment—never flash the old number as today's total.
+    if (snap.pending) applySnapshotLoadingUI({ pending: true, targetDate: snap.targetDate });
+    if (shouldReload) {
       console.log('[sync] viewed artist data updated, reloading…');
       await reloadCurrent();
+      applySnapshotLoadingUI({ pending: false, targetDate: snap.targetDate });
+    } else if (!snap.pending) {
+      applySnapshotLoadingUI({ pending: false, targetDate: snap.targetDate });
     }
 
     lastStatus = status;
-    if (selDate) lastSelectedDate = selDate;
+    if (selDate) lastSelectedScanDate = selDate;
+    wasViewedCurrent = viewedIsCurrent;
   }
 
   // Check immediately on load

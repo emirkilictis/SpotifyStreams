@@ -78,6 +78,15 @@ test('/api/stats, /api/artist-stats, /api/albums, /api/milestones-reached -> 200
   }
 });
 
+test('/api/stats exposes snapshot coherence metadata', async () => {
+  const res = await get(`/api/stats?artist=${JT}`);
+  assert.equal(res.status, 200);
+  const stats = await res.json();
+  assert.equal(typeof stats.snapshot_loading, 'boolean');
+  assert.match(stats.target_snapshot_date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(stats.last_update, /^\d{4}-\d{2}-\d{2}$/);
+});
+
 test('The 20/20 Experience editions remain separate album cards', async () => {
   const res = await get(`/api/albums?artist=${JT}`);
   assert.equal(res.status, 200);

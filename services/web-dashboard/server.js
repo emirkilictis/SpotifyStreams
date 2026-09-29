@@ -1063,6 +1063,17 @@ function invalidateResponseCache() {
   responseCache.clear();
 }
 
+// A roster scrape completes artists one at a time. Drop only the artist that
+// just finished so an open dashboard can fetch its coherent new totals without
+// waiting for the other 60+ artists (or throwing away every other warm cache).
+function invalidateArtistResponseCache(artistId) {
+  if (!artistId) return;
+  const needle = `:${String(artistId).replace('spotify:artist:', '')}`;
+  for (const key of responseCache.keys()) {
+    if (key.includes(needle)) responseCache.delete(key);
+  }
+}
+
 function cacheFor(ttl, keyFn) {
   return function responseCacheMiddleware(req, res, next) {
     const key = keyFn(req);
@@ -1906,7 +1917,15 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
     // Both the headline sums and the 7-day average come off one pass over this
     // artist's rows — see artistLatestAggCTE.
     const query = `
-      WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+      WITH scrape_meta AS (
+        SELECT
+          COALESCE((SELECT status FROM scraper_status WHERE id = 1), 'idle') AS status,
+          (SELECT current_artist_id FROM scraper_status WHERE id = 1) AS current_artist_id,
+          (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date) AS target_date,
+          (SELECT last_scanned_date FROM tracked_artists
+            WHERE artist_id = REPLACE($1, 'spotify:artist:', '')) AS last_scanned_date
+      ),
+      ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
           AND s.id NOT IN (${hiddenTrackIdsSql()})`)}
       SELECT 
         COALESCE(SUM(dsc.cumulative), 0)::bigint AS total_streams,
@@ -1936,13 +1955,23 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
           ) pd
         ) AS daily_avg_7d,
         COUNT(*)::int AS total_songs,
+        BOOL_OR(sm.status = 'scraping' AND (
+          sm.current_artist_id = REPLACE($1, 'spotify:artist:', '')
+          OR sm.last_scanned_date IS NULL
+          OR sm.last_scanned_date < sm.target_date
+        )) AS snapshot_loading,
+        MAX(sm.target_date)::text AS target_snapshot_date,
         -- The day the headline is about, not the newest row in the table: a
         -- stale-playcount repair can write a dozen rows dated today hours
         -- before the day's scrape lands.
-        (SELECT recorded_date FROM agg_day) AS last_update
+        -- Keep a DATE as YYYY-MM-DD. node-postgres otherwise serialises local
+        -- midnight to the previous UTC date for Istanbul, which makes the
+        -- browser mistake today's completed snapshot for yesterday's cache.
+        (SELECT recorded_date::text FROM agg_day) AS last_update
       FROM agg dsc
       JOIN songs s ON s.id = dsc.canonical_id
       JOIN albums a ON s.album_id = a.id
+      CROSS JOIN scrape_meta sm
       -- s.canonical_id IS NULL: count ONLY true canonical heads. The view keys on
       -- COALESCE(canonical_id, id), so a residual dedup chain/cycle would surface a
       -- non-head as its own row and double-count the recording (this is what showed
@@ -2595,6 +2624,22 @@ app.get('/api/scraper-status', requireAuth, async (req, res) => {
         return { status: 'idle', started_at: null, updated_at: null, artists: [] };
       })
       .then((payload) => {
+        // `last_date` advances as soon as an artist's FIRST album writes, which
+        // is too early: the headline would mix today's first songs with the
+        // rest of yesterday. `last_scanned_date` is stamped only after every
+        // album succeeded. Invalidate that artist at that exact boundary.
+        if (scraperStatusCache) {
+          const before = new Map((scraperStatusCache.artists || []).map(a => [
+            a.artist_id,
+            a.last_scanned_date ? String(a.last_scanned_date).slice(0, 10) : null,
+          ]));
+          for (const artist of payload.artists || []) {
+            const next = artist.last_scanned_date ? String(artist.last_scanned_date).slice(0, 10) : null;
+            if (next && before.get(artist.artist_id) !== next) {
+              invalidateArtistResponseCache(artist.artist_id);
+            }
+          }
+        }
         // A scrape that just finished means every cached total is a day out of
         // date. Drop them now so the first reader after it sees the new numbers
         // instead of waiting out the TTL.
@@ -2618,7 +2663,11 @@ async function buildScraperStatus() {
     // 1. Global scraper status row
     // SELECT *: the progress columns come from migration 024, and this must keep
     // working on a database that does not have them yet.
-    const statusRes = await dbQuery('SELECT * FROM scraper_status WHERE id = 1');
+    const statusRes = await dbQuery(`
+      SELECT scraper_status.*,
+             ((((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date))::text AS target_date
+      FROM scraper_status WHERE id = 1
+    `);
     const global = statusRes.rows[0] || { status: 'idle', started_at: null, updated_at: null };
     const scraping = global.status === 'scraping';
 
@@ -2644,6 +2693,7 @@ async function buildScraperStatus() {
           ta.artist_id,
           ta.name,
           ta.active,
+          ta.last_scanned_date::text AS last_scanned_date,
           (SELECT MAX(ss.recorded_date)
              FROM songs s
              JOIN stream_stats ss ON ss.song_id = s.id
@@ -2661,6 +2711,7 @@ async function buildScraperStatus() {
       status:      global.status,
       started_at:  global.started_at,
       updated_at:  global.updated_at,
+      target_date: global.target_date || null,
       // The artist in hand while scraping ("Scraping Taylor Swift (12/64)").
       // progress_done counts artists finished before this one.
       current_artist_id:   scraping ? (global.current_artist_id || null) : null,

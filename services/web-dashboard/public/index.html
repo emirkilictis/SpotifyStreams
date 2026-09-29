@@ -358,9 +358,10 @@
       <!-- Total Streams + expandable Lead/Solo/Featured breakdown -->
       <div class="stat-card glass stat-card-total">
         <div class="stat-info">
-          <h3>Total Streams</h3>
+          <h3 id="total-streams-label">Total Streams</h3>
           <p id="total-streams">-</p>
           <span class="stat-subtle"><span id="total-songs">-</span> songs</span>
+          <span id="total-snapshot-note" class="snapshot-loading-note hidden" aria-live="polite"></span>
         </div>
         <button id="breakdown-toggle" class="breakdown-toggle" type="button" aria-expanded="false">
           <span>Breakdown</span>

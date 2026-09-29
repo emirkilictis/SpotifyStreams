@@ -4340,6 +4340,20 @@ body.modal-open .sync-banner {
   border-top-color: rgba(255, 255, 255, 0.55);
 }
 
+/* While one artist is still being written, the number above is deliberately
+   the last coherent snapshot—not a half-yesterday/half-today rolling sum. */
+.snapshot-loading-note {
+  display: block;
+  margin-top: 7px;
+  color: var(--accent-green, #1ed760);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.snapshot-loading-note.hidden { display: none; }
+.breakdown-toggle:disabled { opacity: 0.45; cursor: wait; }
+
 /* ===== Twitter Post Generator Modal ===== */
 .twitter-post-card {
   max-width: 800px;
