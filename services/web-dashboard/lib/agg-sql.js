@@ -375,6 +375,92 @@ function artistLatestAggCTE(songFilter) {
       )`;
 }
 
+// Fast profile-page aggregate built from chart_daily_streams, the coherent
+// materialized copy refreshed after every scraper run. The live aggregate above
+// has to reconstruct canonical playcounts from the entire raw history; doing
+// that independently for /stats, /songs and /albums made a cold Taylor profile
+// take tens of seconds on the small database instance. The materialized source
+// has already done that work. Profiles only need the newest few observations per
+// head, so indexed lateral reads keep the amount of data proportional to the
+// artist's catalogue rather than its catalogue x full history.
+//
+// The server only selects this CTE when the materialized view is at least as
+// new as the artist's completion stamp. If an artist finishes in the middle of
+// a roster scrape, the server keeps using artistLatestAggCTE until the final
+// materialized-view refresh lands; the artist therefore still updates before
+// the rest of the roster without ever showing a partial total.
+function artistCachedAggCTE(songFilter, recentRows = 10) {
+  const rowLimit = Math.max(8, Math.min(Number(recentRows) || 10, 31));
+  return `
+      agg_scope AS MATERIALIZED (
+        SELECT COALESCE(s.canonical_id, s.id) AS canonical_id
+        FROM songs s
+        LEFT JOIN albums a ON s.album_id = a.id
+        LEFT JOIN tracked_artists ta ON 'spotify:artist:' || ta.artist_id = s.primary_artist
+        WHERE ${songFilter}
+        GROUP BY COALESCE(s.canonical_id, s.id)
+      ),
+      agg_gains AS MATERIALIZED (
+        SELECT sc.canonical_id,
+               cached.recorded_date,
+               cached.cumulative,
+               cached.daily_gain,
+               0::bigint AS real_change,
+               false AS is_debut_first,
+               false AS is_ai,
+               ROW_NUMBER() OVER (
+                 PARTITION BY sc.canonical_id ORDER BY cached.recorded_date DESC
+               ) AS rn
+        FROM agg_scope sc
+        CROSS JOIN LATERAL (
+          SELECT c.recorded_date, c.cumulative, c.daily_gain
+          FROM chart_daily_streams c
+          WHERE c.canonical_id = sc.canonical_id
+          ORDER BY c.recorded_date DESC
+          LIMIT ${rowLimit}
+        ) cached
+      ),
+      agg_days AS (
+        SELECT recorded_date, COUNT(*) AS heads
+        FROM agg_gains WHERE daily_gain IS NOT NULL
+        GROUP BY recorded_date
+      ),
+      agg_day AS MATERIALIZED (
+        SELECT recorded_date FROM agg_days
+        WHERE heads >= GREATEST((SELECT MAX(heads) FROM agg_days) / 4, 1)
+        ORDER BY recorded_date DESC LIMIT 1
+      ),
+      agg AS MATERIALIZED (
+        SELECT canonical_id,
+               MAX(recorded_date) FILTER (WHERE rn = 1) AS recorded_date,
+               MAX(cumulative) FILTER (WHERE rn = 1) AS cumulative,
+               CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
+                         < (SELECT recorded_date FROM agg_day) - 7
+                    THEN NULL ELSE MAX(daily_gain) FILTER (WHERE rn = 1) END AS daily_gain,
+               CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
+                         < (SELECT recorded_date FROM agg_day) - 7
+                    THEN NULL ELSE MAX(daily_gain) FILTER (WHERE rn = 2) END AS prev_daily_gain,
+               CASE WHEN MAX(recorded_date) FILTER (WHERE rn = 1)
+                         < (SELECT recorded_date FROM agg_day) - 7
+                    THEN NULL ELSE ROUND(AVG(daily_gain) FILTER (WHERE rn <= 7))::bigint END AS daily_avg_7d,
+               0::bigint AS real_change,
+               CASE WHEN COUNT(*) FILTER (
+                      WHERE recorded_date = (SELECT recorded_date FROM agg_day)
+                    ) > 0
+                    THEN MAX(daily_gain) FILTER (
+                      WHERE recorded_date = (SELECT recorded_date FROM agg_day)
+                    )
+                    ELSE (ARRAY_AGG(daily_gain ORDER BY recorded_date DESC) FILTER (
+                      WHERE daily_gain IS NOT NULL
+                        AND recorded_date <  (SELECT recorded_date FROM agg_day)
+                        AND recorded_date >= (SELECT recorded_date FROM agg_day) - 2
+                    ))[1]
+               END AS day_gain
+        FROM agg_gains
+        GROUP BY canonical_id
+      )`;
+}
+
 // Category charts need the whole selected roster at once (Female currently has
 // 8K+ canonical heads). Rebuilding canonical streams and window gains for that
 // catalogue on every request takes tens of seconds, so the scraper refreshes a
@@ -434,4 +520,4 @@ const AGG_GAINS_WITH_DEBUT_BASE = `(
         FROM agg_gains WHERE is_debut_first
       )`;
 
-module.exports = { artistLatestAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE };
+module.exports = { artistLatestAggCTE, artistCachedAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE };

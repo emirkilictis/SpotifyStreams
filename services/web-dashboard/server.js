@@ -618,7 +618,7 @@ function artistBucketMatchSQL(s, a) {
 // dashboard actually serves can be run against a real database by
 // scripts/check-stats-sql.js — the arithmetic here is where a wrong headline
 // comes from, and it was previously only checkable by loading the page.
-const { artistLatestAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE } = require('./lib/agg-sql');
+const { artistLatestAggCTE, artistCachedAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE } = require('./lib/agg-sql');
 
 // Dynamically generate the album exclusion clauses for albums query based on active artists.
 function artistAlbumMatchSQL(s) {
@@ -880,6 +880,63 @@ async function dbQueryWithNestloopOff(text, params) {
   }
 }
 
+// Profile endpoints can normally read the indexed materialized daily cache.
+// During a roster scrape an artist may finish before that cache is refreshed;
+// its completion stamp then sits ahead of the cache date and we deliberately
+// fall back to the raw/live aggregate until the final refresh catches up.
+// Cache this tiny freshness check so /stats, /songs and /albums opened together
+// do not each spend a database round trip asking the same question.
+const artistAggregateSourceCache = new Map();
+const ARTIST_AGG_SOURCE_TTL_MS = 30 * 1000;
+
+async function artistAggregateCTE(artistId, songFilter) {
+  const id = String(artistId || '').replace('spotify:artist:', '');
+  let hit = artistAggregateSourceCache.get(id);
+  let useCached = hit && hit.useCached !== undefined
+    && Date.now() - hit.at < ARTIST_AGG_SOURCE_TTL_MS
+      ? hit.useCached
+      : null;
+
+  if (useCached === null && hit?.pending) {
+    useCached = await hit.pending;
+  }
+
+  if (useCached === null) {
+    const pending = (async () => {
+      const freshness = await dbQuery(`
+        SELECT ta.last_scanned_date::text AS last_scanned_date,
+               (SELECT recorded_date::text
+                  FROM chart_daily_streams
+                 ORDER BY recorded_date DESC
+                 LIMIT 1) AS cache_date
+        FROM tracked_artists ta
+        WHERE ta.artist_id = $1
+      `, [id]);
+      const row = freshness.rows[0] || {};
+      // No completion stamp means there is no newer coherent artist snapshot
+      // that the materialized cache could be missing.
+      return Boolean(row.cache_date) && (
+        !row.last_scanned_date || row.cache_date >= row.last_scanned_date
+      );
+    })().catch((err) => {
+      // A missing/stale materialized view must never break a profile. The live
+      // aggregate is slower, but it is the authoritative safe fallback.
+      console.warn('[profile-cache] freshness check failed, using live aggregate:', err.message);
+      return false;
+    });
+    // Stats, songs and albums arrive together. Let all three await this same
+    // indexed freshness lookup instead of briefly occupying the whole pool
+    // with three identical checks before the real profile queries can start.
+    artistAggregateSourceCache.set(id, { at: Date.now(), pending });
+    useCached = await pending;
+    artistAggregateSourceCache.set(id, { at: Date.now(), useCached });
+  }
+
+  return useCached
+    ? artistCachedAggCTE(songFilter)
+    : artistLatestAggCTE(songFilter);
+}
+
 // Reload active artists cache from tracked_artists table, falling back to static roster.
 async function refreshActiveArtistsCache() {
   try {
@@ -1061,6 +1118,7 @@ function cacheSweep() {
 // the next reader recomputes instead of waiting out a TTL on stale totals.
 function invalidateResponseCache() {
   responseCache.clear();
+  artistAggregateSourceCache.clear();
 }
 
 // A roster scrape completes artists one at a time. Drop only the artist that
@@ -1068,10 +1126,12 @@ function invalidateResponseCache() {
 // waiting for the other 60+ artists (or throwing away every other warm cache).
 function invalidateArtistResponseCache(artistId) {
   if (!artistId) return;
-  const needle = `:${String(artistId).replace('spotify:artist:', '')}`;
+  const cleanId = String(artistId).replace('spotify:artist:', '');
+  const needle = `:${cleanId}`;
   for (const key of responseCache.keys()) {
     if (key.includes(needle)) responseCache.delete(key);
   }
+  artistAggregateSourceCache.delete(cleanId);
 }
 
 function cacheFor(ttl, keyFn) {
@@ -1726,11 +1786,13 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
+    const aggSql = await artistAggregateCTE(artistParam,
+      `s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})`);
     // Every per-song figure below comes from one pass over this artist's rows;
     // see artistLatestAggCTE for why that matters.
     const query = `
-      WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
-          AND s.id NOT IN (${hiddenTrackIdsSql()})`)}
+      WITH ${aggSql}
       SELECT
         s.id,
         s.title,
@@ -1914,6 +1976,9 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
+    const aggSql = await artistAggregateCTE(artistParam,
+      `s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+          AND s.id NOT IN (${hiddenTrackIdsSql()})`);
     // Both the headline sums and the 7-day average come off one pass over this
     // artist's rows — see artistLatestAggCTE.
     const query = `
@@ -1925,8 +1990,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
           (SELECT last_scanned_date FROM tracked_artists
             WHERE artist_id = REPLACE($1, 'spotify:artist:', '')) AS last_scanned_date
       ),
-      ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
-          AND s.id NOT IN (${hiddenTrackIdsSql()})`)}
+      ${aggSql}
       SELECT 
         COALESCE(SUM(dsc.cumulative), 0)::bigint AS total_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_streams,
@@ -2926,10 +2990,12 @@ app.get('/api/albums', requireAuth, validateArtistAccess,
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
-    const query = `
-      WITH ${artistLatestAggCTE(`${artistAlbumMatchSQL('s')}
+    const aggSql = await artistAggregateCTE(artistParam,
+      `${artistAlbumMatchSQL('s')}
           AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
-          AND ${FSLS_REMIX_EXCLUSION_SQL}`)},
+          AND ${FSLS_REMIX_EXCLUSION_SQL}`);
+    const query = `
+      WITH ${aggSql},
       album_canonical_songs AS (
         (
         SELECT DISTINCT ON (
@@ -3247,6 +3313,7 @@ app.get('/api/songs/:id/history', requireAuth,
       `SELECT primary_artist FROM songs WHERE id = $1`,
       [req.params.id]
     );
+    if (songCheck.rows.length === 0) return res.json([]);
     if (songCheck.rows.length > 0) {
       const primaryArtist = (songCheck.rows[0].primary_artist || '').replace('spotify:artist:', '');
       if (isArtistLockedById(primaryArtist)) {
@@ -3284,6 +3351,7 @@ app.get('/api/albums/:id/history', requireAuth,
        WHERE s.album_id = $1`,
       [req.params.id]
     );
+    if (albumCheck.rows.length === 0) return res.json([]);
     // Lock if ANY track on the album belongs to a locked artist (a mixed-artist
     // album must not slip the lock just because its first row is someone else).
     const isLockedAlbum = albumCheck.rows.some(

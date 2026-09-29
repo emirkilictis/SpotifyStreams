@@ -962,8 +962,19 @@ async function fetchData() {
     const songsTbodyEl = document.getElementById('songs-tbody');
     if (songsTbodyEl) songsTbodyEl.innerHTML = skeletonRows(8, 5);
 
-    // Weekly / Monthly cards load on their own, never holding up the stats.
-    loadPeriodStreams(artist, headers);
+    // The song list used to start only after stats AND artist-profile stats had
+    // both finished. On a cold cache that serialized the two heaviest profile
+    // requests and left the full-page loading veil up twice as long. Start the
+    // two primary reads together; the server caps DB concurrency and coalesces
+    // duplicate cache misses, so this reduces wall time without multiplying
+    // work. Wrap the early promise so a network failure is handled here rather
+    // than becoming an unhandled rejection while stats is still rendering.
+    const songsRequest = fetch(`/api/songs?artist=${artist}`, { headers })
+      .then(async response => {
+        if (!response.ok) throw new Error(`Songs request failed (${response.status})`);
+        return { data: await response.json(), error: null };
+      })
+      .catch(error => ({ data: null, error }));
 
     // Fetch stats
     const statsRes = await fetch(`/api/stats?artist=${artist}`, { headers });
@@ -1096,12 +1107,10 @@ async function fetchData() {
       if (heroRankSep) heroRankSep.style.display = 'none';
     }
 
-    // Fetch achieved milestones (separate collapsible section)
-    fetchAchievedMilestones(headers);
-
     // Fetch songs
-    const songsRes = await fetch(`/api/songs?artist=${artist}`, { headers });
-    const songsData = await songsRes.json();
+    const songsResult = await songsRequest;
+    if (songsResult.error) throw songsResult.error;
+    const songsData = songsResult.data;
     if (artist !== currentArtist) return; // switched away while loading
 
     // Sort initially by cumulative streams desc and assign a global rank
@@ -1113,6 +1122,12 @@ async function fetchData() {
     
     renderSongs();
     renderMilestones();
+    // Weekly/monthly cards and achieved milestones are secondary. Starting
+    // them only after the headline + song list are visible prevents those
+    // history scans from competing with the three profile-opening queries for
+    // the small DB pool. They remain fire-and-forget from here.
+    loadPeriodStreams(artist, headers);
+    fetchAchievedMilestones(headers);
     // If the X post generator is open it was built before these arrived.
     if (window._refreshTwitterPreview) window._refreshTwitterPreview();
     // Same for the stats card, which is a pure snapshot of the loaded data.
