@@ -469,9 +469,14 @@ async function refreshOgStatsCache() {
     // seyi atiyordu: ortalama 7,6 sn, 26 gunde 15.240 cagri, ~32 saat DB zamani;
     // pg_stat_statements'in en tepesi. Bir tur 64 sanatcida ~4 dakika surup
     // havuzun 2/5'ini tutuyordu ve admin panelinin 60 satirlik Artists sorgusu
-    // bile arkasinda 10 sn bekliyordu. Artik /api/stats ile ayni sorgu
-    // (artistLatestAggCTE: once bu sanatcinin sarkilari, sonra yalnizca onlarin
-    // satirlari) — ayni toplam ve 7 gunluk ortalama, sanatci basina ~0,5 sn.
+    // bile arkasinda 10 sn bekliyordu.
+    //
+    // 2026-10-01: /api/stats indexed chart cache'e gecince bu arka plan isi
+    // eski artistLatestAggCTE'de kaldi. Tek sorgu bile 6+ saniye bir baglantiyi
+    // tutuyor; profil acilisi stats/songs/albums'i beraber istedigi icin uc
+    // baglantilik havuzun arkasinda bekliyordu. Artik profil endpointleriyle
+    // ayni freshness secicisini kullanir: chart cache sanatcidan geri degilse
+    // indexed cache, yeni biten sanatci cache'in ilerisindeyse live aggregate.
     // Ayni anda bir tane.
     const OG_NEFES_MS = 120;
     const baslangic = Date.now();
@@ -484,9 +489,11 @@ async function refreshOgStatsCache() {
     async function ogTekSanatci(a, next) {
       try {
         const uri = `spotify:artist:${a.artist_id}`;
+        const songFilter = `s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
+              AND s.id NOT IN (${hiddenTrackIdsSql()})`;
+        const aggregateCTE = await artistAggregateCTE(a.artist_id, songFilter);
         const r = await dbQuery(
-          `WITH ${artistLatestAggCTE(`s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
-              AND s.id NOT IN (${hiddenTrackIdsSql()})`)}
+          `WITH ${aggregateCTE}
            SELECT COALESCE(SUM(dsc.cumulative), 0)::bigint AS total,
                   (
                     SELECT COALESCE(ROUND(AVG(pd.day_gain)), 0)::bigint
@@ -2677,44 +2684,51 @@ app.get('/api/scraper-status', requireAuth, async (req, res) => {
     if (scraperStatusCache && Date.now() - scraperStatusAt < SCRAPER_STATUS_TTL_MS) {
       return res.json(scraperStatusCache);
     }
-    // Collapse concurrent misses into one query.
-    if (scraperStatusInFlight) return res.json(await scraperStatusInFlight);
-    scraperStatusInFlight = buildScraperStatus()
-      .catch((err) => {
-        // Over quota, asleep, whatever — the banner is decoration. Degrade to
-        // "idle" and cache THAT too, so a database that is refusing queries
-        // doesn't get one retry per poll per tab.
-        console.error('Scraper status error:', err.message);
-        return { status: 'idle', started_at: null, updated_at: null, artists: [] };
-      })
-      .then((payload) => {
-        // `last_date` advances as soon as an artist's FIRST album writes, which
-        // is too early: the headline would mix today's first songs with the
-        // rest of yesterday. `last_scanned_date` is stamped only after every
-        // album succeeded. Invalidate that artist at that exact boundary.
-        if (scraperStatusCache) {
-          const before = new Map((scraperStatusCache.artists || []).map(a => [
-            a.artist_id,
-            a.last_scanned_date ? String(a.last_scanned_date).slice(0, 10) : null,
-          ]));
-          for (const artist of payload.artists || []) {
-            const next = artist.last_scanned_date ? String(artist.last_scanned_date).slice(0, 10) : null;
-            if (next && before.get(artist.artist_id) !== next) {
-              invalidateArtistResponseCache(artist.artist_id);
+    // Collapse concurrent misses into one query. Once we have any good answer,
+    // refresh it stale-while-revalidate: a busy scraper/database must not make
+    // every open page wait several seconds just to paint the sync banner.
+    if (!scraperStatusInFlight) {
+      scraperStatusInFlight = buildScraperStatus()
+        .catch((err) => {
+          // Over quota, asleep, whatever — the banner is decoration. Degrade to
+          // "idle" and cache THAT too, so a database that is refusing queries
+          // doesn't get one retry per poll per tab.
+          console.error('Scraper status error:', err.message);
+          return { status: 'idle', started_at: null, updated_at: null, artists: [] };
+        })
+        .then((payload) => {
+          // `last_date` advances as soon as an artist's FIRST album writes, which
+          // is too early: the headline would mix today's first songs with the
+          // rest of yesterday. `last_scanned_date` is stamped only after every
+          // album succeeded. Invalidate that artist at that exact boundary.
+          if (scraperStatusCache) {
+            const before = new Map((scraperStatusCache.artists || []).map(a => [
+              a.artist_id,
+              a.last_scanned_date ? String(a.last_scanned_date).slice(0, 10) : null,
+            ]));
+            for (const artist of payload.artists || []) {
+              const next = artist.last_scanned_date ? String(artist.last_scanned_date).slice(0, 10) : null;
+              if (next && before.get(artist.artist_id) !== next) {
+                invalidateArtistResponseCache(artist.artist_id);
+              }
             }
           }
-        }
-        // A scrape that just finished means every cached total is a day out of
-        // date. Drop them now so the first reader after it sees the new numbers
-        // instead of waiting out the TTL.
-        if (scraperStatusCache && scraperStatusCache.status === 'scraping' && payload.status !== 'scraping') {
-          invalidateResponseCache();
-        }
-        scraperStatusCache = payload;
-        scraperStatusAt = Date.now();
-        return payload;
-      })
-      .finally(() => { scraperStatusInFlight = null; });
+          // A scrape that just finished means every cached total is a day out of
+          // date. Drop them now so the first reader after it sees the new numbers
+          // instead of waiting out the TTL.
+          if (scraperStatusCache && scraperStatusCache.status === 'scraping' && payload.status !== 'scraping') {
+            invalidateResponseCache();
+          }
+          scraperStatusCache = payload;
+          scraperStatusAt = Date.now();
+          return payload;
+        })
+        .finally(() => { scraperStatusInFlight = null; });
+    }
+    if (scraperStatusCache) {
+      res.setHeader('X-Scraper-Status-Cache', 'STALE');
+      return res.json(scraperStatusCache);
+    }
     return res.json(await scraperStatusInFlight);
   } catch (err) {
     console.error('Scraper status error:', err);
@@ -2741,27 +2755,19 @@ async function buildScraperStatus() {
     //    Falls back gracefully if tracked_artists doesn't exist yet.
     let perArtist = [];
     try {
-      // Reads canonical_streams DIRECTLY, not daily_streams_canonical: that view
-      // recomputes a running MAX and a LAG over the whole catalogue every time
-      // it is touched. The banner only needs each artist's newest snapshot date
-      // — the row_count / first_date this used to also compute were never read
-      // by the client, and COUNT(DISTINCT) over that view was the expensive bit.
-      //
-      // And not canonical_streams either: that view groups ALL of stream_stats
-      // before the join can narrow it (mean 2.4 s, 106 s under load, 7K calls).
-      // The newest reading per artist straight off stream_stats uses the
-      // (song_id, recorded_date) index — same dates for all 64 artists, half
-      // the time. The public page polls this.
+      // The public page only needs last_scanned_date: unlike a raw last row it
+      // advances after the artist's whole catalogue is coherent. The admin
+      // table's legacy `last_date` field can safely expose that same completion
+      // stamp. Do not derive it with 70 correlated MAX(stream_stats) scans:
+      // under an active scraper those scans took 6+ seconds and every open tab
+      // polls this endpoint, competing with the actual profile requests.
       const artistRes = await dbQuery(`
         SELECT
           ta.artist_id,
           ta.name,
           ta.active,
           ta.last_scanned_date::text AS last_scanned_date,
-          (SELECT MAX(ss.recorded_date)
-             FROM songs s
-             JOIN stream_stats ss ON ss.song_id = s.id
-            WHERE s.primary_artist = 'spotify:artist:' || ta.artist_id) AS last_date
+          ta.last_scanned_date::text AS last_date
         FROM tracked_artists ta
         ORDER BY ta.sort_order, ta.name
       `);
