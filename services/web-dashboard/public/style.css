@@ -2444,6 +2444,34 @@ body.modal-open {
   text-decoration-color: var(--album-accent) !important;
 }
 
+/* Album modal + the card exported from it: contrast on a dark card.
+   The daily column used the site's #1ed760 at a light weight, which on the
+   near-black card read as dark green; row rules at 8% accent were invisible,
+   so a 15-row card was one undivided slab. Scoped to #album-modal — the
+   artist page keeps its own look. */
+#album-modal .modal-table td {
+  border-bottom-color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.16);
+}
+#album-modal .modal-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
+#album-modal .modal-table td .gain-positive,
+#album-modal .modal-stat-box .gain-positive {
+  color: #4ade80;
+}
+#album-modal .modal-table td .gain-cell {
+  font-weight: 600;
+}
+#album-modal .modal-stat-box .label {
+  color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.95);
+}
+#album-modal .modal-stat-box .value {
+  font-weight: 800;
+}
+#album-modal .modal-subtitle {
+  color: rgba(226, 232, 240, 0.78);
+}
+
 /* ==========================================================================
    Artist Picker Landing Page
    ========================================================================== */

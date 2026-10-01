@@ -379,6 +379,23 @@ function formatDuration(ms) {
 // Convert a #rrggbb / #rgb hex color to an "r, g, b" triplet for use inside
 // rgba(). We avoid CSS color-mix()/color(srgb ...) because html2canvas 1.4.1
 // cannot parse those and the Save Card export throws on them.
+// Background for the album modal and the card exported from it.
+//
+// It used to be the artist theme's bgGradient: a dark tint of the accent in a
+// circle at the top, fading to #080c14. On a share card that reads as a black
+// rectangle with a faint smudge up top — Anitta's Funk Generation card came
+// out with the cover's teal visible only behind the title. Now the accent
+// tints the WHOLE card (7-20 % over a navy-black base, so it is still a dark
+// card the white numbers sit on), with a real glow at the top. Plain
+// linear/radial layers only: html2canvas renders those.
+function albumCardBackground(accentHex) {
+  const [r, g, b] = hexToRgbTriplet(accentHex).split(',').map(n => Number(n.trim()));
+  const base = [11, 16, 25];
+  const mix = (t) => `rgb(${Math.round(base[0] + (r - base[0]) * t)}, ${Math.round(base[1] + (g - base[1]) * t)}, ${Math.round(base[2] + (b - base[2]) * t)})`;
+  return `radial-gradient(circle at 50% 0%, rgba(${r}, ${g}, ${b}, 0.34) 0%, rgba(${r}, ${g}, ${b}, 0.10) 38%, rgba(${r}, ${g}, ${b}, 0) 70%), `
+       + `linear-gradient(180deg, ${mix(0.20)} 0%, ${mix(0.12)} 45%, ${mix(0.07)} 100%)`;
+}
+
 function hexToRgbTriplet(hex) {
   if (!hex) return '30, 215, 96';
   let h = hex.trim().replace('#', '');
@@ -1524,7 +1541,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
   modalCard.style.setProperty('--album-accent', artistTheme.accent);
   modalCard.style.setProperty('--album-accent-rgb', hexToRgbTriplet(artistTheme.accent));
   modalCard.style.setProperty('--album-glow', artistTheme.accentGlow);
-  modalCard.style.background = artistTheme.bgGradient;
+  modalCard.style.background = albumCardBackground(artistTheme.accent);
   modalCard.style.borderColor = artistTheme.accent + '30';
   modalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${artistTheme.accentGlow}`;
 
@@ -1612,7 +1629,11 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
             const avg = (best[0] + best[1] + best[2]) / 3, f = 1.35;
             let r = avg + (best[0] - avg) * f, g = avg + (best[1] - avg) * f, b = avg + (best[2] - avg) * f;
             const mx = Math.max(r, g, b);
-            if (mx > 0 && mx < 188) { const s = 188 / mx; r *= s; g *= s; b *= s; }
+            // Lift to a brightness the accent can carry on a dark card. 188 kept
+            // titles and the total a muted mid-tone (Funk Generation's #6ebcb2
+            // was dimmer than the white track names); 222 lets the headline
+            // number be the brightest thing on the card, as it should.
+            if (mx > 0 && mx < 222) { const s = 222 / mx; r *= s; g *= s; b *= s; }
             const cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
             const hx = (c) => cl(c).toString(16).padStart(2, '0');
             th = deriveThemeFromAccent(`#${hx(r)}${hx(g)}${hx(b)}`);
@@ -1621,7 +1642,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
         modalCard.style.setProperty('--album-accent', th.accent);
         modalCard.style.setProperty('--album-accent-rgb', hexToRgbTriplet(th.accent));
         modalCard.style.setProperty('--album-glow', th.accentGlow);
-        modalCard.style.background = th.bgGradient;
+        modalCard.style.background = albumCardBackground(th.accent);
         modalCard.style.borderColor = th.accent + '30';
         modalCard.style.boxShadow = `0 25px 60px rgba(0,0,0,0.7), 0 0 80px ${th.accentGlow}`;
         modalTitle.style.color = th.accent;
@@ -2075,6 +2096,27 @@ function ignoreOutside(rootEl) {
   };
 }
 
+// Every card export goes through here. html2canvas rasterises a CLONE of the
+// document, and in that clone CSS animations start over from their first
+// keyframe. Every modal card fades in from opacity 0 (modalFadeIn), so the
+// clone was captured part-way through the fade: on a quick tap or a slow phone
+// the shared PNG came out translucent over the #080c14 backdrop — dim, grey
+// text, the "dark card" people were posting — and in a background tab it came
+// out completely blank. Freezing animations and transitions in the clone
+// renders every card at its final, fully opaque state.
+function renderCard(el, opts = {}) {
+  const userOnClone = opts.onclone;
+  return html2canvas(el, {
+    ...opts,
+    onclone: async (doc) => {
+      const freeze = doc.createElement('style');
+      freeze.textContent = '*, *::before, *::after { animation: none !important; transition: none !important; }';
+      doc.head.appendChild(freeze);
+      if (userOnClone) await userOnClone(doc);
+    },
+  });
+}
+
 async function downloadModalAsImage() {
   const modalCard = document.querySelector('.modal-card');
   if (!modalCard) return;
@@ -2131,7 +2173,7 @@ async function downloadModalAsImage() {
     const estimatedHeight = 600 + rowCount * 60;
     const mobileScale = Math.max(1, Math.min(2, Math.sqrt(16000000 / (800 * estimatedHeight))));
 
-    const canvas = await html2canvas(modalCard, {
+    const canvas = await renderCard(modalCard, {
       ignoreElements: ignoreOutside(modalCard.closest('.modal-backdrop') || modalCard),
       backgroundColor: '#080c14', // Match dashboard background color
       scale: isMobile ? mobileScale : 2,
@@ -2277,7 +2319,9 @@ async function downloadModalAsImage() {
         glassElements.forEach(el => {
           el.style.backdropFilter = 'none';
           el.style.webkitBackdropFilter = 'none';
-          el.style.setProperty('background', 'rgba(24, 32, 49, 0.97)', 'important');
+          // Tinted with the cover's accent rather than a fixed navy slate, which
+          // sat on the card like a grey block whatever the album's colour.
+          el.style.setProperty('background', `linear-gradient(180deg, rgba(${accentRgb}, 0.16) 0%, rgba(${accentRgb}, 0.07) 100%)`, 'important');
           el.style.setProperty('border-color', `rgba(${accentRgb}, 0.45)`, 'important');
         });
       }
@@ -2642,7 +2686,7 @@ async function downloadDailyCard() {
     await document.fonts.ready;
     // Always render the PNG at the full desktop card width so the exported
     // image looks identical regardless of the (possibly narrow) mobile preview.
-    const canvas = await html2canvas(dailyCardEl, {
+    const canvas = await renderCard(dailyCardEl, {
       ignoreElements: ignoreOutside(dailyCardModal || dailyCardEl),
       // Match the chosen card theme's base colour, otherwise a light card gets
       // dark corners where the rounded border is anti-aliased.
@@ -3396,7 +3440,7 @@ async function downloadStatsCard() {
     if (photo.style.visibility !== 'hidden' && !photo.naturalWidth) photo.style.visibility = 'hidden';
   }
   try {
-    const canvas = await html2canvas(statsCardEl, {
+    const canvas = await renderCard(statsCardEl, {
       ignoreElements: ignoreOutside(statsCardModal || statsCardEl),
       backgroundColor: conf.bg || '#080c14',
       scale: 2,
@@ -3553,7 +3597,7 @@ async function downloadSongCard() {
     if (cover.style.visibility !== 'hidden' && !cover.naturalWidth) cover.style.visibility = 'hidden';
   }
   try {
-    const canvas = await html2canvas(songCardEl, {
+    const canvas = await renderCard(songCardEl, {
       ignoreElements: ignoreOutside(songCardEl.closest('.modal-backdrop') || songCardEl),
       backgroundColor: resolveCardTheme(cardThemeId).page || '#080c14',
       scale: 2,
@@ -3888,7 +3932,7 @@ async function downloadMilestoneCard() {
     if (img.style.visibility !== 'hidden' && !img.naturalWidth) img.style.visibility = 'hidden';
   }
   try {
-    const canvas = await html2canvas(milestoneCardEl, {
+    const canvas = await renderCard(milestoneCardEl, {
       ignoreElements: ignoreOutside(milestoneCardEl.closest('.modal-backdrop') || milestoneCardEl),
       backgroundColor: resolveCardTheme(cardThemeId).page || '#080c14',
       scale: 2, useCORS: true, imageTimeout: 15000, logging: false,
@@ -6797,7 +6841,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       if (im.style.visibility !== 'hidden' && !im.naturalWidth) im.style.visibility = 'hidden';
     }));
     try {
-      const canvas = await html2canvas(cardEl, {
+      const canvas = await renderCard(cardEl, {
         ignoreElements: ignoreOutside(cardEl.closest('.modal-backdrop') || cardEl),
         backgroundColor: '#080c14',
         scale: 2,
