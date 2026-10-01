@@ -2894,11 +2894,11 @@ function lisaCardKey(title) {
   return null;
 }
 
-// Space-separated thousands, matching the layout these cards reproduce — with a
-// NO-BREAK space (U+00A0). The thin space it used before is breakable, so a
-// long total wrapped and left a lone digit on the next line; U+202F fixes the
-// break but Outfit has no glyph for it and the groups collapse together.
-const lcNum = (n) => Number(n || 0).toLocaleString('en-US').replace(/,/g, ' ');
+// Comma thousands (19,193,951,468), like every other number on the site. These
+// cards used to copy their source layout's space-separated groups, which read
+// as a different number format next to the rest of the page. A comma between
+// digits is not a line-break opportunity, so a long total still never wraps.
+const lcNum = (n) => Number(n || 0).toLocaleString('en-US');
 
 function lcDelta(change, prev) {
   if (!prev) return { txt: '—', pct: '—', cls: 'lc-flat' };
@@ -2907,7 +2907,9 @@ function lcDelta(change, prev) {
   const sign = change > 0 ? '+' : (change < 0 ? '−' : '');
   return {
     txt: `${sign}${lcNum(Math.abs(change))}`,
-    pct: `${pct < 0 ? '−' : ''}${Math.abs(pct).toFixed(1).replace('.', ',')}%`,
+    // Decimal POINT now that thousands are commas: "−2,6%" next to "−69,604"
+    // read as two different number formats on one row.
+    pct: `${pct < 0 ? '−' : ''}${Math.abs(pct).toFixed(1)}%`,
     cls,
   };
 }
