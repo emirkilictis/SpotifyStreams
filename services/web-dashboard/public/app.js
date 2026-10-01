@@ -2383,7 +2383,9 @@ const dailyCardDownloadBtn = document.getElementById('daily-card-download-btn');
 // `page` is the flat colour html2canvas paints behind the card — it must match
 // the gradient's end colour or the rounded corners come out with a dark halo.
 const CARD_THEMES = [
-  { id: 'artist', name: 'Artist' },
+  // id stays 'artist' so saved choices keep working; the name says what it
+  // does now: the cover's colour on album / song cards, the artist's otherwise.
+  { id: 'artist', name: 'Auto (cover colour)' },
   { id: 'midnight', name: 'Midnight', accent: '#1ed760', bg: 'radial-gradient(circle at 50% 0%, #131d33 0%, #080c14 100%)', page: '#080c14', glow: 'rgba(30,215,96,0.35)' },
   { id: 'noir', name: 'Noir', accent: '#f4f4f5', bg: 'linear-gradient(165deg, #1c1c1e 0%, #0a0a0b 100%)', page: '#0a0a0b', glow: 'rgba(255,255,255,0.18)' },
   { id: 'ocean', name: 'Ocean', accent: '#38bdf8', bg: 'radial-gradient(circle at 50% 0%, #0d2438 0%, #060d16 100%)', page: '#060d16', glow: 'rgba(56,189,248,0.35)' },
@@ -2434,7 +2436,7 @@ function resolveCardTheme(id, coverAccent = null) {
     const a = ARTIST_THEMES[currentArtist] || LANDING_THEME;
     const accent = coverAccent || a.accent;
     return {
-      id: 'artist', name: 'Artist', accent,
+      id: 'artist', name: 'Auto (cover colour)', accent,
       bg: albumCardBackground(accent),
       page: '#0b1019',
       glow: `rgba(${hexToRgbTriplet(accent)}, 0.35)`,
