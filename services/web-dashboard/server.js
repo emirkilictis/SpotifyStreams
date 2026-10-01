@@ -3760,18 +3760,33 @@ app.get('/api/artists', cacheFor(CACHE_TTL_ROSTER_MS, () => 'artists'), async (r
 // cross-origin avatars/covers without CORS headers (e.g. some admin-pasted CDN
 // URLs) would otherwise taint the canvas and break the screenshot. Streaming the
 // bytes through our own origin sidesteps that. Read-only; images are public.
+// Hosts the image proxy may fetch from: Spotify's image CDNs (every album
+// cover, most avatars) plus whatever hosts the roster's photos actually live on
+// (admin-pasted avatars), read from the roster cache so a new photo works
+// without a deploy. An allowlist, because the old blocklist only compared the
+// hostname TEXT: http://[::1]:3000/, http://[::ffff:127.0.0.1]:3000/ and any
+// domain resolving to 127.0.0.1 (localtest.me) all reached the server itself
+// through it. Nothing on the site proxies anything else.
+function imgProxyHostAllowed(host) {
+  if (/(^|\.)scdn\.co$/.test(host) || /(^|\.)spotifycdn\.com$/.test(host)) return true;
+  for (const a of allArtistsCache) {
+    const u = a && a.image_url;
+    if (!u || !/^https?:\/\//i.test(u)) continue;
+    try {
+      const h = new URL(u).hostname.toLowerCase();
+      if (h === host && h !== 'open.spotify.com') return true;
+    } catch { /* malformed admin URL: not an allowed host */ }
+  }
+  return false;
+}
+
 app.get('/api/img-proxy', async (req, res) => {
   const u = req.query.u;
   if (!u || typeof u !== 'string' || !/^https?:\/\//i.test(u)) return res.status(400).end();
   let target;
   try { target = new URL(u); } catch { return res.status(400).end(); }
-  // Basic SSRF guard: never let the proxy hit internal/loopback hosts.
   const host = target.hostname.toLowerCase();
-  if (host === 'localhost' || host === '::1' ||
-      /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
-    return res.status(400).end();
-  }
+  if (!imgProxyHostAllowed(host)) return res.status(403).end();
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
@@ -3781,6 +3796,10 @@ app.get('/api/img-proxy', async (req, res) => {
     });
     clearTimeout(timer);
     if (!upstream.ok) return res.status(502).end();
+    // A redirect must land on an allowed host too.
+    try {
+      if (!imgProxyHostAllowed(new URL(upstream.url).hostname.toLowerCase())) return res.status(502).end();
+    } catch { return res.status(502).end(); }
     const ct = upstream.headers.get('content-type') || '';
     if (!ct.startsWith('image/')) return res.status(415).end();
     const buf = Buffer.from(await upstream.arrayBuffer());
