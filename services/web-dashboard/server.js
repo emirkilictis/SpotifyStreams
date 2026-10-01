@@ -2380,10 +2380,18 @@ async function artistDateRange(artistUri) {
     -- ::text on purpose: node-postgres hands back a DATE as a JS Date at local
     -- midnight, which serialises to the PREVIOUS day's UTC timestamp for anyone
     -- east of Greenwich. Plain YYYY-MM-DD strings keep the client honest.
-    SELECT MIN(ss.recorded_date)::text AS min_date, MAX(ss.recorded_date)::text AS max_date
-    FROM stream_stats ss
-    JOIN songs s ON s.id = ss.song_id
+    --
+    -- Per song through the (song_id, recorded_date) index — two index probes a
+    -- song — instead of joining every one of the artist's rows: the first Time
+    -- Machine open of each artist paid that full scan (part of a 21 s first
+    -- load seen on the live site). Same songs, same MIN/MAX.
+    SELECT MIN(f.min_d)::text AS min_date, MAX(f.max_d)::text AS max_date
+    FROM songs s
     JOIN albums a ON s.album_id = a.id
+    CROSS JOIN LATERAL (
+      SELECT MIN(ss.recorded_date) AS min_d, MAX(ss.recorded_date) AS max_d
+      FROM stream_stats ss WHERE ss.song_id = s.id
+    ) f
     WHERE ${artistBucketMatchSQL('s', 'a')}
   `;
   const r = await dbQuery(q, [artistUri]);
@@ -2589,7 +2597,25 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess,
         -- song's earliest, so it only ever seeds the LAG and its own gain is
         -- NULL (dropped below); no synthetic flag needed here.
         FROM (
-          SELECT song_id, recorded_date, stream_count FROM canonical_streams
+          -- canonical_streams for this artist's heads and this window only.
+          -- The comment above promised that, but the view was grouped for every
+          -- song in the window before the JOIN to mine threw the rest away.
+          -- Same rows reach the outer filter: heads in mine, dates in range.
+          SELECT st_ids.head AS song_id, st_x.recorded_date, MAX(st_x.stream_count) AS stream_count
+          FROM (
+            SELECT st_alias.id AS alias_id, st_m.id AS head
+            FROM mine st_m
+            JOIN songs st_alias ON COALESCE(st_alias.canonical_id, st_alias.id) = st_m.id
+          ) st_ids
+          CROSS JOIN LATERAL (
+            SELECT xs.recorded_date, xs.stream_count
+            FROM stream_stats xs
+            WHERE xs.song_id = st_ids.alias_id
+              AND xs.recorded_date <= $2::date
+              AND xs.recorded_date > ($2::date - ${STREAMS_ON_STRIP_DAYS + 1})
+            OFFSET 0
+          ) st_x
+          GROUP BY st_ids.head, st_x.recorded_date
           UNION ALL
           ${debutBaselineSQL(
             '(SELECT COALESCE(x0.canonical_id, x0.id) AS song_id, xs0.recorded_date, ' +
