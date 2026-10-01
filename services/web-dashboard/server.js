@@ -2436,8 +2436,32 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess,
         -- before a debut) doesn't count a song that wasn't out yet. The debut
         -- rows are computed for this artist's songs only, not the whole table.
         FROM (
-          SELECT song_id, recorded_date, stream_count, false AS synthetic
-          FROM canonical_streams
+          -- canonical_streams (per head per day, MAX over its aliases) for THIS
+          -- artist's heads only. Reading the view itself grouped and windowed
+          -- every song in the database before the artist filter at the end
+          -- threw nearly all of it away: 5-11 s per Time Machine date on the
+          -- live site. The heads' alias ids are resolved first and each is read
+          -- through the (song_id, recorded_date) index; OFFSET 0 keeps the
+          -- planner from flattening that back into a full scan. Every window
+          -- below partitions by song_id, so leaving other songs out changes
+          -- nothing for the songs that are kept.
+          SELECT tm_ids.head AS song_id, tm_x.recorded_date,
+                 MAX(tm_x.stream_count) AS stream_count, false AS synthetic
+          FROM (
+            SELECT tm_alias.id AS alias_id, tm_head.id AS head
+            FROM songs tm_head
+            JOIN albums tm_album ON tm_album.id = tm_head.album_id
+            JOIN songs tm_alias ON COALESCE(tm_alias.canonical_id, tm_alias.id) = tm_head.id
+            WHERE tm_head.canonical_id IS NULL AND ${artistBucketMatchSQL('tm_head', 'tm_album')}
+              AND tm_head.id NOT IN (${hiddenTrackIdsSql()})
+          ) tm_ids
+          CROSS JOIN LATERAL (
+            SELECT xs.recorded_date, xs.stream_count
+            FROM stream_stats xs
+            WHERE xs.song_id = tm_ids.alias_id AND xs.recorded_date <= $2::date
+            OFFSET 0
+          ) tm_x
+          GROUP BY tm_ids.head, tm_x.recorded_date
           UNION ALL
           SELECT d.song_id, d.recorded_date, d.stream_count, true AS synthetic
           FROM (${debutBaselineSQL(
@@ -3382,8 +3406,9 @@ app.get('/api/songs/:id/history', requireAuth,
       [req.params.id]
     );
     if (songCheck.rows.length === 0) return res.json([]);
+    const songArtistId = (songCheck.rows[0].primary_artist || '').replace('spotify:artist:', '');
     if (songCheck.rows.length > 0) {
-      const primaryArtist = (songCheck.rows[0].primary_artist || '').replace('spotify:artist:', '');
+      const primaryArtist = songArtistId;
       if (isArtistLockedById(primaryArtist)) {
         const passcode = req.headers['x-jc-passcode'];
         if (!isJcAllowed(passcode)) {
@@ -3396,9 +3421,23 @@ app.get('/api/songs/:id/history', requireAuth,
     // the SERVER's local midnight, which JSON-serialises to the previous day's
     // timestamp anywhere east of UTC — the chart axis and the Time Machine's
     // per-song history would then be off by one whenever the host isn't on UTC.
+    //
+    // chart_daily_streams IS this view, materialised after each scrape's dedup
+    // (migration 029: SELECT canonical_id, recorded_date, cumulative, daily_gain
+    // FROM daily_streams_canonical), indexed on (canonical_id, recorded_date).
+    // Asking the view itself for one song cannot push the canonical_id filter
+    // through its CTEs and window functions, so it rebuilt every song's daily
+    // history to return one: 7-25 s on the live site for a single song chart
+    // (10.3 s average over 30 random songs), against ~0.3 s from the
+    // materialised copy — which returned identical rows for all 30. Same
+    // freshness rule as the profile aggregates: if the song's artist finished
+    // a scan after the last refresh, read the live view.
+    const source = await artistUsesChartCache(songArtistId)
+      ? 'chart_daily_streams'
+      : 'daily_streams_canonical';
     const query = `
       SELECT recorded_date::text AS recorded_date, cumulative, daily_gain
-      FROM daily_streams_canonical
+      FROM ${source}
       WHERE canonical_id = $1
       ORDER BY recorded_date ASC;
     `;
