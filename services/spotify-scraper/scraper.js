@@ -40,7 +40,11 @@ function upgradeAvatarUrl(url) {
 async function backfillMissingArtistPhotos(page, client) {
   try {
     const missing = await client.query(
-      `SELECT artist_id, name FROM tracked_artists WHERE active = true AND (image_url IS NULL OR image_url = '')`
+      // A pasted open.spotify.com profile LINK is not a photo (brunette had
+      // one): treat it as missing so the real image replaces it.
+      `SELECT artist_id, name FROM tracked_artists
+        WHERE active = true
+          AND (image_url IS NULL OR image_url = '' OR image_url LIKE 'https://open.spotify.com/%')`
     );
     for (const art of missing.rows) {
       const url = await fetchArtistAvatar(page, art.artist_id);

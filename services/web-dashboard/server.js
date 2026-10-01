@@ -3734,7 +3734,15 @@ app.delete('/api/feedback/:id', requireAdmin, async (req, res) => {
 app.get('/api/artists', cacheFor(CACHE_TTL_ROSTER_MS, () => 'artists'), async (req, res) => {
   try {
     const r = await dbQuery(
-      `SELECT artist_id, name, image_url, accent, sort_order, album_only, locked,
+      `SELECT artist_id, name,
+              -- An open.spotify.com/artist/... PROFILE link pasted into the
+              -- photo field is a web page, not an image: brunette's avatar was a
+              -- broken image everywhere. Serve it as missing so the client shows
+              -- the default photo; the scraper's photo backfill treats it as
+              -- missing too and replaces it with the real Spotify image.
+              CASE WHEN image_url LIKE 'https://open.spotify.com/%' THEN NULL
+                   ELSE image_url END AS image_url,
+              accent, sort_order, album_only, locked,
               categories,
               -- Picker rozeti "yeni" derken tarihe bakar; created_at'i string
               -- olarak veriyoruz ki tarayici saat dilimi gunu kaydirmasin.
