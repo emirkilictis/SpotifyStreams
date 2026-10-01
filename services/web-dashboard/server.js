@@ -839,21 +839,34 @@ const isTransientDbError = (err) =>
 // pool.query with retry/backoff so a request arriving while Neon wakes up
 // (a few seconds, occasionally longer) succeeds instead of returning 500.
 const RETRY_DELAYS_MS = [500, 1500, 4000, 8000];
+// Statement timeout, once per pooled connection.
+//
+// Supavisor drops startup `options` (checked: a pool opened with
+// `-c statement_timeout=1234` still reports 2min), so the limit has to be SET
+// on the backend. This used to be BEGIN / SET LOCAL / query / COMMIT around
+// every single query — three extra round trips each, holding one of the three
+// pooled connections that much longer while a profile page fires eight
+// requests at once. The session pooler pins a client connection to one
+// backend (same pid across queries, checked), so a session-level SET issued
+// the first time the connection is used holds for its whole life.
+//
+// Admin routes that legitimately run long (purge, dedup, move-day) take their
+// own SET LOCAL inside their transaction, so a primed connection handed to
+// them does not cut them off at 30 s.
+async function primeClient(client) {
+  if (client.__stmtTimeoutPrimed) return;
+  await client.query(`SET statement_timeout = '${DB_STATEMENT_TIMEOUT_MS}ms'`);
+  client.__stmtTimeoutPrimed = true;
+}
+
 async function dbQuery(text, params) {
   for (let attempt = 0; ; attempt++) {
     let client;
     try {
       client = await pool.connect();
-      await client.query('BEGIN');
-      // Supavisor can ignore startup `options` while proxying a pooled
-      // connection. SET LOCAL is executed on the exact backend that will run
-      // the query, so the limit is guaranteed even through the pooler.
-      await client.query(`SET LOCAL statement_timeout = '${DB_STATEMENT_TIMEOUT_MS}ms'`);
-      const result = await client.query(text, params);
-      await client.query('COMMIT');
-      return result;
+      await primeClient(client);
+      return await client.query(text, params);
     } catch (err) {
-      if (client) await client.query('ROLLBACK').catch(() => {});
       if (attempt >= RETRY_DELAYS_MS.length || !isTransientDbError(err)) throw err;
       console.warn(`[db] Transient error "${err.code || err.message}", retry ${attempt + 1}/${RETRY_DELAYS_MS.length}...`);
       await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
@@ -868,8 +881,8 @@ async function dbQueryWithNestloopOff(text, params) {
     let client;
     try {
       client = await pool.connect();
+      await primeClient(client);
       await client.query('BEGIN');
-      await client.query(`SET LOCAL statement_timeout = '${DB_STATEMENT_TIMEOUT_MS}ms'`);
       await client.query('SET LOCAL enable_nestloop = off');
       const res = await client.query(text, params);
       await client.query('COMMIT');
@@ -896,7 +909,16 @@ async function dbQueryWithNestloopOff(text, params) {
 const artistAggregateSourceCache = new Map();
 const ARTIST_AGG_SOURCE_TTL_MS = 30 * 1000;
 
-async function artistAggregateCTE(artistId, songFilter) {
+// Is chart_daily_streams at least as new as this artist's last complete scan?
+// Every profile endpoint asks, so the answer is cached per artist for 30 s and
+// concurrent askers share one lookup.
+// PROFILE_CHART_CACHE=off forces every profile query back to the live
+// aggregates: a kill switch if chart_daily_streams is ever suspect, flipped in
+// Render's environment without a deploy.
+const PROFILE_CHART_CACHE_OFF = process.env.PROFILE_CHART_CACHE === 'off';
+
+async function artistUsesChartCache(artistId) {
+  if (PROFILE_CHART_CACHE_OFF) return false;
   const id = String(artistId || '').replace('spotify:artist:', '');
   let hit = artistAggregateSourceCache.get(id);
   let useCached = hit && hit.useCached !== undefined
@@ -910,12 +932,14 @@ async function artistAggregateCTE(artistId, songFilter) {
 
   if (useCached === null) {
     const pending = (async () => {
+      // MAX(), not `SELECT recorded_date::text ... ORDER BY recorded_date`:
+      // there ORDER BY binds to the output column, i.e. the TEXT cast, which no
+      // index can serve. That sorted all 645K rows of the view on every profile
+      // open (~430 ms, two workers). MAX on the indexed column is a single
+      // index probe.
       const freshness = await dbQuery(`
         SELECT ta.last_scanned_date::text AS last_scanned_date,
-               (SELECT recorded_date::text
-                  FROM chart_daily_streams
-                 ORDER BY recorded_date DESC
-                 LIMIT 1) AS cache_date
+               (SELECT MAX(recorded_date) FROM chart_daily_streams)::text AS cache_date
         FROM tracked_artists ta
         WHERE ta.artist_id = $1
       `, [id]);
@@ -938,8 +962,11 @@ async function artistAggregateCTE(artistId, songFilter) {
     useCached = await pending;
     artistAggregateSourceCache.set(id, { at: Date.now(), useCached });
   }
+  return useCached;
+}
 
-  return useCached
+async function artistAggregateCTE(artistId, songFilter) {
+  return (await artistUsesChartCache(artistId))
     ? artistCachedAggCTE(songFilter)
     : artistLatestAggCTE(songFilter);
 }
@@ -2125,6 +2152,32 @@ app.get('/api/period-streams', requireAuth, validateArtistAccess,
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
   const artistUri = artistParam.startsWith('spotify:artist:') ? artistParam : `spotify:artist:${artistParam}`;
   try {
+    // Per head per day, the head's playcount. The live form rebuilds it from
+    // every raw row of every alias — for Taylor that is ~9 s of CPU on a cold
+    // load, and it is what kept the Weekly/Monthly cards spinning after the
+    // rest of the page had painted. chart_daily_streams already holds the
+    // same canonical per-day totals (refreshed after each scrape's dedup), so
+    // when it is at least as new as the artist's last complete scan it is the
+    // source; otherwise fall back to the live form, exactly as the profile
+    // aggregates do. Its cumulative is a running maximum, which is what every
+    // CTE below takes anyway (per-month MAX, running MAX, MAX up to a day).
+    // AI artists stay on the live form. Spotify removes streams from them
+    // routinely and the materialized view reads their days differently (latest
+    // reading of the day, raw drops kept), which moved Vaelis's week by ~1.3K
+    // against the live form; their catalogues are a few dozen songs, so the
+    // live form costs them nothing. Every other artist was checked to come out
+    // identical on both sources.
+    const isAiArtist = (allArtistsCache.find(a => a.artist_id === artistUri.replace('spotify:artist:', ''))
+      ?.categories || []).includes('ai');
+    const cs = (!isAiArtist && await artistUsesChartCache(artistParam))
+      ? `SELECT c.canonical_id AS song_id, c.recorded_date, c.cumulative AS stream_count
+           FROM chart_daily_streams c
+           JOIN mine m ON m.id = c.canonical_id`
+      : `SELECT m.id AS song_id, xs.recorded_date, MAX(xs.stream_count) AS stream_count
+           FROM stream_stats xs
+           JOIN songs x ON x.id = xs.song_id
+           JOIN mine m ON m.id = COALESCE(x.canonical_id, x.id)
+           GROUP BY 1, 2`;
     const query = `
       WITH mine AS (
         SELECT s.id, s.is_featured, s.is_solo, a.release_date
@@ -2133,12 +2186,8 @@ app.get('/api/period-streams', requireAuth, validateArtistAccess,
         WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
           AND s.id NOT IN (${hiddenTrackIdsSql()})
       ),
-      cs AS (
-        SELECT m.id AS song_id, xs.recorded_date, MAX(xs.stream_count) AS stream_count
-        FROM stream_stats xs
-        JOIN songs x ON x.id = xs.song_id
-        JOIN mine m ON m.id = COALESCE(x.canonical_id, x.id)
-        GROUP BY 1, 2
+      cs AS MATERIALIZED (
+        ${cs}
       ),
       readings AS (
         SELECT song_id, recorded_date, stream_count FROM cs
@@ -3840,6 +3889,7 @@ app.post('/api/admin/artists/:id/purge', requireAdmin, requireSuperAdmin, async 
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    await client.query(`SET LOCAL statement_timeout = '120s'`); // see primeClient
 
     // Albums that currently hold this artist's songs — candidates for cleanup
     // once their songs are gone (shared/collab albums are spared by the check).
@@ -4279,6 +4329,7 @@ app.post('/api/admin/dedup', requireAdmin, requireSuperAdmin, async (req, res) =
       client = await pool.connect();
       console.log('[admin-dedup] starting (transactional)...');
       await client.query('BEGIN');
+      await client.query(`SET LOCAL statement_timeout = '120s'`); // see primeClient
       const result = await dedupCanonical(client);
       await client.query('COMMIT');
       console.log('[admin-dedup] done:', result);
@@ -4792,6 +4843,7 @@ app.post('/api/admin/snapshots/move-day', requireAdmin, requireSuperAdmin, async
 
     client = await pool.connect();
     await client.query('BEGIN');
+    await client.query(`SET LOCAL statement_timeout = '120s'`); // see primeClient
 
     // 1) Songs that already have a row on the target date: fold the source row
     //    into it (max count wins, same rule as the scraper's upsert), then drop

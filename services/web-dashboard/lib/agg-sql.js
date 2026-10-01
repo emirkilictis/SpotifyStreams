@@ -99,17 +99,40 @@ function artistLatestAggCTE(songFilter) {
         WHERE ${songFilter}
         GROUP BY COALESCE(s.canonical_id, s.id)
       ),
+      -- Every song id (head and aliases) of the artist's heads, resolved
+      -- BEFORE stream_stats is touched, then read through the
+      -- (song_id, recorded_date) index one id at a time.
+      --
+      -- The old form joined stream_stats to songs and matched agg_scope on
+      -- COALESCE(s2.canonical_id, s2.id). No index can serve that expression,
+      -- so Postgres scanned all 1.06M rows of stream_stats, joined them to
+      -- songs and SORTED the lot (~6.6 s) before discarding everything outside
+      -- the artist. Every live-path request paid it whatever the artist's
+      -- size: Milestones and Trending on every cold profile, the profile
+      -- itself during a scrape. It was the largest single CPU consumer on
+      -- the database. Same rows, same order, ~1-2K index probes instead.
+      agg_ids AS MATERIALIZED (
+        SELECT s2.id AS song_id, sc.canonical_id, sc.is_ai
+        FROM agg_scope sc
+        JOIN songs s2 ON COALESCE(s2.canonical_id, s2.id) = sc.canonical_id
+      ),
       agg_cs AS (
-        SELECT COALESCE(s2.canonical_id, s2.id) AS canonical_id,
+        SELECT ai.canonical_id,
                ss.recorded_date,
                CASE
-                 WHEN BOOL_OR(sc.is_ai) THEN
-                   (ARRAY_AGG(ss.stream_count ORDER BY ss.recorded_at DESC, s2.id DESC))[1]
+                 WHEN BOOL_OR(ai.is_ai) THEN
+                   (ARRAY_AGG(ss.stream_count ORDER BY ss.recorded_at DESC, ai.song_id DESC))[1]
                  ELSE MAX(ss.stream_count)
                END AS stream_count
-        FROM stream_stats ss
-        JOIN songs s2 ON s2.id = ss.song_id
-        JOIN agg_scope sc ON sc.canonical_id = COALESCE(s2.canonical_id, s2.id)
+        FROM agg_ids ai
+        CROSS JOIN LATERAL (
+          SELECT x.recorded_date, x.stream_count, x.recorded_at
+          FROM stream_stats x
+          WHERE x.song_id = ai.song_id
+          -- OFFSET 0 keeps the planner from flattening this back into a plain
+          -- join, which it then serves with a full scan + hash join again.
+          OFFSET 0
+        ) ss
         GROUP BY 1, 2
       ),
       -- Release dates of the heads that could possibly be a debut (see
