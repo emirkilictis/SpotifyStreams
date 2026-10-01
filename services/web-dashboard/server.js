@@ -853,9 +853,22 @@ const RETRY_DELAYS_MS = [500, 1500, 4000, 8000];
 // Admin routes that legitimately run long (purge, dedup, move-day) take their
 // own SET LOCAL inside their transaction, so a primed connection handed to
 // them does not cut them off at 30 s.
+//
+// work_mem rides along. The Nano instance defaults to 2 MB, so the window
+// sorts behind Milestones, Trending and the Weekly/Monthly cards spilled to
+// temp files: ~66 MB written for two cold profiles, and temp files were 99%+
+// of the "Disk IO Budget" Supabase warned about (4.5 TB written since 08-20,
+// against 17 GB of table reads). At 16 MB the largest catalogue (Taylor) sorts
+// in memory — 0 bytes of temp, and faster (Trending 4.7 s -> 2.1 s). Peak node
+// memory measured ~10 MB; with a 3-connection pool that stays well inside the
+// instance's RAM. Only this app's connections get it, not the scraper's.
+const DB_WORK_MEM = /^\d+(kB|MB)$/.test(process.env.DB_WORK_MEM || '') ? process.env.DB_WORK_MEM : '16MB';
+
 async function primeClient(client) {
   if (client.__stmtTimeoutPrimed) return;
-  await client.query(`SET statement_timeout = '${DB_STATEMENT_TIMEOUT_MS}ms'`);
+  await client.query(
+    `SET statement_timeout = '${DB_STATEMENT_TIMEOUT_MS}ms'; SET work_mem = '${DB_WORK_MEM}'`
+  );
   client.__stmtTimeoutPrimed = true;
 }
 
