@@ -737,6 +737,112 @@ async function fixLateUpdateDay(client) {
   }
 }
 
+// KISMİ DEBUT — yeni bir şarkının ilk okuması bir günün küçük bir parçasıysa
+// onu ertesi güne katla.
+//
+// Debut kuralı (lib/agg-sql.js debutBaselineSQL) yeni bir şarkının ilk
+// okumasını o günün kazancı sayıyor: debut günü daily = total. Ama ilk okuma
+// Spotify'ın çıkıştan birkaç saat sonra aldığı bir sayım olabilir — gece
+// yarısı çıkan bir şarkı ilk günlük güncellemede 10K, ertesi gün +1M okur ve
+// site "debut 10K" yazar, asıl büyük gün ikinci gün gibi görünür.
+//
+// Kural: ailenin İLK okuması çıkış gününe aitse (-1..+1 gün), ikinci okuma
+// 1-2 gün sonra geldiyse ve ilk okuma ikinci okumanın günlük kazancının
+// %25'inden azsa, ilk günün satırları silinir. Böylece ikinci okuma ailenin
+// ilk okuması olur ve debut kuralı onu debut sayar: o gün daily = total (kısmi
+// gün de içinde). Toplam DEĞİŞMEZ — kümülatif zaten ikinci okumada var; sadece
+// kısmi günün ayrı bir gün olarak gösterilmesi biter. Gerçek bir tam ilk gün
+// (700K, ertesi gün 1M) eşiğin üstünde kalır ve dokunulmaz.
+//
+// Debut kuralının kendisi DEĞİŞMİYOR (üç yerde senkron tutuluyor); bu adım
+// yalnızca veriyi o kuralın doğru okuyacağı hâle getiriyor. Çıkış penceresi
+// -1..+1: kısmi gün yalnızca çıkış gününde olur, ve bu dar pencere bir şarkı
+// her gün 4 kat büyüse bile katlamanın günler boyu zincirlenmesini engeller.
+// Sadece son 3 haftada eklenen şarkıların ailelerine ve son 10 günün ilk
+// okumalarına bakar; eski geçmiş asla yeniden yazılmaz. (Bu bir seyreltme
+// değil: kısmi okumanın sayısı ikinci okumanın kümülatifinde zaten var.)
+const FOLD_MAX_RATIO = 0.25;
+const FOLD_RELEASE_MIN = -1;
+const FOLD_RELEASE_MAX = 1;
+const FOLD_MAX_GAP_DAYS = 2;
+const FOLD_LOOKBACK_DAYS = 10;
+
+const dayNum = (d) => Math.round(new Date(`${d}T00:00:00Z`).getTime() / 86400000);
+
+// Saf karar: rows = [{ head, release_date, d1, c1, d2, c2 }] (tarihler
+// 'YYYY-MM-DD'), katlanacak satırları döndürür. Veritabanı yok, test edilebilir.
+function pickPartialDebutFolds(rows, today) {
+  const out = [];
+  for (const r of rows) {
+    if (!r || !r.release_date || !r.d1 || !r.d2) continue;
+    const c1 = Number(r.c1), c2 = Number(r.c2);
+    if (!(c1 > 0) || !(c2 > c1)) continue;
+    const sinceRelease = dayNum(r.d1) - dayNum(String(r.release_date).slice(0, 10));
+    if (sinceRelease < FOLD_RELEASE_MIN || sinceRelease > FOLD_RELEASE_MAX) continue;
+    if (dayNum(today) - dayNum(r.d1) > FOLD_LOOKBACK_DAYS) continue;
+    const gap = dayNum(r.d2) - dayNum(r.d1);
+    if (gap < 1 || gap > FOLD_MAX_GAP_DAYS) continue;
+    const perDay = (c2 - c1) / gap;
+    if (c1 < FOLD_MAX_RATIO * perDay) out.push(r);
+  }
+  return out;
+}
+
+async function foldPartialDebuts(client) {
+  const today = await todayIstanbul(client);
+  // Adaylar: son 3 haftada eklenen şarkıların aileleri. Her üyenin satırları
+  // (song_id, recorded_date) indeksinden okunur; tablonun tamamı taranmaz.
+  const cand = await client.query(`
+    WITH cand AS (
+      SELECT DISTINCT COALESCE(canonical_id, id) AS head
+      FROM songs WHERE created_at >= NOW() - INTERVAL '21 days'
+    ),
+    ids AS (
+      SELECT s.id AS alias_id, c.head
+      FROM cand c JOIN songs s ON COALESCE(s.canonical_id, s.id) = c.head
+    ),
+    fam AS (
+      SELECT ids.head, x.recorded_date AS d, MAX(x.stream_count) AS c
+      FROM ids
+      CROSS JOIN LATERAL (
+        SELECT recorded_date, stream_count FROM stream_stats
+        WHERE song_id = ids.alias_id OFFSET 0
+      ) x
+      GROUP BY 1, 2
+    ),
+    ranked AS (
+      SELECT head, d, c, ROW_NUMBER() OVER (PARTITION BY head ORDER BY d) AS rn FROM fam
+    )
+    SELECT r1.head, a.release_date::text AS release_date,
+           r1.d::text AS d1, r1.c::bigint AS c1, r2.d::text AS d2, r2.c::bigint AS c2,
+           h.title
+    FROM ranked r1
+    JOIN ranked r2 ON r2.head = r1.head AND r2.rn = 2
+    JOIN songs h ON h.id = r1.head
+    JOIN albums a ON a.id = h.album_id
+    WHERE r1.rn = 1`);
+  const folds = pickPartialDebutFolds(cand.rows, today);
+  if (!folds.length) return [];
+  await client.query('BEGIN');
+  try {
+    for (const f of folds) {
+      const del = await client.query(
+        `DELETE FROM stream_stats
+          WHERE recorded_date = $2::date
+            AND song_id IN (SELECT id FROM songs WHERE COALESCE(canonical_id, id) = $1)`,
+        [f.head, f.d1]
+      );
+      console.log(`[debut-fold] "${f.title}": ${f.d1} kısmi ilk okuması (${Number(f.c1).toLocaleString('en-US')}) ` +
+                  `${f.d2} gününe katlandı (debut artık ${Number(f.c2).toLocaleString('en-US')}), ${del.rowCount} satır.`);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw err;
+  }
+  return folds;
+}
+
 // "Bu sanatçı bugün baştan sona tarandı" damgası (migration 025).
 //
 // Taramanın tamamlandığını yazılan satır sayısından ÇIKARMAK, katalogu her gün
@@ -767,4 +873,4 @@ async function closePool() {
   if (pool) await pool.end();
 }
 
-module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, fixLateUpdateDay, recordStreamDrops, reconcileStreamDrops, closePool };
+module.exports = { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, fixLateUpdateDay, foldPartialDebuts, pickPartialDebutFolds, recordStreamDrops, reconcileStreamDrops, closePool };

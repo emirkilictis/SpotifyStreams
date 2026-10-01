@@ -15,7 +15,7 @@ require('dotenv').config({ path: __dirname + '/../../.env' });
 
 const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAvatar } = require('./spotify');
 const { discoverAllAlbumsPuppeteer } = require('./discover');
-const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, fixLateUpdateDay, reconcileStreamDrops, closePool } = require('./db');
+const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, fixLateUpdateDay, foldPartialDebuts, reconcileStreamDrops, closePool } = require('./db');
 const { dedupCanonical, quickMergeNewCopies } = require('./dedup');
 
 // Auto-backfill any active artist still missing a profile photo (e.g. a freshly
@@ -1109,6 +1109,17 @@ async function run() {
       // bugüne damgalanan satırları ait oldukları güne taşı. Yalnızca tam kadro
       // koşularında: hedefli (admin) bir senkron kadronun durumunu bilemez.
       if (!artistFilterArg) await maybeFixLateUpdateDay(client, allTrackedArtistIds);
+
+      // A new release's partial first reading (10K a few hours after release,
+      // +1M the next day) is folded into the next day so the debut reads as
+      // the real first day. After the late-update move, so dates are final;
+      // before dedup and the chart refresh, so both see the result. See
+      // foldPartialDebuts in db.js. Never fatal.
+      try {
+        await foldPartialDebuts(client);
+      } catch (foldErr) {
+        console.error('[scraper] Partial-debut fold failed (skipped):', foldErr.message);
+      }
     } finally {
       try {
         console.log('[scraper] Running database deduplication step (transactional)...');
