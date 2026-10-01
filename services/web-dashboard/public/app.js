@@ -2400,10 +2400,45 @@ let cardThemeId = 'artist';
 try { cardThemeId = localStorage.getItem(CARD_THEME_KEY) || 'artist'; } catch (e) { /* private mode */ }
 if (!CARD_THEMES.some((t) => t.id === cardThemeId)) cardThemeId = 'artist';
 
-function resolveCardTheme(id) {
+// The colour of the cover a card was opened from: the album modal's for the
+// daily card, the song modal's for the song card. Those modals already derive
+// an accent from the cover (themeFromCover), and the default card used to
+// ignore it — Funk Generation's album card was teal while its daily card came
+// out in Anitta's fixed orange.
+function cardCoverAccent(el) {
+  const from = (modalId) => {
+    const m = document.getElementById(modalId);
+    if (!m || m.classList.contains('hidden')) return null;
+    const v = (m.querySelector('.modal-card')?.style.getPropertyValue('--album-accent') || '').trim();
+    return /^#[0-9a-f]{6}$/i.test(v) ? v : null;
+  };
+  if (el && el === dailyCardEl) return from('album-modal');
+  if (el && el === songCardEl) return from('song-modal');
+  return null;
+}
+
+// The card on screen right now, for the picker's "Artist" swatch preview.
+function activeCardEl() {
+  if (songCardModal && !songCardModal.classList.contains('hidden')) return songCardEl;
+  if (dailyCardModal && !dailyCardModal.classList.contains('hidden')) return dailyCardEl;
+  return null;
+}
+
+// The default ("Artist") theme now paints like the album card: the cover's
+// accent (or the artist's, when there is no cover) tints the whole card with a
+// glow at the top, instead of a dark circle fading to black that left the
+// lower two thirds of every card near-black. The nine fixed themes are the
+// user's explicit choice and stay exactly as they were.
+function resolveCardTheme(id, coverAccent = null) {
   if (id === 'artist' || !id) {
     const a = ARTIST_THEMES[currentArtist] || LANDING_THEME;
-    return { id: 'artist', name: 'Artist', accent: a.accent, bg: a.bgGradient, page: '#080c14', glow: a.accentGlow };
+    const accent = coverAccent || a.accent;
+    return {
+      id: 'artist', name: 'Artist', accent,
+      bg: albumCardBackground(accent),
+      page: '#0b1019',
+      glow: `rgba(${hexToRgbTriplet(accent)}, 0.35)`,
+    };
   }
   return CARD_THEMES.find((t) => t.id === id) || resolveCardTheme('artist');
 }
@@ -2420,16 +2455,15 @@ function applyCardTheme(el, theme) {
 
 // Repaint whichever card is on screen and sync every picker's active state.
 function refreshCardThemes() {
-  const theme = resolveCardTheme(cardThemeId);
-  applyCardTheme(dailyCardEl, theme);
-  applyCardTheme(songCardEl, theme);
-  applyCardTheme(milestoneCardEl, theme);
+  applyCardTheme(dailyCardEl, resolveCardTheme(cardThemeId, cardCoverAccent(dailyCardEl)));
+  applyCardTheme(songCardEl, resolveCardTheme(cardThemeId, cardCoverAccent(songCardEl)));
+  applyCardTheme(milestoneCardEl, resolveCardTheme(cardThemeId));
+  const swatchAccent = resolveCardTheme('artist', cardCoverAccent(activeCardEl())).accent;
   document.querySelectorAll('.dc-theme-swatch').forEach((b) => {
     b.classList.toggle('active', b.dataset.theme === cardThemeId);
     if (b.dataset.theme === 'artist') {
-      // The Artist swatch follows the artist you're currently viewing.
-      const a = resolveCardTheme('artist');
-      b.style.setProperty('--sw-accent', a.accent);
+      // The Artist swatch shows the colour the default card will actually use.
+      b.style.setProperty('--sw-accent', swatchAccent);
       b.style.setProperty('--sw-bg', '#111a2e');
     }
   });
@@ -3612,6 +3646,16 @@ async function downloadSongCard() {
           card.style.setProperty('width', '600px', 'important');
           card.style.setProperty('max-width', '600px', 'important');
           card.style.setProperty('padding', '26px 28px', 'important');
+          // The accent sheen is a ::before. html2canvas turns pseudo-elements
+          // into real elements while cloning, freezing their computed width at
+          // the ON-SCREEN card's size (456 px on a phone) — so on the 600 px
+          // export it stopped three quarters of the way across and left a hard
+          // vertical edge in the top-right corner. Stretch it to the card.
+          card.querySelectorAll('[class*="pseudoelement-before"], [class*="pseudoelement_before"]').forEach((p) => {
+            p.style.setProperty('width', '100%', 'important');
+            p.style.setProperty('left', '0', 'important');
+            p.style.setProperty('right', '0', 'important');
+          });
         }
       }
     });

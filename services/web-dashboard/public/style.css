@@ -1177,9 +1177,12 @@ tbody tr.featured-row:hover {
 .daily-card {
   --dc-accent: var(--accent-green);
   --dc-text: var(--text-primary);
-  --dc-text-2: var(--text-secondary);
+  /* A notch brighter than the page's #94a3b8 / 5% hairlines: on a shared PNG,
+     viewed small on a phone, the Total column and the row rules were the first
+     things to disappear. Light themes override both below. */
+  --dc-text-2: #aab6c7;
   --dc-muted: var(--text-muted);
-  --dc-line: rgba(255, 255, 255, 0.05);
+  --dc-line: rgba(255, 255, 255, 0.085);
   --dc-line-strong: rgba(255, 255, 255, 0.14);
   --dc-soft: rgba(255, 255, 255, 0.03);
   --dc-soft-strong: rgba(255, 255, 255, 0.08);
