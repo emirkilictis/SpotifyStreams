@@ -554,7 +554,7 @@ async function scanFrozenSongs() {
        AND agg.moved_before > 0
        AND agg.cumulative >= ${FROZEN_MIN_STREAMS}
        AND s.id NOT IN (${hiddenTrackIdsSql()})
-     ORDER BY agg.cumulative DESC
+     ORDER BY agg.cumulative DESC NULLS LAST
      LIMIT 80`
   );
   return r.rows;
@@ -951,10 +951,11 @@ async function artistUsesChartCache(artistId) {
       // open (~430 ms, two workers). MAX on the indexed column is a single
       // index probe.
       const freshness = await dbQuery(`
-        SELECT ta.last_scanned_date::text AS last_scanned_date,
+        -- Always one row: an artist missing from tracked_artists used to
+        -- return NO row, so cache_date was missing too and the answer was
+        -- "not fresh" -> the slow live view.
+        SELECT (SELECT last_scanned_date FROM tracked_artists WHERE artist_id = $1)::text AS last_scanned_date,
                (SELECT MAX(recorded_date) FROM chart_daily_streams)::text AS cache_date
-        FROM tracked_artists ta
-        WHERE ta.artist_id = $1
       `, [id]);
       const row = freshness.rows[0] || {};
       // No completion stamp means there is no newer coherent artist snapshot
@@ -1905,7 +1906,10 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
       ) drop_info ON TRUE
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()})
-      ORDER BY cumulative DESC;
+      -- NULLS LAST: a release discovered before Spotify shows its first
+      -- playcount has no reading yet, and DESC puts NULL FIRST — JT's list
+      -- opened with "House Music" and a blank total at #1 on 2026-10-02.
+      ORDER BY cumulative DESC NULLS LAST;
     `;
     const result = await dbQuery(query, [artistUri]);
     res.json(result.rows);
@@ -3458,7 +3462,15 @@ app.get('/api/songs/:id/history', requireAuth,
     // materialised copy — which returned identical rows for all 30. Same
     // freshness rule as the profile aggregates: if the song's artist finished
     // a scan after the last refresh, read the live view.
-    const source = await artistUsesChartCache(songArtistId)
+    // A song whose lead is not on the roster (Michael Jackson's "Love Never
+    // Felt So Good", every untracked-lead feature) sits in JT's catch-all and
+    // is scraped with JT, so JT's completion stamp is the one that says
+    // whether the materialised copy is current. Looking up the untracked lead
+    // found no row and sent all of these charts to the slow live view (9.5 s).
+    const owner = allArtistsCache.some(a => a.artist_id === songArtistId)
+      ? songArtistId
+      : '31TPClRtHm23RisEBtV3X7';
+    const source = await artistUsesChartCache(owner)
       ? 'chart_daily_streams'
       : 'daily_streams_canonical';
     const query = `
