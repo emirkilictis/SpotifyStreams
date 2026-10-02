@@ -180,7 +180,7 @@ test('album charts exclude compilation, playlist and single containers', async (
   // Keep this probe serial: the live chart query is intentionally broad for
   // the large female catalogue, and concurrent cold queries make Neon spill.
   const charts = [];
-  for (const category of ['ai', 'male']) {
+  for (const category of ['ai', 'male', 'y2k']) {
     const res = await get(`/api/charts?category=${category}`);
     assert.equal(res.status, 200);
     charts.push(await res.json());
@@ -193,6 +193,7 @@ test('album charts exclude compilation, playlist and single containers', async (
     '3UXrliH0JUQvcaLnBD8Txz', // SKZ-REPLAY compilation
     '6xS6wVbYu6DtNh6J1KZ1Gp', // SKZ-REPLAY 2026 compilation
     '5dkqH8Cr6MHhxGV0vzIMOM', // SKZ2020 compilation
+    '6NTQnlMBfYpPhDy1sXtVRG', // 20/20 Complete Experience (Part 1 + Part 2 again)
   ]);
   for (const chart of charts) {
     for (const period of ['daily', 'weekly']) {

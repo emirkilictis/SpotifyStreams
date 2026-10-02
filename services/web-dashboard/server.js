@@ -672,6 +672,12 @@ const TT20_ALBUM_IDS = [
 ];
 const TT20_ALBUM_IDS_SQL = TT20_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
+// Kept on the profile (see above) but never charted: The Complete Experience
+// repeats Part 1 and Part 2 track for track, so its chart entry counted Part 1
+// a second time beside the Deluxe card and took Part 2's place. Spotify files
+// it as an album, so neither album_group nor the title rule catches it.
+const CHART_EXCLUDED_ALBUM_IDS_SQL = ["'6NTQnlMBfYpPhDy1sXtVRG'"].join(', ');
+
 // Tracks shown on an album IN ADDITION to wherever their own album places them.
 //
 // The album-family remaps above (TT20, FSLS, ...) and admin pins MOVE a song:
@@ -1555,6 +1561,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           LOWER(REGEXP_REPLACE(source.track_title, '\\s*[-–—(].*$', '', 'g')) AS base_track_title
         FROM album_source_rows source
         WHERE source.canonical_id NOT IN (${albumHiddenTrackIdsSql()})
+          AND source.album_id NOT IN (${CHART_EXCLUDED_ALBUM_IDS_SQL})
           AND (
             source.album_id IN (${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL}, '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL})
             OR (
