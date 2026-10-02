@@ -675,7 +675,14 @@ async function fixLateUpdateDay(client) {
     [today, d1, d2]
   );
   const n = Object.fromEntries(counts.rows.map(r => [r.d, r.n]));
-  if (!n[today] || n[d1] || !n[d2]) return null;               // delik yok
+  // "Dün boş" = dünde bir taramanın değil, birkaç onarımın satırları var.
+  // repair-stream-drops / reconcile düzelttiği kaydın bugününe satır yazar;
+  // 2026-10-02'de dünkü hayalet düzeltmesinin 15 satırı 10-01'i "dolu"
+  // gösterdi ve geç gelen 10-01 güncellemesi bu yüzden taşınmayacaktı. Önceki
+  // günün %1'inin (en az 50) altındaki bir gün delik sayılır; taşırken çakışan
+  // satırlar birleştirilir (aşağıda).
+  const strayMax = Math.max(50, Math.floor((n[d2] || 0) * 0.01));
+  if (!n[today] || !n[d2] || (n[d1] || 0) > strayMax) return null;   // delik yok
 
   const canary = await client.query(
     `SELECT recorded_date::text AS d, stream_count::bigint AS c
@@ -704,6 +711,23 @@ async function fixLateUpdateDay(client) {
 
   await client.query('BEGIN');
   try {
+    // Dünde zaten satırı olan şarkılar (onarım satırları): bugünkü okumayı
+    // ona katla (yüksek olan kazanır — yazıcının kuralı), sonra bugünkü kopyayı
+    // sil ki taşıma (song_id, recorded_date) tekilliğine çarpmasın. Admin
+    // move-day ile aynı birleştirme.
+    await client.query(
+      `UPDATE stream_stats t
+          SET stream_count = GREATEST(t.stream_count, s.stream_count),
+              recorded_at  = GREATEST(t.recorded_at, s.recorded_at)
+         FROM stream_stats s
+        WHERE t.recorded_date = $2::date AND s.recorded_date = $1::date AND t.song_id = s.song_id`,
+      [today, d1]
+    );
+    await client.query(
+      `DELETE FROM stream_stats s USING stream_stats t
+        WHERE s.recorded_date = $1::date AND t.recorded_date = $2::date AND t.song_id = s.song_id`,
+      [today, d1]
+    );
     const moved = await client.query(
       `UPDATE stream_stats SET recorded_date = $2::date WHERE recorded_date = $1::date`,
       [today, d1]
