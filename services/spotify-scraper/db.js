@@ -681,8 +681,12 @@ async function fixLateUpdateDay(client) {
   // gösterdi ve geç gelen 10-01 güncellemesi bu yüzden taşınmayacaktı. Önceki
   // günün %1'inin (en az 50) altındaki bir gün delik sayılır; taşırken çakışan
   // satırlar birleştirilir (aşağıda).
-  const strayMax = Math.max(50, Math.floor((n[d2] || 0) * 0.01));
-  if (!n[today] || !n[d2] || (n[d1] || 0) > strayMax) return null;   // delik yok
+  //
+  // Eşik %50: bir artist önden elle taşınmış olabilir (2026-10-02'de JT'nin
+  // 370 satırı, kullanıcı paylaşım yapacağı için kadro bitmeden taşındı).
+  // Normal bir günde dün TAM bir gündür (~%100), yani bu eşik o durumda
+  // tetiklenmez; asıl koruma yine aşağıdaki Mirrors kontrolü.
+  if (!n[today] || !n[d2] || (n[d1] || 0) >= n[d2] * 0.5) return null;   // delik yok
 
   const canary = await client.query(
     `SELECT recorded_date::text AS d, stream_count::bigint AS c
@@ -692,7 +696,10 @@ async function fixLateUpdateDay(client) {
     [CANARY_SONG_ID, today]
   );
   const byDate = new Map(canary.rows.map(r => [r.d, Number(r.c)]));
-  if (!byDate.has(today) || !byDate.has(d2)) return null;
+  // Mirrors JT'nin şarkısı. JT önden taşındıysa geç dalganın okuması artık
+  // dünde durur ve bugün yoktur: ölçüm için onu kullan.
+  const lateEnd = byDate.has(today) ? today : (byDate.has(d1) ? d1 : null);
+  if (!lateEnd || !byDate.has(d2)) return null;
   const oneDay = [];
   for (const r of canary.rows) {
     if (r.d >= d2) continue;
@@ -702,7 +709,7 @@ async function fixLateUpdateDay(client) {
   if (oneDay.length < 3) return null;                          // kıyas için veri yok
   oneDay.sort((a, b) => a - b);
   const typical = oneDay[Math.floor(oneDay.length / 2)];
-  const jump = byDate.get(today) - byDate.get(d2);
+  const jump = byDate.get(lateEnd) - byDate.get(d2);
   const ratio = jump / typical;
   if (!(jump > 0) || ratio > LATE_UPDATE_MAX_RATIO) {
     console.log(`[late-update] ${d1} boş ama Mirrors sıçraması ${ratio.toFixed(2)}× tipik gün — gerçekten kaçırılmış gün, taşınmadı.`);
