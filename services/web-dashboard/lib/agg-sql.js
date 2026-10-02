@@ -543,4 +543,58 @@ const AGG_GAINS_WITH_DEBUT_BASE = `(
         FROM agg_gains WHERE is_debut_first
       )`;
 
-module.exports = { artistLatestAggCTE, artistCachedAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE };
+// One song's rows of daily_streams_canonical ($1 = the head id), computed from
+// that song's own family instead of the whole view.
+//
+// Every window in the view is PARTITION BY song, so no other song can change
+// this one's rows; the view just cannot push `canonical_id = $1` through its
+// CTEs, so asking it for one song rebuilt all of them (5-15 s, gigabytes of
+// temp files). Here the family is resolved first and stream_stats is read
+// through its (song_id, recorded_date) index: same rows, tens of ms, and
+// always current, with no materialised copy to wait for after a scrape.
+//
+// KEEP IN SYNC with the view (migrations/028_ai_latest_observation.sql, debut
+// rule from 026 via debutBaselineSQL): AI songs read the day's LAST
+// observation raw (no running max, under 1,000 shown as NULL), every other
+// song the family's daily MAX under a running max.
+const SONG_HISTORY_SQL = `
+      WITH fam AS MATERIALIZED (
+        SELECT id, primary_artist FROM songs WHERE COALESCE(canonical_id, id) = $1::text
+      ),
+      own AS (
+        SELECT COALESCE(bool_or(COALESCE('ai' = ANY(ta.categories), false)), false) AS is_ai
+        FROM fam
+        LEFT JOIN tracked_artists ta ON 'spotify:artist:' || ta.artist_id = fam.primary_artist
+      ),
+      src AS (
+        SELECT $1::text AS canonical_id, ss.recorded_date, MAX(ss.stream_count) AS stream_count
+        FROM fam JOIN stream_stats ss ON ss.song_id = fam.id
+        WHERE NOT (SELECT is_ai FROM own)
+        GROUP BY ss.recorded_date
+        UNION ALL
+        (SELECT DISTINCT ON (ss.recorded_date) $1::text, ss.recorded_date, ss.stream_count
+         FROM fam JOIN stream_stats ss ON ss.song_id = fam.id
+         WHERE (SELECT is_ai FROM own)
+         ORDER BY ss.recorded_date, ss.recorded_at DESC, fam.id DESC)
+      ),
+      with_debut AS (
+        SELECT canonical_id, recorded_date, stream_count FROM src
+        UNION ALL
+        ${debutBaselineSQL('src')}
+      ),
+      running AS (
+        SELECT recorded_date,
+               CASE WHEN (SELECT is_ai FROM own) THEN stream_count
+                    ELSE MAX(stream_count) OVER (ORDER BY recorded_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+               END AS cumulative
+        FROM with_debut
+      )
+      SELECT recorded_date::text AS recorded_date,
+             CASE WHEN (SELECT is_ai FROM own) AND cumulative < 1000 THEN NULL ELSE cumulative END AS cumulative,
+             (cumulative - LAG(cumulative) OVER (ORDER BY recorded_date))
+               / NULLIF(recorded_date - LAG(recorded_date) OVER (ORDER BY recorded_date), 0) AS daily_gain
+      FROM running
+      ORDER BY recorded_date ASC`;
+
+module.exports = { artistLatestAggCTE, artistCachedAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE, SONG_HISTORY_SQL };

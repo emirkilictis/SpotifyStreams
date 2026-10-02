@@ -625,7 +625,7 @@ function artistBucketMatchSQL(s, a) {
 // dashboard actually serves can be run against a real database by
 // scripts/check-stats-sql.js — the arithmetic here is where a wrong headline
 // comes from, and it was previously only checkable by loading the page.
-const { artistLatestAggCTE, artistCachedAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE } = require('./lib/agg-sql');
+const { artistLatestAggCTE, artistCachedAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE, SONG_HISTORY_SQL } = require('./lib/agg-sql');
 
 // Dynamically generate the album exclusion clauses for albums query based on active artists.
 function artistAlbumMatchSQL(s) {
@@ -3447,39 +3447,15 @@ app.get('/api/songs/:id/history', requireAuth,
       }
     }
 
-    // ::text, not the raw pg DATE. node-postgres turns a DATE into a JS Date at
-    // the SERVER's local midnight, which JSON-serialises to the previous day's
-    // timestamp anywhere east of UTC — the chart axis and the Time Machine's
-    // per-song history would then be off by one whenever the host isn't on UTC.
-    //
-    // chart_daily_streams IS this view, materialised after each scrape's dedup
-    // (migration 029: SELECT canonical_id, recorded_date, cumulative, daily_gain
-    // FROM daily_streams_canonical), indexed on (canonical_id, recorded_date).
-    // Asking the view itself for one song cannot push the canonical_id filter
-    // through its CTEs and window functions, so it rebuilt every song's daily
-    // history to return one: 7-25 s on the live site for a single song chart
-    // (10.3 s average over 30 random songs), against ~0.3 s from the
-    // materialised copy — which returned identical rows for all 30. Same
-    // freshness rule as the profile aggregates: if the song's artist finished
-    // a scan after the last refresh, read the live view.
-    // A song whose lead is not on the roster (Michael Jackson's "Love Never
-    // Felt So Good", every untracked-lead feature) sits in JT's catch-all and
-    // is scraped with JT, so JT's completion stamp is the one that says
-    // whether the materialised copy is current. Looking up the untracked lead
-    // found no row and sent all of these charts to the slow live view (9.5 s).
-    const owner = allArtistsCache.some(a => a.artist_id === songArtistId)
-      ? songArtistId
-      : '31TPClRtHm23RisEBtV3X7';
-    const source = await artistUsesChartCache(owner)
-      ? 'chart_daily_streams'
-      : 'daily_streams_canonical';
-    const query = `
-      SELECT recorded_date::text AS recorded_date, cumulative, daily_gain
-      FROM ${source}
-      WHERE canonical_id = $1
-      ORDER BY recorded_date ASC;
-    `;
-    const result = await dbQuery(query, [req.params.id]);
+    // One song's family, read through the stream_stats index (SONG_HISTORY_SQL,
+    // lib/agg-sql.js): the same rows as daily_streams_canonical, always current.
+    // This used to choose between the live view (which rebuilt EVERY song's
+    // history to return one: 5-15 s) and the materialised chart_daily_streams,
+    // which is only refreshed when a scrape run ends. After Spotify's nightly
+    // update every scanned artist waited for that refresh, and a run killed at
+    // the job's time limit never refreshed it at all, so the song popup and its
+    // day-over-day strip sat on the slow path for hours.
+    const result = await dbQuery(SONG_HISTORY_SQL, [req.params.id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch song history error:', err);

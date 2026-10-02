@@ -82,7 +82,7 @@ const ARTIST_URI = `spotify:artist:${ARTIST_ID}`;
 const DELAY_MS   = Number(process.env.SCRAPE_DELAY_MS) || 175;
 
 // Wall-clock budget for scraping artists. The GitHub Actions job is capped at
-// 45 min; a hard cancel marks the run FAILED and can interrupt the dedup step.
+// 50 min; a hard cancel marks the run FAILED and can interrupt the dedup step.
 // Instead we stop *starting* new artists once this budget elapses, then exit
 // cleanly (dedup + exit 0). The per-artist resume (artistHasTodaysData) means
 // the next hourly run finishes whatever was deferred. Tunable via env so a
@@ -1016,8 +1016,12 @@ async function run() {
         // Soft time budget: don't START a new artist once we're past the budget.
         // Heavy appears-on artists (Taylor/Zara/Olivia) can take 10+ min each, so
         // we leave headroom under the GHA cap for the in-flight artist + dedup.
-        // Forced runs ignore the budget (manual/admin full re-scrapes run to end).
-        if (!isForce && Date.now() - RUN_START > SCRAPE_BUDGET_MS) {
+        // Forced runs obey it too. They used to run to the end, but a full
+        // roster never fits in the job's 50 minutes: the 2026-10-02 admin
+        // re-scrape was cancelled mid-artist, so the finally block below (dedup
+        // + the chart cache refresh) never ran and every profile stayed on the
+        // slow live path until a later run ended cleanly.
+        if (Date.now() - RUN_START > SCRAPE_BUDGET_MS) {
           const deferred = pendingArtists.slice(i).map(a => a.name);
           console.log(`[scraper] ⏱️ Time budget (${Math.round(SCRAPE_BUDGET_MS / 60000)}m) reached — deferring ${deferred.length} artist(s) to the next run: ${deferred.join(', ')}`);
           break;
