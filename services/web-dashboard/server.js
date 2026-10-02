@@ -1293,6 +1293,189 @@ const chartCategory = (req) => {
   const raw = String(req.query.category || 'ai').toLowerCase();
   return CHART_CATEGORIES.has(raw) ? raw : null;
 };
+// ---------------------------------------------------------------------------
+// Frozen chart frames: LW, peak and weeks-on-chart without rebuilding history.
+//
+// The ?metrics=1 chart used to rebuild every daily and weekly Top 20 since
+// CHART_HISTORY_START in one query, on every cache miss: ~10 s for Female two
+// weeks in, growing ~0.5 s a day (28 days measured at 16-19 s), so it would
+// have hit the 30 s statement timeout around mid-November and the LW/peak
+// columns would never have loaded again.
+//
+// A frame is one period's Top 20 on one date. Past frames don't need to move
+// once their day is settled, so each is computed once and kept: in memory and,
+// when migration 032 has been applied, in chart_frames so a restart doesn't
+// pay for all of them again. Only frames older than CHART_FRAME_FREEZE_DAYS
+// are kept; yesterday's daily frame is recomputed with today's ranking, so a
+// late Spotify update moved back onto it (see fixLateUpdateDay) is never
+// frozen half-filled. Like a published chart, a frozen frame does not follow
+// later corrections to that day.
+//
+// Bump CHART_FRAMES_VERSION whenever the chart rules change (what counts as an
+// album, which songs are excluded, CHART_LIMIT, ...) so old frames, computed
+// under the previous rules, are not mixed with new ones.
+// Kill switch: CHART_FROZEN_FRAMES=off goes back to the single rebuild query.
+// ---------------------------------------------------------------------------
+const CHART_FROZEN_FRAMES = process.env.CHART_FROZEN_FRAMES !== 'off';
+const CHART_FRAMES_VERSION = 1;
+const CHART_FRAME_FREEZE_DAYS = 2;   // frames dated <= chart day - 2 are kept
+const CHART_FRAME_CHUNK = 7;         // daily dates per frames query (bounded cost)
+const frozenChartFrames = new Map(); // `${cat}|${scope}|${period}|${date}` -> [{kind,id,rank}]
+let chartFramesTableMissingAt = 0;
+
+const isoAddDays = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+// Same entry shape as cacheFor's, so invalidateResponseCache() clears these too
+// and concurrent callers share one computation.
+async function memoInResponseCache(key, ttl, compute) {
+  const hit = responseCache.get(key);
+  if (hit && hit.value !== undefined && Date.now() - hit.at < ttl) return hit.value;
+  if (hit && hit.pending) return hit.pending;
+  const entry = { at: Date.now(), value: undefined, pending: null };
+  entry.pending = (async () => compute())();
+  responseCache.set(key, entry);
+  cacheSweep();
+  try {
+    entry.value = await entry.pending;
+    entry.at = Date.now();
+    entry.pending = null;
+    return entry.value;
+  } catch (err) {
+    if (responseCache.get(key) === entry) responseCache.delete(key);
+    throw err;
+  }
+}
+
+async function loadStoredChartFrames(category, scopeKey, keys) {
+  if (!keys.length || Date.now() - chartFramesTableMissingAt < 10 * 60 * 1000) return;
+  try {
+    const want = keys.map(k => k.split('|'));
+    const r = await dbQuery(`
+      SELECT d.period, d.chart_date::text AS chart_date,
+             COALESCE(json_agg(json_build_object('kind', f.kind, 'id', f.id, 'rank', f.rank))
+                      FILTER (WHERE f.id IS NOT NULL), '[]') AS frame
+      FROM chart_frame_days d
+      LEFT JOIN chart_frames f
+        ON f.category = d.category AND f.scope = d.scope
+       AND f.period = d.period AND f.chart_date = d.chart_date
+      WHERE d.category = $1 AND d.scope = $2
+        AND (d.period, d.chart_date) IN (SELECT * FROM UNNEST($3::text[], $4::date[]))
+      GROUP BY d.period, d.chart_date`,
+      [category, scopeKey, want.map(w => w[2]), want.map(w => w[3])]);
+    for (const row of r.rows) {
+      frozenChartFrames.set(`${category}|${scopeKey}|${row.period}|${row.chart_date}`, row.frame);
+    }
+  } catch (err) {
+    if (err.code !== '42P01') throw err;   // no table yet (migration 032): memory only
+    chartFramesTableMissingAt = Date.now();
+  }
+}
+
+async function storeChartFrames(category, scopeKey, computed) {
+  if (!computed.length || Date.now() - chartFramesTableMissingAt < 10 * 60 * 1000) return;
+  const rows = computed.flatMap(c => c.frame.map(f => [c.period, c.date, f.kind, f.id, f.rank]));
+  try {
+    await dbQuery(`
+      WITH f AS (
+        INSERT INTO chart_frames (category, scope, period, chart_date, kind, id, rank)
+        SELECT $1, $2, p, d, k, i, r
+        FROM UNNEST($3::text[], $4::date[], $5::text[], $6::text[], $7::int[]) AS x(p, d, k, i, r)
+        ON CONFLICT DO NOTHING
+      )
+      INSERT INTO chart_frame_days (category, scope, period, chart_date)
+      SELECT $1, $2, p, d FROM UNNEST($8::text[], $9::date[]) AS y(p, d)
+      ON CONFLICT DO NOTHING`,
+      [category, scopeKey,
+       rows.map(r => r[0]), rows.map(r => r[1]), rows.map(r => r[2]), rows.map(r => r[3]), rows.map(r => r[4]),
+       computed.map(c => c.period), computed.map(c => c.date)]);
+  } catch (err) {
+    if (err.code === '42P01') { chartFramesTableMissingAt = Date.now(); return; }
+    // Losing the copy only costs a recompute after the next restart.
+    console.warn('[charts] could not store frozen frames:', err.message);
+  }
+}
+
+// Every past frame today's chart is compared with, as a Map of
+// `${period}|${kind}|${id}` -> [{ date, rank }]. runFrames(dailyDates,
+// weeklyDates) returns rows { period, kind, id, chart_date, rank } (rank <= CHART_LIMIT).
+async function chartFramesFor(category, scope, day, runFrames) {
+  const scopeKey = `${scope}:v${CHART_FRAMES_VERSION}`;
+  const freezeUpTo = isoAddDays(day, -CHART_FRAME_FREEZE_DAYS);
+  const wanted = [];   // { period, date, frozen }
+  for (let d = CHART_HISTORY_START; d < day; d = isoAddDays(d, 1)) {
+    wanted.push({ period: 'daily', date: d, frozen: d <= freezeUpTo });
+  }
+  for (let d = isoAddDays(day, -7); d >= CHART_HISTORY_START; d = isoAddDays(d, -7)) {
+    wanted.push({ period: 'weekly', date: d, frozen: d <= freezeUpTo });
+  }
+  const key = (w) => `${category}|${scopeKey}|${w.period}|${w.date}`;
+
+  await loadStoredChartFrames(category, scopeKey,
+    wanted.filter(w => w.frozen && !frozenChartFrames.has(key(w))).map(key));
+  const missing = wanted.filter(w => w.frozen && !frozenChartFrames.has(key(w)));
+
+  const compute = async (list) => {
+    const out = [];
+    const dailies = list.filter(w => w.period === 'daily');
+    const weeklies = list.filter(w => w.period === 'weekly');
+    for (let i = 0; i < Math.max(dailies.length, weeklies.length ? 1 : 0); i += CHART_FRAME_CHUNK) {
+      const dChunk = dailies.slice(i, i + CHART_FRAME_CHUNK).map(w => w.date);
+      const wChunk = i === 0 ? weeklies.map(w => w.date) : [];
+      const rows = await runFrames(dChunk, wChunk);
+      for (const w of [...dChunk.map(date => ({ period: 'daily', date })), ...wChunk.map(date => ({ period: 'weekly', date }))]) {
+        out.push({ ...w, frame: rows
+          .filter(r => r.period === w.period && r.chart_date === w.date)
+          .map(r => ({ kind: r.kind, id: r.id, rank: Number(r.rank) })) });
+      }
+    }
+    return out;
+  };
+
+  if (missing.length) {
+    const computed = await compute(missing);
+    for (const c of computed) frozenChartFrames.set(key(c), c.frame);
+    await storeChartFrames(category, scopeKey, computed);
+  }
+  // Yesterday's daily frame (not settled yet) is recomputed with the live cache.
+  const live = wanted.filter(w => !w.frozen);
+  const liveFrames = live.length
+    ? await memoInResponseCache(`chart-live-frames:${category}:${scopeKey}:${day}`, CACHE_TTL_LIVE_MS,
+        () => compute(live))
+    : [];
+
+  const byItem = new Map();
+  const add = (period, date, frame) => {
+    for (const f of frame) {
+      const k = `${period}|${f.kind}|${f.id}`;
+      if (!byItem.has(k)) byItem.set(k, []);
+      byItem.get(k).push({ date, rank: f.rank });
+    }
+  };
+  for (const w of wanted.filter(w => w.frozen)) add(w.period, w.date, frozenChartFrames.get(key(w)) || []);
+  for (const c of liveFrames) add(c.period, c.date, c.frame);
+  return { day, byItem };
+}
+
+// LW / weeks on chart / peak for one of today's rows, as the old query had them:
+// every frame the item made the Top CHART_LIMIT in, today's included.
+function frameMetrics(frames, row) {
+  const rank = Number(row.rank);
+  const past = frames.byItem.get(`${row.period}|${row.kind}|${row.id}`) || [];
+  const previousDate = isoAddDays(frames.day, row.period === 'weekly' ? -7 : -1);
+  const ranks = [rank, ...past.map(p => p.rank)];
+  const peak = Math.min(...ranks);
+  return {
+    previous_rank: past.find(p => p.date === previousDate)?.rank ?? null,
+    periods_on_chart: ranks.length,
+    peak_rank: peak,
+    periods_at_peak: ranks.filter(r => r === peak).length,
+  };
+}
+
 app.get(['/api/charts', '/api/ai-charts'], requireAuth,
   cacheFor(CACHE_TTL_LIVE_MS, (req) =>
     `charts:${chartCategory(req) || 'invalid'}:${req.query.metrics === '1' ? 'with-metrics' : 'current'}:${isJcAllowed(req.headers['x-jc-passcode']) ? 'unlocked' : 'public'}`),
@@ -1310,7 +1493,11 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
       .filter((artist) => artist.artist_id !== '31TPClRtHm23RisEBtV3X7')
       .map((artist) => `s.primary_artist IS DISTINCT FROM 'spotify:artist:${artist.artist_id}'`)
       .join(' AND ') || 'TRUE';
-    const query = `
+    // mode: 'current' = today's ranking only; 'metrics' = today's ranking with
+    // LW/peak/weeks rebuilt from every past frame (the original path, kept as
+    // CHART_FROZEN_FRAMES=off); 'frames' = only the past frames listed in
+    // $4 (daily dates) and $5 (weekly dates), see chartFramesFor().
+    const buildQuery = (mode) => `
       WITH chart_artists AS MATERIALIZED (
         SELECT
           artist_id,
@@ -1643,15 +1830,15 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
                sc.id, sc.title, g.daily_gain::bigint AS streams
         FROM agg_gains g
         JOIN scoped sc ON sc.id = g.canonical_id
-        WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
-          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'
+        WHERE ${mode === 'frames' ? 'g.recorded_date = ANY($4::date[])' : `g.recorded_date < (SELECT recorded_date FROM agg_day)
+          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'`}
         UNION ALL
         SELECT g.recorded_date, 'artists', sc.artist_id, sc.artist_name,
                SUM(g.daily_gain)::bigint
         FROM agg_gains g
         JOIN artist_scoped sc ON sc.id = g.canonical_id
-        WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
-          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'
+        WHERE ${mode === 'frames' ? 'g.recorded_date = ANY($4::date[])' : `g.recorded_date < (SELECT recorded_date FROM agg_day)
+          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'`}
           AND NOT sc.album_only
         GROUP BY g.recorded_date, sc.artist_id, sc.artist_name
         UNION ALL
@@ -1659,20 +1846,20 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
                SUM(g.daily_gain)::bigint
         FROM agg_gains g
         JOIN album_tracks at ON at.canonical_id = g.canonical_id
-        WHERE g.recorded_date < (SELECT recorded_date FROM agg_day)
-          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'
+        WHERE ${mode === 'frames' ? 'g.recorded_date = ANY($4::date[])' : `g.recorded_date < (SELECT recorded_date FROM agg_day)
+          AND g.recorded_date >= DATE '${CHART_HISTORY_START}'`}
         GROUP BY g.recorded_date, at.album_id, at.album_title
-        UNION ALL
+        ${mode === 'frames' ? '' : `UNION ALL
         SELECT (SELECT recorded_date FROM agg_day), kind, id, title, streams
         FROM chart_rows
-        WHERE period = 'daily'
+        WHERE period = 'daily'`}
       ),
       weekly_frames AS MATERIALIZED (
-        SELECT generate_series(
+        ${mode === 'frames' ? 'SELECT UNNEST($5::date[]) AS chart_date' : `SELECT generate_series(
           (SELECT recorded_date FROM agg_day)::timestamp,
           DATE '${CHART_HISTORY_START}'::timestamp,
           INTERVAL '-7 days'
-        )::date AS chart_date
+        )::date AS chart_date`}
       ),
       past_weekly_song_history AS MATERIALIZED (
         SELECT
@@ -1717,10 +1904,10 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         FROM past_weekly_song_history wh
         JOIN album_tracks at ON at.canonical_id = wh.id
         GROUP BY wh.chart_date, at.album_id, at.album_title
-        UNION ALL
+        ${mode === 'frames' ? '' : `UNION ALL
         SELECT (SELECT recorded_date FROM agg_day), kind, id, title, streams
         FROM chart_rows
-        WHERE period = 'weekly'
+        WHERE period = 'weekly'`}
       ),
       history_values AS (
         SELECT 'daily'::text AS period, * FROM daily_history_values
@@ -1772,9 +1959,11 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         FROM chart_rows
         WHERE streams > 0
       )
-      SELECT
+      ${mode === 'frames' ? `SELECT period, kind, id, chart_date::text AS chart_date, rank::int AS rank,
+             $3::text AS category_label
+      FROM history_top` : `      SELECT
         ranked.*,
-        ${includeMetrics ? `chart_metrics.previous_rank,
+        ${mode === 'metrics' ? `chart_metrics.previous_rank,
         chart_metrics.periods_on_chart,
         chart_metrics.peak_rank,
         chart_metrics.periods_at_peak` : `NULL::int AS previous_rank,
@@ -1785,7 +1974,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         ((SELECT recorded_date FROM agg_day) - 1)::text AS through_date,
         ((SELECT recorded_date FROM agg_day) - 7)::text AS week_from
       FROM ranked
-      ${includeMetrics ? `LEFT JOIN chart_metrics
+      ${mode === 'metrics' ? `LEFT JOIN chart_metrics
         ON chart_metrics.period = ranked.period
        AND chart_metrics.kind = ranked.kind
        AND chart_metrics.id = ranked.id` : ''}
@@ -1794,8 +1983,28 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         CASE ranked.period WHEN 'daily' THEN 1 ELSE 2 END,
         CASE ranked.kind WHEN 'songs' THEN 1 WHEN 'artists' THEN 2 ELSE 3 END,
         ranked.rank
+`}
     `;
-    const { rows } = await dbQueryWithNestloopOff(query, [canSeeLocked, category, categoryLabel]);
+    const params = [canSeeLocked, category, categoryLabel];
+    const scope = canSeeLocked ? 'unlocked' : 'public';
+    // Today's ranking, shared by the plain and the ?metrics=1 request.
+    const currentRows = () => memoInResponseCache(`charts-rows:${category}:${scope}`, CACHE_TTL_LIVE_MS,
+      async () => (await dbQueryWithNestloopOff(buildQuery('current'), params)).rows);
+    let rows;
+    let frames = null;
+    if (!includeMetrics) {
+      rows = await currentRows();
+    } else if (!CHART_FROZEN_FRAMES) {
+      rows = (await dbQueryWithNestloopOff(buildQuery('metrics'), params)).rows;
+    } else {
+      rows = await currentRows();
+      const day = rows[0]?.recorded_date;
+      if (day) {
+        frames = await chartFramesFor(category, scope, day,
+          async (dailyDates, weeklyDates) => (await dbQueryWithNestloopOff(
+            buildQuery('frames'), [...params, dailyDates, weeklyDates])).rows);
+      }
+    }
     const charts = {
       daily: { songs: [], artists: [], albums: [] },
       weekly: { songs: [], artists: [], albums: [] },
@@ -1819,6 +2028,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         peak_rank: includeMetrics ? (Number(row.peak_rank) || Number(row.rank)) : null,
         periods_at_peak: includeMetrics ? (Number(row.periods_at_peak) || 1) : null,
       });
+      if (frames) Object.assign(bucket[bucket.length - 1], frameMetrics(frames, row));
     }
     const meta = rows[0] || {};
     res.json({
