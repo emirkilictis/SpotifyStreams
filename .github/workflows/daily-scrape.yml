@@ -42,7 +42,15 @@ jobs:
     # baslatmayi birakip temiz cikiyor (dedup + exit 0); kalanlar bir sonraki
     # saatlik run'da resume ile tamamlaniyor. Bu cap sadece guvenlik agi — butce +
     # ucan sanatci + dedup'a pay birakacak sekilde 50'ye cikarildi.
-    timeout-minutes: 50
+    #
+    # 50 dakika TUM job'in siniriydi: 2026-10-03'te zorlamali senkron scraper
+    # adimini 49 dakikada BASARIYLA bitirdi, kworb adimi 1 dakika sonra job
+    # sinirina takildi ve run "cancelled" oldu. Render auto-deploy commit'in
+    # kontrolleri gecince deploy ediyor; iptal edilmis bir run commit'i bloke
+    # etti ve a63ad0e bir gun canliya inmedi. Artik scraper'in kendi 55 dk
+    # siniri var, job sonraki adimlarin (her birinin kendi timeout'u var)
+    # sigacagi kadar uzun.
+    timeout-minutes: 100
 
     steps:
       - name: Checkout
@@ -62,6 +70,7 @@ jobs:
       - name: Run scraper
         id: scraper
         working-directory: services/spotify-scraper
+        timeout-minutes: 55
         env:
           SP_DC:        ${{ secrets.SP_DC }}
           SP_KEY:       ${{ secrets.SP_KEY }}

@@ -928,7 +928,7 @@ async function dbQueryWithNestloopOff(text, params) {
 const artistAggregateSourceCache = new Map();
 const ARTIST_AGG_SOURCE_TTL_MS = 30 * 1000;
 
-// Is chart_daily_streams at least as new as this artist's last complete scan?
+// Does chart_daily_streams already hold this artist's newest reading?
 // Every profile endpoint asks, so the answer is cached per artist for 30 s and
 // concurrent askers share one lookup.
 // PROFILE_CHART_CACHE=off forces every profile query back to the live
@@ -951,24 +951,30 @@ async function artistUsesChartCache(artistId) {
 
   if (useCached === null) {
     const pending = (async () => {
-      // MAX(), not `SELECT recorded_date::text ... ORDER BY recorded_date`:
-      // there ORDER BY binds to the output column, i.e. the TEXT cast, which no
-      // index can serve. That sorted all 645K rows of the view on every profile
-      // open (~430 ms, two workers). MAX on the indexed column is a single
-      // index probe.
+      // Fresh = the materialised copy already holds this artist's newest
+      // reading. It used to compare the artist's scan DATE with the newest
+      // date anywhere in the copy, which said "fresh" all day once any scan
+      // stamped today: on 2026-10-03 an evening re-sync (before Spotify's
+      // update) stamped JT for the day and refreshed the copy, the real update
+      // landed hours later on the same date, and JT's profile sat on
+      // yesterday's numbers because the copy "was already up to date".
+      // Both sides read through their (id, recorded_date) indexes: ~20 ms.
       const freshness = await dbQuery(`
-        -- Always one row: an artist missing from tracked_artists used to
-        -- return NO row, so cache_date was missing too and the answer was
-        -- "not fresh" -> the slow live view.
-        SELECT (SELECT last_scanned_date FROM tracked_artists WHERE artist_id = $1)::text AS last_scanned_date,
-               (SELECT MAX(recorded_date) FROM chart_daily_streams)::text AS cache_date
+        WITH mine AS MATERIALIZED (
+          SELECT id, COALESCE(canonical_id, id) AS head
+          FROM songs WHERE primary_artist = 'spotify:artist:' || $1
+        )
+        SELECT
+          (SELECT MAX(x.d) FROM mine m CROSS JOIN LATERAL (
+             SELECT ss.recorded_date AS d FROM stream_stats ss
+             WHERE ss.song_id = m.id ORDER BY ss.recorded_date DESC LIMIT 1) x)::text AS live_date,
+          (SELECT MAX(x.d) FROM (SELECT DISTINCT head FROM mine) h CROSS JOIN LATERAL (
+             SELECT c.recorded_date AS d FROM chart_daily_streams c
+             WHERE c.canonical_id = h.head ORDER BY c.recorded_date DESC LIMIT 1) x)::text AS cache_date
       `, [id]);
       const row = freshness.rows[0] || {};
-      // No completion stamp means there is no newer coherent artist snapshot
-      // that the materialized cache could be missing.
-      return Boolean(row.cache_date) && (
-        !row.last_scanned_date || row.cache_date >= row.last_scanned_date
-      );
+      // No reading at all means there is nothing the copy could be missing.
+      return !row.live_date || (Boolean(row.cache_date) && row.cache_date >= row.live_date);
     })().catch((err) => {
       // A missing/stale materialized view must never break a profile. The live
       // aggregate is slower, but it is the authoritative safe fallback.
@@ -3034,16 +3040,27 @@ app.get('/api/scraper-status', requireAuth, async (req, res) => {
           // is too early: the headline would mix today's first songs with the
           // rest of yesterday. `last_scanned_date` is stamped only after every
           // album succeeded. Invalidate that artist at that exact boundary.
+          //
+          // Compare the stamp's TIME, not its date. A second scan on the same
+          // day (an evening re-sync, then Spotify's real update hours later)
+          // keeps the date, so the date-only check never fired and JT's
+          // profile kept a response cached mid-scan ("Loading…", yesterday's
+          // numbers) until the whole roster finished.
           if (scraperStatusCache) {
-            const before = new Map((scraperStatusCache.artists || []).map(a => [
-              a.artist_id,
-              a.last_scanned_date ? String(a.last_scanned_date).slice(0, 10) : null,
-            ]));
+            const stamp = (a) => (a.last_scanned_at || a.last_scanned_date)
+              ? `${a.last_scanned_date || ''}|${a.last_scanned_at || ''}` : null;
+            const before = new Map((scraperStatusCache.artists || []).map(a => [a.artist_id, stamp(a)]));
             for (const artist of payload.artists || []) {
-              const next = artist.last_scanned_date ? String(artist.last_scanned_date).slice(0, 10) : null;
+              const next = stamp(artist);
               if (next && before.get(artist.artist_id) !== next) {
                 invalidateArtistResponseCache(artist.artist_id);
               }
+            }
+            // The artist the run just left: anything cached while it was being
+            // scraped was answered as "loading", whatever its stamp says.
+            const prevCurrent = scraperStatusCache.current_artist_id;
+            if (prevCurrent && prevCurrent !== payload.current_artist_id) {
+              invalidateArtistResponseCache(prevCurrent);
             }
           }
           // A scrape that just finished means every cached total is a day out of
@@ -3100,6 +3117,7 @@ async function buildScraperStatus() {
           ta.name,
           ta.active,
           ta.last_scanned_date::text AS last_scanned_date,
+          ta.last_scanned_at::text AS last_scanned_at,
           ta.last_scanned_date::text AS last_date
         FROM tracked_artists ta
         ORDER BY ta.sort_order, ta.name
