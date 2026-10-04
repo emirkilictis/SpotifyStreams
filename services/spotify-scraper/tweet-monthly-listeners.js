@@ -92,7 +92,9 @@ async function main() {
     const { rows } = await client.query(
       `SELECT to_char(recorded_date, 'YYYY-MM-DD') AS tarih,
               monthly_listeners,
-              (recorded_date = CURRENT_DATE) AS bugun_mu
+              -- Scraper'ın günü (İstanbul - 12 saat), UTC CURRENT_DATE değil:
+              -- gece yarısını (UTC) geçen bir taramada bugün_mu hep false oluyordu.
+              (recorded_date = ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date) AS bugun_mu
        FROM artist_stats
        WHERE artist_id = $1 AND monthly_listeners IS NOT NULL
        ORDER BY recorded_date DESC LIMIT 2`, [JT]);

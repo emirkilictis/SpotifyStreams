@@ -84,13 +84,17 @@ async function main() {
   try {
     await ensureTweetLog(client);
 
+    // "Bugün" = scraper'ın damgaladığı gün (İstanbul saati - 12 saat), DB'nin
+    // UTC CURRENT_DATE'i değil. 2026-10-03'te Spotify 23:42 UTC'de yayınladı,
+    // tarama UTC gece yarısını geçti ve CURRENT_DATE 10-04'e döndü: kapsama 0
+    // çıktı, JT'nin 10.8M'lik günü hiç tweetlenmedi.
     const kaps = await client.query(
       `SELECT COUNT(*) FILTER (WHERE bugun) AS yazilan, COUNT(*) AS toplam,
-              to_char(CURRENT_DATE, 'YYYY-MM-DD') AS bugun_str
+              to_char(((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date, 'YYYY-MM-DD') AS bugun_str
        FROM (
          SELECT s.id, EXISTS (
            SELECT 1 FROM stream_stats x
-           WHERE x.song_id = s.id AND x.recorded_date = CURRENT_DATE) AS bugun
+           WHERE x.song_id = s.id AND x.recorded_date = ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date) AS bugun
          FROM songs s
          WHERE (s.primary_artist = $1 OR s.primary_artist IS NULL)
            AND s.canonical_id IS NULL
