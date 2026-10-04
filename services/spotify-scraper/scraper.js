@@ -736,6 +736,33 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
 // taşımak, kalan sanatçıları o günün verisinden tamamen mahrum bırakır. Birkaç
 // sanatçılık pay, kalıcı olarak taranamayan (404, boş katalog) bir sanatçının
 // düzeltmeyi sonsuza kadar kilitlememesi için.
+// Bugünün tarama damgası (tracked_artists ta), ama yalnızca Spotify bugünün
+// verisini yayınladıktan SONRA atıldıysa. Yayın anı = Mirrors ailesinin bugün
+// ilk kez önceki günlerin üstünde okunduğu an (canary ile aynı şarkı).
+//
+// 2026-10-03: kullanıcı akşam, Spotify güncellemeden önce elle zorlamalı
+// senkron yaptı. Bütün kadro 10-03 damgasını aldı ama hiçbir yeni sayı
+// yazılmadı. Gerçek güncelleme 23:42 UTC'de geldi; o koşu bütçe dolunca 40.
+// sanatçıda durdu ve kalan 33 sanatçı (Anitta, Beyoncé, BTS, ...) sonraki
+// koşularda "bugün zaten tarandı" sayılıp atlandı: 10-02'de kalacaklardı.
+// Henüz yayın yoksa (Mirrors bugün yükselmediyse) damga eskisi gibi geçerli:
+// yeni veri yokken yeniden taramanın bir anlamı yok.
+const VALID_TODAY_STAMP_SQL = `
+  ta.last_scanned_date = (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)
+  AND ta.last_scanned_at >= COALESCE((
+    WITH canary AS (
+      SELECT ss.stream_count, ss.recorded_date, ss.recorded_at
+      FROM songs s JOIN stream_stats ss ON ss.song_id = s.id
+      WHERE COALESCE(s.canonical_id, s.id) = '4rHZZAmHpZrA3iH5zx8frV'
+        AND ss.recorded_date >= ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date - 7
+    )
+    SELECT MIN(recorded_at) FROM canary
+    WHERE recorded_date = ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date
+      AND stream_count > COALESCE((
+        SELECT MAX(stream_count) FROM canary
+        WHERE recorded_date < ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date), 0)
+  ), '-infinity'::timestamptz)`;
+
 async function maybeFixLateUpdateDay(client, rosterIds) {
   if (!rosterIds || !rosterIds.length) return;
   try {
@@ -745,8 +772,8 @@ async function maybeFixLateUpdateDay(client, rosterIds) {
     // bir-iki donmuş/düşen şarkı yüzünden bu kuralı geçemiyor (09-17: 22).
     // Bütün albümleri hatasız taranmış (damgalı) sanatçı da tamam sayılır.
     const stamped = await client.query(
-      `SELECT 'spotify:artist:' || artist_id AS artist FROM tracked_artists
-        WHERE last_scanned_date = (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)`
+      `SELECT 'spotify:artist:' || artist_id AS artist FROM tracked_artists ta
+        WHERE ${VALID_TODAY_STAMP_SQL}`
     );
     for (const r of stamped.rows) captured.add(r.artist);
     const missing = uris.length - uris.filter(u => captured.has(u)).length;
@@ -817,8 +844,8 @@ async function artistsWithTodaysData(client, artistUris) {
   try {
     const stamped = await client.query(
       `SELECT 'spotify:artist:' || artist_id AS artist
-         FROM tracked_artists
-        WHERE last_scanned_date = (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)
+         FROM tracked_artists ta
+        WHERE ${VALID_TODAY_STAMP_SQL}
           AND 'spotify:artist:' || artist_id = ANY($1::text[])`,
       [artistUris]
     );
