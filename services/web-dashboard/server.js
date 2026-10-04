@@ -3674,6 +3674,52 @@ app.get('/api/albums/:id/songs', requireAuth,
   }
 });
 
+// Who Spotify credits on a track, in its order ("Quavo", "Justin Timberlake").
+// The scraper keeps only songs.primary_artist (which dashboard bucket a song
+// counts in), so a feature like House Music (Quavo feat. JT) has nothing that
+// names its lead and the song card printed JUSTIN TIMBERLAKE as if it were
+// his single. The public embed page carries the credits; read it once per
+// track and keep it. Display only: never used for attribution or totals.
+const trackCreditsCache = new Map();   // id -> { at, artists }
+const TRACK_CREDITS_TTL_MS = 24 * 60 * 60 * 1000;
+const TRACK_CREDITS_FAIL_TTL_MS = 10 * 60 * 1000;
+
+async function fetchTrackCredits(id) {
+  const hit = trackCreditsCache.get(id);
+  if (hit && Date.now() - hit.at < (hit.artists.length ? TRACK_CREDITS_TTL_MS : TRACK_CREDITS_FAIL_TTL_MS)) {
+    return hit.artists;
+  }
+  let artists = [];
+  try {
+    const r = await fetch(`https://open.spotify.com/embed/track/${id}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SpotifyStreamsDashboard/1.0)' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (r.ok) {
+      const html = await r.text();
+      // The first "artists" array on the page belongs to the track itself.
+      const m = html.match(/"artists":(\[[^\]]*\])/);
+      if (m) {
+        artists = JSON.parse(m[1])
+          .filter(a => a && typeof a.name === 'string')
+          .map(a => ({ name: a.name, id: String(a.uri || '').replace('spotify:artist:', '') }))
+          .slice(0, 12);
+      }
+    }
+  } catch (err) {
+    console.warn(`[credits] ${id}: ${err.message}`);
+  }
+  if (trackCreditsCache.size > 5000) trackCreditsCache.clear();
+  trackCreditsCache.set(id, { at: Date.now(), artists });
+  return artists;
+}
+
+app.get('/api/songs/:id/credits', requireAuth, async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!/^[A-Za-z0-9]{22}$/.test(id)) return res.status(400).json({ error: 'Invalid track id.' });
+  res.json({ artists: await fetchTrackCredits(id) });
+});
+
 app.get('/api/songs/:id/history', requireAuth,
   cacheFor(CACHE_TTL_LIVE_MS, idKey('song-history')), async (req, res) => {
   try {

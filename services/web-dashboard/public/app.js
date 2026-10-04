@@ -2537,6 +2537,47 @@ function dcChangeCell(change, base) {
   };
 }
 
+// Spotify's credits for a track, as its card should name them. songs only
+// record which dashboard a song counts under, so House Music (Quavo feat. JT)
+// went out on JT's card as JUSTIN TIMBERLAKE, as if it were his single.
+const songCreditsCache = new Map();
+function fetchSongCredits(songId) {
+  if (!songId) return Promise.resolve([]);
+  if (!songCreditsCache.has(songId)) {
+    const headers = {};
+    if (jcPasscode) headers['X-JC-Passcode'] = jcPasscode;
+    const p = fetch(`/api/songs/${encodeURIComponent(songId)}/credits`, { headers })
+      .then(r => (r.ok ? r.json() : { artists: [] }))
+      .then(d => (Array.isArray(d.artists) ? d.artists : []))
+      .catch(() => []);
+    // Don't keep a failed lookup: the next card opened can try again.
+    p.then(a => { if (!a.length) songCreditsCache.delete(songId); });
+    songCreditsCache.set(songId, p);
+  }
+  return songCreditsCache.get(songId);
+}
+
+// "Quavo ft. Justin Timberlake": whoever the title names as a feature
+// ("(feat. X)", "(with X)") goes after "ft.", everyone else leads, in
+// Spotify's order. Several leads read "A, B & C". Empty when unknown.
+function songCreditLine(artists, title) {
+  const names = (artists || []).map(a => a && a.name).filter(Boolean);
+  if (!names.length) return '';
+  const credit = String(title || '').match(/[\(\[](?:feat|featuring|ft|with)\.?\s([^)\]]*)[\)\]]/i);
+  const featured = credit ? credit[1].toLowerCase() : '';
+  // Titles shorten names ("with ... & Pharrell" for Pharrell Williams).
+  const parts = featured.split(/,|&|\band\b/).map(t => t.trim()).filter(Boolean);
+  const isFeat = (n) => {
+    const low = n.toLowerCase();
+    return featured.includes(low) || parts.some(t => low.startsWith(t) || t.startsWith(low));
+  };
+  let leads = names.filter(n => !isFeat(n));
+  let feats = names.filter(isFeat);
+  if (!leads.length) { leads = names; feats = []; }
+  const list = (xs) => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} & ${xs[xs.length - 1]}` : xs[0];
+  return feats.length ? `${list(leads)} ft. ${list(feats)}` : list(leads);
+}
+
 function cleanTrackTitle(title) {
   if (!title) return '';
   let clean = title
@@ -3548,6 +3589,14 @@ async function openSongCard() {
   buildCardThemePickers();   // idempotent; also applies the saved colour theme
   songCardEl.innerHTML = `<div class="dc-total" style="padding:30px 0;text-align:center;">Loading…</div>`;
 
+  // Spotify's own credit line ("Quavo ft. Justin Timberlake"); the profile's
+  // name only if Spotify can't be reached within a few seconds.
+  const credits = await Promise.race([
+    currentSongMeta.creditsPromise || fetchSongCredits(currentSongMeta.songId),
+    new Promise(resolve => setTimeout(() => resolve([]), 4000)),
+  ]);
+  const artistLine = songCreditLine(credits, currentSongMeta.title) || currentArtistName || '';
+
   let percentChange = 0;
   let changeClass = 'dc-muted';
   let badgeArrow = '●';
@@ -3587,7 +3636,7 @@ async function openSongCard() {
       ${currentSongMeta.coverUrl ? `<img class="dc-cover" src="${currentSongMeta.coverUrl}" crossorigin="anonymous" alt="">` : ''}
       <div class="dc-head-text">
         <div class="dc-album">${esc(cleanTrackTitle(currentSongMeta.title))}</div>
-        <div class="dc-artist">${esc((currentArtistName || '').toUpperCase())}</div>
+        <div class="dc-artist">${esc(artistLine.toUpperCase())}</div>
         <div class="dc-date">${formatCardDate(recordedDate)}</div>
       </div>
     </div>
@@ -4576,6 +4625,8 @@ window.openSongById = async function(songId) {
     etaText: etaText,
     percent: percent
   };
+  // Credits load with the popup so the card rarely has to wait for them.
+  currentSongMeta.creditsPromise = fetchSongCredits(song.id);
 
   // Show modal
   songModal.classList.remove('hidden');
