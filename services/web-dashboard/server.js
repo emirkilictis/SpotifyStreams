@@ -1334,7 +1334,11 @@ const chartCategory = (req) => {
 // Kill switch: CHART_FROZEN_FRAMES=off goes back to the single rebuild query.
 // ---------------------------------------------------------------------------
 const CHART_FROZEN_FRAMES = process.env.CHART_FROZEN_FRAMES !== 'off';
-const CHART_FRAMES_VERSION = 1;
+// Weekly chart = last completed Friday-to-Thursday week (see week_anchor in
+// the chart SQL). CHART_WEEK=rolling: the old seven days ending on the chart day.
+const CHART_WEEK_ROLLING = process.env.CHART_WEEK === 'rolling';
+// v2: weekly frames are Friday-to-Thursday tracking weeks (was: rolling).
+const CHART_FRAMES_VERSION = 2;
 const CHART_FRAME_FREEZE_DAYS = 2;   // frames dated <= chart day - 2 are kept
 const CHART_FRAME_CHUNK = 7;         // daily dates per frames query (bounded cost)
 const frozenChartFrames = new Map(); // `${cat}|${scope}|${period}|${date}` -> [{kind,id,rank}]
@@ -1419,14 +1423,14 @@ async function storeChartFrames(category, scopeKey, computed) {
 // Every past frame today's chart is compared with, as a Map of
 // `${period}|${kind}|${id}` -> [{ date, rank }]. runFrames(dailyDates,
 // weeklyDates) returns rows { period, kind, id, chart_date, rank } (rank <= CHART_LIMIT).
-async function chartFramesFor(category, scope, day, runFrames) {
+async function chartFramesFor(category, scope, day, weekAnchor, runFrames) {
   const scopeKey = `${scope}:v${CHART_FRAMES_VERSION}`;
   const freezeUpTo = isoAddDays(day, -CHART_FRAME_FREEZE_DAYS);
   const wanted = [];   // { period, date, frozen }
   for (let d = CHART_HISTORY_START; d < day; d = isoAddDays(d, 1)) {
     wanted.push({ period: 'daily', date: d, frozen: d <= freezeUpTo });
   }
-  for (let d = isoAddDays(day, -7); d >= CHART_HISTORY_START; d = isoAddDays(d, -7)) {
+  for (let d = isoAddDays(weekAnchor, -7); d >= CHART_HISTORY_START; d = isoAddDays(d, -7)) {
     wanted.push({ period: 'weekly', date: d, frozen: d <= freezeUpTo });
   }
   const key = (w) => `${category}|${scopeKey}|${w.period}|${w.date}`;
@@ -1460,7 +1464,7 @@ async function chartFramesFor(category, scope, day, runFrames) {
   // Yesterday's daily frame (not settled yet) is recomputed with the live cache.
   const live = wanted.filter(w => !w.frozen);
   const liveFrames = live.length
-    ? await memoInResponseCache(`chart-live-frames:${category}:${scopeKey}:${day}`, CACHE_TTL_LIVE_MS,
+    ? await memoInResponseCache(`chart-live-frames:${category}:${scopeKey}:${day}:${weekAnchor}`, CACHE_TTL_LIVE_MS,
         () => compute(live))
     : [];
 
@@ -1474,7 +1478,7 @@ async function chartFramesFor(category, scope, day, runFrames) {
   };
   for (const w of wanted.filter(w => w.frozen)) add(w.period, w.date, frozenChartFrames.get(key(w)) || []);
   for (const c of liveFrames) add(c.period, c.date, c.frame);
-  return { day, byItem };
+  return { day, weekAnchor, byItem };
 }
 
 // LW / weeks on chart / peak for one of today's rows, as the old query had them:
@@ -1482,7 +1486,9 @@ async function chartFramesFor(category, scope, day, runFrames) {
 function frameMetrics(frames, row) {
   const rank = Number(row.rank);
   const past = frames.byItem.get(`${row.period}|${row.kind}|${row.id}`) || [];
-  const previousDate = isoAddDays(frames.day, row.period === 'weekly' ? -7 : -1);
+  const previousDate = row.period === 'weekly'
+    ? isoAddDays(frames.weekAnchor, -7)
+    : isoAddDays(frames.day, -1);
   const ranks = [rank, ...past.map(p => p.rank)];
   const peak = Math.min(...ranks);
   return {
@@ -1599,12 +1605,26 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         JOIN songs s ON s.id = credit.canonical_id
         LEFT JOIN agg ag ON ag.canonical_id = credit.canonical_id
       ),
+      -- The weekly chart's tracking week, Billboard style: Friday to Thursday.
+      -- A reading dated D holds the streams through D - 1, so a week is the
+      -- difference between two Friday readings, and the chart shows the last
+      -- COMPLETED week until the next one closes. CHART_WEEK=rolling restores
+      -- the old seven days ending on the chart day.
+      week_anchor AS MATERIALIZED (
+        SELECT ${CHART_WEEK_ROLLING
+          ? 'recorded_date'
+          : "recorded_date - ((EXTRACT(ISODOW FROM recorded_date)::int - 5 + 7) % 7)"} AS d
+        FROM agg_day
+      ),
       weekly_recent_points AS MATERIALIZED (
         SELECT
           canonical_id,
           (ARRAY_AGG(cumulative ORDER BY recorded_date DESC) FILTER (
-            WHERE recorded_date <= (SELECT recorded_date FROM agg_day)
+            WHERE recorded_date <= (SELECT d FROM week_anchor)
           ))[1] AS ending,
+          (ARRAY_AGG(cumulative ORDER BY recorded_date DESC) FILTER (
+            WHERE recorded_date <= (SELECT recorded_date FROM agg_day)
+          ))[1] AS ending_now,
           (ARRAY_AGG(cumulative ORDER BY recorded_date) FILTER (
             WHERE recorded_date >= DATE '${CHART_HISTORY_START}' - 7
           ))[1] AS first_read
@@ -1621,7 +1641,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           SELECT cached.cumulative
           FROM chart_daily_streams cached
           WHERE cached.canonical_id = sc.canonical_id
-            AND cached.recorded_date <= (SELECT recorded_date FROM agg_day) - 7
+            AND cached.recorded_date <= (SELECT d FROM week_anchor) - 7
           ORDER BY cached.recorded_date DESC
           LIMIT 1
         ) starting ON TRUE
@@ -1630,7 +1650,10 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         SELECT
           recent.canonical_id,
           (recent.ending - COALESCE(starting.cumulative, recent.first_read))::bigint
-            AS weekly_streams
+            AS weekly_streams,
+          -- This week so far: since the last Friday reading (0 on a Friday).
+          (recent.ending_now - COALESCE(recent.ending, recent.first_read))::bigint
+            AS this_week_streams
         FROM weekly_recent_points recent
         LEFT JOIN weekly_starting starting USING (canonical_id)
       ),
@@ -1650,6 +1673,16 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           sc.artist_image_url, sc.accent,
           sc.album_title AS subtitle, sc.cover_url,
           COALESCE(w.weekly_streams, 0)::bigint AS streams
+        FROM scoped sc
+        LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
+      ),
+      thisweek_song_rows AS (
+        SELECT
+          'thisweek'::text AS period, 'songs'::text AS kind,
+          sc.id, sc.title, sc.artist_id, sc.artist_name,
+          sc.artist_image_url, sc.accent,
+          sc.album_title AS subtitle, sc.cover_url,
+          COALESCE(w.this_week_streams, 0)::bigint AS streams
         FROM scoped sc
         LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
       ),
@@ -1677,6 +1710,21 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           ($3::text || ' artist') AS subtitle,
           MAX(sc.artist_image_url) AS cover_url,
           SUM(COALESCE(w.weekly_streams, 0))::bigint AS streams
+        FROM artist_scoped sc
+        LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
+        WHERE NOT sc.album_only
+        GROUP BY sc.artist_id, sc.artist_name
+      ),
+      thisweek_artist_rows AS (
+        SELECT
+          'thisweek'::text AS period, 'artists'::text AS kind,
+          sc.artist_id AS id, sc.artist_name AS title,
+          sc.artist_id, sc.artist_name,
+          MAX(sc.artist_image_url) AS artist_image_url,
+          MAX(sc.accent) AS accent,
+          ($3::text || ' artist') AS subtitle,
+          MAX(sc.artist_image_url) AS cover_url,
+          SUM(COALESCE(w.this_week_streams, 0))::bigint AS streams
         FROM artist_scoped sc
         LEFT JOIN weekly_by_song w ON w.canonical_id = sc.id
         WHERE NOT sc.album_only
@@ -1830,6 +1878,20 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         LEFT JOIN weekly_by_song w ON w.canonical_id = at.canonical_id
         GROUP BY at.album_id, at.album_title, at.artist_id, at.artist_name
       ),
+      thisweek_album_rows AS (
+        SELECT
+          'thisweek'::text AS period, 'albums'::text AS kind,
+          at.album_id AS id, at.album_title AS title,
+          at.artist_id, at.artist_name,
+          MAX(at.artist_image_url) AS artist_image_url,
+          MAX(at.accent) AS accent,
+          at.artist_name AS subtitle,
+          MAX(at.cover_url) AS cover_url,
+          SUM(COALESCE(w.this_week_streams, 0))::bigint AS streams
+        FROM album_tracks at
+        LEFT JOIN weekly_by_song w ON w.canonical_id = at.canonical_id
+        GROUP BY at.album_id, at.album_title, at.artist_id, at.artist_name
+      ),
       chart_rows AS MATERIALIZED (
         SELECT * FROM daily_song_rows
         UNION ALL SELECT * FROM weekly_song_rows
@@ -1837,6 +1899,9 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         UNION ALL SELECT * FROM weekly_artist_rows
         UNION ALL SELECT * FROM daily_album_rows
         UNION ALL SELECT * FROM weekly_album_rows
+        UNION ALL SELECT * FROM thisweek_song_rows
+        UNION ALL SELECT * FROM thisweek_artist_rows
+        UNION ALL SELECT * FROM thisweek_album_rows
       ),
       -- Rebuild the historical Top 20 frames from the stored snapshots. Daily
       -- frames advance one day at a time; weekly frames are non-overlapping
@@ -1873,7 +1938,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
       ),
       weekly_frames AS MATERIALIZED (
         ${mode === 'frames' ? 'SELECT UNNEST($5::date[]) AS chart_date' : `SELECT generate_series(
-          (SELECT recorded_date FROM agg_day)::timestamp,
+          (SELECT d FROM week_anchor)::timestamp,
           DATE '${CHART_HISTORY_START}'::timestamp,
           INTERVAL '-7 days'
         )::date AS chart_date`}
@@ -1884,7 +1949,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
           sc.id,
           sc.title,
           (ending.cumulative - COALESCE(starting.cumulative, first_read.cumulative))::bigint AS streams
-        FROM (SELECT chart_date FROM weekly_frames WHERE chart_date < (SELECT recorded_date FROM agg_day)) wf
+        FROM (SELECT chart_date FROM weekly_frames WHERE chart_date < (SELECT d FROM week_anchor)) wf
         CROSS JOIN scoped sc
         LEFT JOIN LATERAL (
           SELECT cached.cumulative
@@ -1922,7 +1987,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         JOIN album_tracks at ON at.canonical_id = wh.id
         GROUP BY wh.chart_date, at.album_id, at.album_title
         ${mode === 'frames' ? '' : `UNION ALL
-        SELECT (SELECT recorded_date FROM agg_day), kind, id, title, streams
+        SELECT (SELECT d FROM week_anchor), kind, id, title, streams
         FROM chart_rows
         WHERE period = 'weekly'`}
       ),
@@ -1949,8 +2014,9 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         SELECT
           period, kind, id,
           MAX(rank) FILTER (
-            WHERE chart_date = (SELECT recorded_date FROM agg_day)
-                               - CASE WHEN period = 'weekly' THEN 7 ELSE 1 END
+            WHERE chart_date = CASE WHEN period = 'weekly'
+                                    THEN (SELECT d FROM week_anchor) - 7
+                                    ELSE (SELECT recorded_date FROM agg_day) - 1 END
           )::int AS previous_rank,
           COUNT(*)::int AS periods_on_chart,
           MIN(rank)::int AS peak_rank
@@ -1989,7 +2055,9 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         NULL::int AS periods_at_peak`},
         (SELECT recorded_date::text FROM agg_day) AS recorded_date,
         ((SELECT recorded_date FROM agg_day) - 1)::text AS through_date,
-        ((SELECT recorded_date FROM agg_day) - 7)::text AS week_from
+        ((SELECT d FROM week_anchor) - 7)::text AS week_from,
+        ((SELECT d FROM week_anchor) - 1)::text AS week_through,
+        (SELECT d FROM week_anchor)::text AS week_anchor
       FROM ranked
       ${mode === 'metrics' ? `LEFT JOIN chart_metrics
         ON chart_metrics.period = ranked.period
@@ -2016,8 +2084,9 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
     } else {
       rows = await currentRows();
       const day = rows[0]?.recorded_date;
-      if (day) {
-        frames = await chartFramesFor(category, scope, day,
+      const weekAnchor = rows[0]?.week_anchor;
+      if (day && weekAnchor) {
+        frames = await chartFramesFor(category, scope, day, weekAnchor,
           async (dailyDates, weeklyDates) => (await dbQueryWithNestloopOff(
             buildQuery('frames'), [...params, dailyDates, weeklyDates])).rows);
       }
@@ -2025,6 +2094,9 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
     const charts = {
       daily: { songs: [], artists: [], albums: [] },
       weekly: { songs: [], artists: [], albums: [] },
+      // The current, still-open week (Friday to now). No LW/peak: it is not
+      // a chart week yet.
+      thisweek: { songs: [], artists: [], albums: [] },
     };
     for (const row of rows) {
       const bucket = charts[row.period]?.[row.kind];
@@ -2045,7 +2117,12 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         peak_rank: includeMetrics ? (Number(row.peak_rank) || Number(row.rank)) : null,
         periods_at_peak: includeMetrics ? (Number(row.periods_at_peak) || 1) : null,
       });
-      if (frames) Object.assign(bucket[bucket.length - 1], frameMetrics(frames, row));
+      if (row.period === 'thisweek') {
+        Object.assign(bucket[bucket.length - 1],
+          { previous_rank: null, periods_on_chart: null, peak_rank: null, periods_at_peak: null });
+      } else if (frames) {
+        Object.assign(bucket[bucket.length - 1], frameMetrics(frames, row));
+      }
     }
     const meta = rows[0] || {};
     res.json({
@@ -2055,6 +2132,13 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
       recorded_date: meta.recorded_date || null,
       through_date: meta.through_date || null,
       week_from: meta.week_from || null,
+      week_through: meta.week_through || null,
+      // The open week: Friday's reading up to the chart day (empty on Friday).
+      this_week_from: meta.week_anchor || null,
+      this_week_through: meta.through_date || null,
+      this_week_days: meta.week_anchor && meta.recorded_date
+        ? Math.round((Date.parse(meta.recorded_date) - Date.parse(meta.week_anchor)) / 86400000)
+        : 0,
       charts,
     });
   } catch (err) {

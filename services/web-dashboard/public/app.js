@@ -5202,8 +5202,13 @@ const CHART_CATEGORY_LABELS = { ai: 'AI', male: 'Male', female: 'Female', kpop: 
 function aiChartDateLabel(period, data) {
   if (!data) return 'Latest artist rankings';
   const label = data.category_label || CHART_CATEGORY_LABELS[aiChartsCategory] || 'Artist';
-  if (period === 'weekly' && data.week_from && data.through_date) {
-    return `${label} · ${formatDate(data.week_from)} – ${formatDate(data.through_date)}`;
+  // Weekly = the last completed Friday-to-Thursday tracking week.
+  if (period === 'weekly' && data.week_from && (data.week_through || data.through_date)) {
+    return `${label} · Week of ${formatDate(data.week_from)} – ${formatDate(data.week_through || data.through_date)}`;
+  }
+  if (period === 'thisweek' && data.this_week_from && data.this_week_through) {
+    const days = Number(data.this_week_days) || 0;
+    return `${label} · ${formatDate(data.this_week_from)} – ${formatDate(data.this_week_through)} · so far (${days} day${days === 1 ? '' : 's'})`;
   }
   return data.through_date ? `${label} · Streams for ${formatDate(data.through_date)}` : `Latest ${label} rankings`;
 }
@@ -5227,7 +5232,8 @@ function aiChartRow(row, kind, period, metricsReady = true) {
       : String(Number(row.previous_rank));
   const periodWord = period === 'weekly' ? 'Weeks' : 'Days';
   const previousLabel = period === 'weekly' ? 'LW' : 'YD';
-  const history = [
+  // The open week isn't a chart week yet: no LW / weeks / peak to show.
+  const history = period === 'thisweek' ? '' : [
     [previousLabel, previous],
     [periodWord, String(onChart)],
     ['Peak', String(peak)],
@@ -5244,7 +5250,7 @@ function aiChartRow(row, kind, period, metricsReady = true) {
         <small title="${escHtml(meta)}">${escHtml(meta)}</small>
         <span class="ai-chart-history" aria-label="Chart history">${history}</span>
       </span>
-      <span class="ai-chart-streams"><b>${formatNumber(row.streams)}</b><small>${period === 'weekly' ? 'weekly' : 'daily'} streams</small></span>
+      <span class="ai-chart-streams"><b>${formatNumber(row.streams)}</b><small>${period === 'weekly' ? 'weekly' : period === 'thisweek' ? 'this week' : 'daily'} streams</small></span>
       <span class="ai-chart-arrow" aria-hidden="true">→</span>
     </button>
   </li>`;
@@ -5252,6 +5258,12 @@ function aiChartRow(row, kind, period, metricsReady = true) {
 
 function renderAiCharts() {
   if (!aiChartsData || !aiChartsGrid) return;
+  // "This Week" exists only once the open week has a day in it.
+  const hasThisWeek = Number(aiChartsData.this_week_days) > 0 && !!aiChartsData.charts?.thisweek;
+  if (aiChartsPeriod === 'thisweek' && !hasThisWeek) aiChartsPeriod = 'weekly';
+  document.querySelectorAll('.ai-period-btn[data-period="thisweek"]').forEach((btn) => {
+    btn.classList.toggle('hidden', !hasThisWeek);
+  });
   const period = aiChartsPeriod;
   const bucket = aiChartsData.charts?.[period] || {};
   const categoryLabel = aiChartsData.category_label || CHART_CATEGORY_LABELS[aiChartsCategory] || 'Artist';
@@ -5269,7 +5281,7 @@ function renderAiCharts() {
     btn.setAttribute('aria-selected', String(active));
   });
   document.querySelectorAll('[data-period-label]').forEach((el) => {
-    el.textContent = period === 'weekly' ? 'Weekly' : 'Daily';
+    el.textContent = period === 'weekly' ? 'Weekly' : period === 'thisweek' ? 'This Week' : 'Daily';
   });
   document.querySelectorAll('.ai-kind-btn').forEach((btn) => {
     const active = btn.dataset.kind === aiChartsKind;
@@ -5407,7 +5419,7 @@ document.querySelectorAll('.ai-category-btn').forEach((btn) => {
 });
 document.querySelectorAll('.ai-period-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
-    aiChartsPeriod = btn.dataset.period === 'weekly' ? 'weekly' : 'daily';
+    aiChartsPeriod = ['weekly', 'thisweek'].includes(btn.dataset.period) ? btn.dataset.period : 'daily';
     renderAiCharts();
   });
 });
