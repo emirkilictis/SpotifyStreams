@@ -928,7 +928,7 @@ async function dbQueryWithNestloopOff(text, params) {
 const artistAggregateSourceCache = new Map();
 const ARTIST_AGG_SOURCE_TTL_MS = 30 * 1000;
 
-// Does chart_daily_streams already hold this artist's newest reading?
+// Does chart_daily_streams already hold this artist's newest day in full?
 // Every profile endpoint asks, so the answer is cached per artist for 30 s and
 // concurrent askers share one lookup.
 // PROFILE_CHART_CACHE=off forces every profile query back to the live
@@ -951,30 +951,41 @@ async function artistUsesChartCache(artistId) {
 
   if (useCached === null) {
     const pending = (async () => {
-      // Fresh = the materialised copy already holds this artist's newest
-      // reading. It used to compare the artist's scan DATE with the newest
-      // date anywhere in the copy, which said "fresh" all day once any scan
+      // Fresh = the materialised copy holds this artist's newest day IN FULL:
+      // every head with a reading on that day has its row in the copy.
+      //
+      // It used to compare the artist's scan DATE with the newest date
+      // anywhere in the copy, which said "fresh" all day once any scan
       // stamped today: on 2026-10-03 an evening re-sync (before Spotify's
-      // update) stamped JT for the day and refreshed the copy, the real update
-      // landed hours later on the same date, and JT's profile sat on
-      // yesterday's numbers because the copy "was already up to date".
-      // Both sides read through their (id, recorded_date) indexes: ~20 ms.
+      // update) stamped JT for the day and refreshed the copy, the real
+      // update landed hours later on the same date, and JT's profile sat on
+      // yesterday's numbers. Comparing only the newest DATE isn't enough
+      // either: a refresh that runs while an artist is mid-scan (Britney, the
+      // same night) holds a few of that day's rows, the date matches, and the
+      // headline falls back to the previous day until the next refresh.
+      // Every lookup goes through an (id, recorded_date) index: ~30 ms.
       const freshness = await dbQuery(`
         WITH mine AS MATERIALIZED (
           SELECT id, COALESCE(canonical_id, id) AS head
           FROM songs WHERE primary_artist = 'spotify:artist:' || $1
+        ),
+        newest AS MATERIALIZED (
+          SELECT MAX(x.d) AS d FROM mine m CROSS JOIN LATERAL (
+            SELECT ss.recorded_date AS d FROM stream_stats ss
+            WHERE ss.song_id = m.id ORDER BY ss.recorded_date DESC LIMIT 1) x
         )
         SELECT
-          (SELECT MAX(x.d) FROM mine m CROSS JOIN LATERAL (
-             SELECT ss.recorded_date AS d FROM stream_stats ss
-             WHERE ss.song_id = m.id ORDER BY ss.recorded_date DESC LIMIT 1) x)::text AS live_date,
-          (SELECT MAX(x.d) FROM (SELECT DISTINCT head FROM mine) h CROSS JOIN LATERAL (
-             SELECT c.recorded_date AS d FROM chart_daily_streams c
-             WHERE c.canonical_id = h.head ORDER BY c.recorded_date DESC LIMIT 1) x)::text AS cache_date
+          (SELECT d FROM newest)::text AS live_date,
+          (SELECT COUNT(DISTINCT m.head) FROM mine m
+            WHERE EXISTS (SELECT 1 FROM stream_stats ss
+                          WHERE ss.song_id = m.id AND ss.recorded_date = (SELECT d FROM newest)))::int AS live_heads,
+          (SELECT COUNT(*) FROM (SELECT DISTINCT head FROM mine) h
+            WHERE EXISTS (SELECT 1 FROM chart_daily_streams c
+                          WHERE c.canonical_id = h.head AND c.recorded_date = (SELECT d FROM newest)))::int AS cached_heads
       `, [id]);
       const row = freshness.rows[0] || {};
       // No reading at all means there is nothing the copy could be missing.
-      return !row.live_date || (Boolean(row.cache_date) && row.cache_date >= row.live_date);
+      return !row.live_date || Number(row.cached_heads) >= Number(row.live_heads);
     })().catch((err) => {
       // A missing/stale materialized view must never break a profile. The live
       // aggregate is slower, but it is the authoritative safe fallback.
