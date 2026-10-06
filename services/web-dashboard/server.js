@@ -2147,6 +2147,16 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
   }
 });
 
+// How long "removed by Spotify" stays on a song and on the daily card: the
+// day of the update that found it, until the artist's next day lands. It used
+// to stay three days, long after the numbers around it had moved on. ($1 is
+// the artist URI in both queries that use it; the scan stamp falls back to
+// the scraper's day for an artist with no stamp.)
+const REMOVAL_SHOWN_SINCE_SQL = `COALESCE(
+          (SELECT last_scanned_date FROM tracked_artists
+            WHERE artist_id = REPLACE($1, 'spotify:artist:', '')),
+          (((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date))`;
+
 app.get('/api/songs', requireAuth, validateArtistAccess,
   cacheFor(CACHE_TTL_LIVE_MS, artistKey('songs')), async (req, res) => {
   const artistParam = req.query.artist || '31TPClRtHm23RisEBtV3X7';
@@ -2208,7 +2218,8 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
         -- Streams Spotify TOOK BACK. A correction shaves the history down, which
         -- leaves the day reading +0 — true, but it hides the story. This carries
         -- the amount (negative) so the row can say what actually happened. Only
-        -- while it's recent news; after that the song goes back to normal days.
+        -- for the day it happened (REMOVAL_SHOWN_SINCE_SQL); then the song goes
+        -- back to normal days.
         drop_info.removed::bigint AS removed_streams,
         drop_info.applied_on::text AS removed_on
       FROM songs s
@@ -2218,7 +2229,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
         SELECT (c.new_count - c.old_count) AS removed, c.applied_on
         FROM stream_drop_corrections c
         WHERE c.head_id = s.id
-          AND c.applied_on > ((((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date) - 3)
+          AND c.applied_on >= ${REMOVAL_SHOWN_SINCE_SQL}
         ORDER BY c.applied_on DESC, c.id DESC
         LIMIT 1
       ) drop_info ON TRUE
@@ -2413,7 +2424,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()});
     `;
-    // Streams removed from this artist's catalogue in the last few days. Kept
+    // Streams removed from this artist's catalogue on its latest day. Kept
     // out of the aggregate above on purpose: daily_gain is what the catalogue
     // EARNED, and folding a removal into it would leave the headline unable to
     // say which of the two moved. A missing table (pre-migration) is not worth
@@ -2425,7 +2436,7 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
       JOIN songs s ON s.id = c.head_id
       JOIN albums a ON s.album_id = a.id
       WHERE ${artistBucketMatchSQL('s', 'a')}
-        AND c.applied_on > ((((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date) - 3)
+        AND c.applied_on >= ${REMOVAL_SHOWN_SINCE_SQL}
     `;
     const [result, removed] = await Promise.all([
       dbQuery(query, [artistUri]),
