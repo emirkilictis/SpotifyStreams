@@ -763,6 +763,37 @@ const VALID_TODAY_STAMP_SQL = `
         WHERE recorded_date < ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date), 0)
   ), '-infinity'::timestamptz)`;
 
+// Spotify bu "gün" içinde (bugün 12:00 İstanbul → yarın 12:00, yani -12 saat
+// kuralının bugünü) yeni sayı yayınladı mı? Kanıt Mirrors ailesi: bu pencerede
+// kaydedilmiş bir okuma, pencereden önceki her okumadan büyükse yayın var.
+// recorded_at'e bakıyor, recorded_date'e değil: geç-güncelleme taşıması ya da
+// JT'nin elle önden taşınması satırın gününü değiştirir ama okunma anını değil.
+//
+// 2026-10-08: 10:26'da eklenen Katherine Jayne tek başına tarandı ve "bugün
+// tarandı" damgasını aldı. 11:00 koşusunda canary "yayın yok" dedi ama eski
+// kural ("henüz kimse taranmadıysa çık") 73 ≠ 74 yüzünden çıkmadı; kalanları
+// yarım kalmış koşu sanıp bütün kadroyu DÜNÜN sayılarıyla 10-08'e yazdı. Kendi
+// son satırı eski olan kopyalar (10-06) yazıldı, NSYNC/Billie/Nicki/BSB 0 daily
+// gösterdi. Yarım koşunun devamı ancak yayın gerçekten olduysa anlamlı.
+async function spotifyPublishedThisDay(client) {
+  const res = await client.query(
+    `WITH bounds AS (
+       SELECT ((((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)::timestamp
+               + INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul' AS since
+     ),
+     canary AS (
+       SELECT ss.stream_count, ss.recorded_at
+       FROM songs s JOIN stream_stats ss ON ss.song_id = s.id
+       WHERE COALESCE(s.canonical_id, s.id) = '4rHZZAmHpZrA3iH5zx8frV'
+         AND ss.recorded_date >= CURRENT_DATE - 10
+     )
+     SELECT COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_at >= b.since), 0)
+          > COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_at <  b.since), 0)
+            AS published`
+  );
+  return !!res.rows[0]?.published;
+}
+
 async function maybeFixLateUpdateDay(client, rosterIds) {
   if (!rosterIds || !rosterIds.length) return;
   try {
@@ -1017,12 +1048,14 @@ async function run() {
           process.exit(0);
         }
 
-        // If Spotify hasn't rolled over today AND no artist has been captured yet, there
-        // is nothing new to grab — bail rather than record stale (yesterday's) numbers.
-        // (If some artists ARE already done, the pending ones are leftovers from a partial
-        // run since the canary's last positive detection, so we scrape them.)
-        if (!spotifyUpdatedToday && pendingArtists.length === artistsToRun.length) {
-          console.log('[scraper] No fresh update and no artist captured yet today. Exiting gracefully.');
+        // If the canary sees nothing new, the pending artists are worth scraping only
+        // as leftovers of a partial run that started AFTER Spotify published this
+        // day's numbers. "Some artist is already stamped today" is not that proof:
+        // a single-artist admin scan before the publish stamps today too, and the
+        // whole roster then got yesterday's numbers written under today's date
+        // (2026-10-08, see spotifyPublishedThisDay).
+        if (!spotifyUpdatedToday && !(await spotifyPublishedThisDay(client))) {
+          console.log('[scraper] No fresh update and Spotify has not published this day yet. Exiting gracefully.');
           console.log('[scraper] OUTCOME=noop');
           await backfillMissingArtistPhotos(page, client);
           await setScraperStatus(client, 'idle');
