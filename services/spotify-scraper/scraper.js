@@ -763,11 +763,9 @@ const VALID_TODAY_STAMP_SQL = `
         WHERE recorded_date < ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date), 0)
   ), '-infinity'::timestamptz)`;
 
-// Spotify bu "gün" içinde (bugün 12:00 İstanbul → yarın 12:00, yani -12 saat
-// kuralının bugünü) yeni sayı yayınladı mı? Kanıt Mirrors ailesi: bu pencerede
-// kaydedilmiş bir okuma, pencereden önceki her okumadan büyükse yayın var.
-// recorded_at'e bakıyor, recorded_date'e değil: geç-güncelleme taşıması ya da
-// JT'nin elle önden taşınması satırın gününü değiştirir ama okunma anını değil.
+// Spotify bu günün (-12 saat kuralının bugünü) sayılarını yayınladı mı? Kanıt
+// Mirrors ailesi: BUGÜNE damgalı bir okuma, önceki günlerin hepsinden büyükse
+// yayın var (VALID_TODAY_STAMP_SQL'in canary alt sorgusuyla aynı ölçü).
 //
 // 2026-10-08: 10:26'da eklenen Katherine Jayne tek başına tarandı ve "bugün
 // tarandı" damgasını aldı. 11:00 koşusunda canary "yayın yok" dedi ama eski
@@ -775,20 +773,26 @@ const VALID_TODAY_STAMP_SQL = `
 // yarım kalmış koşu sanıp bütün kadroyu DÜNÜN sayılarıyla 10-08'e yazdı. Kendi
 // son satırı eski olan kopyalar (10-06) yazıldı, NSYNC/Billie/Nicki/BSB 0 daily
 // gösterdi. Yarım koşunun devamı ancak yayın gerçekten olduysa anlamlı.
+//
+// recorded_at değil recorded_date: ilk sürüm (31e16d0) okunma anına
+// bakıyordu, ama geç-güncelleme taşıması (fixLateUpdateDay) bugünün satırlarını
+// düne aldıktan sonra Mirrors'ın okunma anı hâlâ bu pencerede kalıyor ve sonraki
+// koşu bütün kadroyu yeniden, dünün sayılarıyla bugüne yazardı. Bedeli: JT elle
+// önden taşınırsa (10-02) kalanlar canary yoluyla devam etmez; o durumda admin
+// taraması gerekir.
 async function spotifyPublishedThisDay(client) {
   const res = await client.query(
     `WITH bounds AS (
-       SELECT ((((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)::timestamp
-               + INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul' AS since
+       SELECT ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date AS today
      ),
      canary AS (
-       SELECT ss.stream_count, ss.recorded_at
+       SELECT ss.stream_count, ss.recorded_date
        FROM songs s JOIN stream_stats ss ON ss.song_id = s.id
        WHERE COALESCE(s.canonical_id, s.id) = '4rHZZAmHpZrA3iH5zx8frV'
          AND ss.recorded_date >= CURRENT_DATE - 10
      )
-     SELECT COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_at >= b.since), 0)
-          > COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_at <  b.since), 0)
+     SELECT COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_date =  b.today), 0)
+          > COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_date <  b.today), 0)
             AS published`
   );
   return !!res.rows[0]?.published;
@@ -816,7 +820,13 @@ async function maybeFixLateUpdateDay(client, rosterIds) {
   }
 }
 
-async function artistsWithTodaysData(client, artistUris) {
+// trustStamps=false: Spotify's live canary is ahead of the DB, so every
+// "scanned today" stamp predates this publish and proves nothing. 2026-10-09:
+// the bad 10-08 pass stamped the whole roster; Spotify published 10-08 at night
+// but VALID_TODAY_STAMP_SQL found no Mirrors row for 10-08 (JT itself was
+// stamped, so nobody wrote one), kept every stamp valid, and five runs said
+// "all artists already have today's data" until the day rolled over at 09:00.
+async function artistsWithTodaysData(client, artistUris, { trustStamps = true } = {}) {
   if (!artistUris.length) return new Set();
   const res = await client.query(
     `WITH bounds AS (
@@ -872,7 +882,7 @@ async function artistsWithTodaysData(client, artistUris) {
   // (Vaelis son 7 günün 3'ünde), her seferinde bütün albümleri yeniden açarak.
   // Onlar için ölçü taramanın kendi damgası: bütün albümleri hatasız işlendiyse
   // bugün bitmiştir, tek bir sayı değişmemiş olsa bile.
-  try {
+  if (trustStamps) try {
     const stamped = await client.query(
       `SELECT 'spotify:artist:' || artist_id AS artist
          FROM tracked_artists ta
@@ -938,6 +948,7 @@ async function run() {
       // flag and let the per-artist resume logic below decide who still needs scraping.
       const isForce = process.argv.includes('--force') || process.env.FORCE_SCRAPE === 'true';
       let spotifyUpdatedToday = true; // assume yes when forced or when the check can't run
+      let canaryAheadOfDb = false;    // only when the check actually ran and saw a new number
       if (isForce) {
         console.log('[scraper] Force flag detected. Bypassing canary update check...');
       } else {
@@ -963,6 +974,7 @@ async function run() {
             const spotifyPlayCount = mirrorsTrack.playCount;
             console.log(`[scraper] Spotify current playcount for Mirrors: ${spotifyPlayCount}`);
             spotifyUpdatedToday = spotifyPlayCount > dbMax;
+            canaryAheadOfDb = spotifyUpdatedToday;
             if (spotifyUpdatedToday) {
               console.log(`[scraper] New data detected! (Spotify: ${spotifyPlayCount} > DB: ${dbMax}).`);
             } else {
@@ -1026,7 +1038,8 @@ async function run() {
       if (!isForce) {
         pendingArtists = [];
         const captured = await artistsWithTodaysData(
-          client, artistsToRun.map(a => `spotify:artist:${a.id}`)
+          client, artistsToRun.map(a => `spotify:artist:${a.id}`),
+          { trustStamps: !canaryAheadOfDb }
         );
         for (const artist of artistsToRun) {
           if (captured.has(`spotify:artist:${artist.id}`)) {
