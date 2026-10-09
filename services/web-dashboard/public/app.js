@@ -161,13 +161,26 @@ function lastCompleteStats(artistId, targetDate) {
     .sort((a, b) => String(b._snapshot_date).localeCompare(String(a._snapshot_date)))[0] || null;
 }
 
+// The chip names the day the streams happened; the tooltip keeps the day
+// Spotify published them, so "why does it say yesterday?" answers itself.
+function setLastUpdate(scrapeDay) {
+  if (!lastUpdateEl) return;
+  lastUpdateEl.textContent = formatDate(toStreamDay(scrapeDay));
+  const chip = lastUpdateEl.closest('.last-update-chip');
+  if (chip) {
+    chip.title = scrapeDay && STREAM_DATE_OFFSET_DAYS
+      ? `Streams for ${formatDate(toStreamDay(scrapeDay))} · Spotify updated these on ${formatDate(scrapeDay)}`
+      : 'Last updated';
+  }
+}
+
 function applySnapshotLoadingUI(state) {
   currentSnapshotState = state || { pending: false, targetDate: null };
   const pending = !!currentSnapshotState.pending;
   if (totalStreamsLabelEl) totalStreamsLabelEl.textContent = pending ? 'Last Snapshot' : 'Total Streams';
   if (totalSnapshotNoteEl) {
     totalSnapshotNoteEl.textContent = pending
-      ? `${currentSnapshotState.targetDate ? formatDate(currentSnapshotState.targetDate) + ' · ' : ''}Today snapshot: Loading…`
+      ? `${currentSnapshotState.targetDate ? formatDate(toStreamDay(currentSnapshotState.targetDate)) + ' · ' : ''}Today snapshot: Loading…`
       : '';
     totalSnapshotNoteEl.classList.toggle('hidden', !pending);
   }
@@ -182,7 +195,7 @@ function applySnapshotLoadingUI(state) {
     featStreamsEl.textContent = formatNumber(previous.feat_streams);
     soloStreamsEl.textContent = formatNumber(previous.solo_streams);
     totalSongsEl.textContent = previous.total_songs ?? '0';
-    lastUpdateEl.textContent = formatDate(previous.last_update);
+    setLastUpdate(previous.last_update);
     setSharePct(leadStreamsPctEl, previous.lead_streams, previous.total_streams);
     setSharePct(featStreamsPctEl, previous.feat_streams, previous.total_streams);
     setSharePct(soloStreamsPctEl, previous.solo_streams, previous.total_streams);
@@ -434,12 +447,11 @@ function formatChartDateObj(d) {
 // catalogue as of the 27th, so the gain between two scrapes belongs to the
 // earlier day.
 //
-// APPLIED ONLY TO THE LISA / JT STATS CARDS for now. Those are captions on a
-// single day's numbers, which is where the off-by-one actually misleads a
-// reader. Everything else — the last-update chip, chart axes, share-card
-// captions, achieved-milestone dates, the admin panel — still shows the raw
-// scrape date, so what the site says keeps matching what recorded_date says
-// when something needs debugging. Set to 0 to drop the shift entirely.
+// Every reader-facing date that labels a reading goes through toStreamDay():
+// the last-update chip, chart axes, best day, share cards, achieved-milestone
+// dates, removal captions. The page used to say "October 10" over October 9's
+// streams. The admin panel still shows the raw scrape date (recorded_date) so
+// debugging matches the database. Set to 0 to drop the shift entirely.
 const STREAM_DATE_OFFSET_DAYS = -1;
 
 // ---------------------------------------------------------------------------
@@ -635,7 +647,7 @@ function weeklyGainSeries(history, weekCount = 12) {
     if (endCum === null || startCum === null) continue;
     out.push({
       endMs,
-      label: formatChartDateObj(new Date(endMs)),
+      label: formatChartDateObj(new Date(endMs + STREAM_DATE_OFFSET_DAYS * GUN_MS)),
       gain: endCum - startCum - introducedBetween(rows, startMs, endMs)
     });
   }
@@ -691,11 +703,10 @@ function monthlyGainSeries(history, monthCount = 12) {
   return out;
 }
 
-// Highest single-day gain in the window, for the "best day" tile.
-function bestDayInHistory(rows, sinceMs) {
-  let best = null;
+// Every reading that is one honest day of streams, oldest first.
+function singleDayGains(rows) {
+  const out = [];
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i].t < sinceMs) continue;
     // The day after a bridged hole carries TWO days of streams in one reading,
     // so it wins "best day" on a technicality. FSLS would have claimed
     // +5,490,251 on a catalogue that never clears +3M.
@@ -703,10 +714,47 @@ function bestDayInHistory(rows, sinceMs) {
     // Same trap after an outage: 07-04's reading covered three days. A row more
     // than a day after the previous one is not a single day's gain.
     if (rows[i].t - rows[i - 1].t > GUN_MS * 1.5) continue;
-    const gain = rows[i].c - rows[i - 1].c - (rows[i].intro || 0);
-    if (gain > 0 && (!best || gain > best.gain)) best = { gain, date: rows[i].date };
+    out.push({ t: rows[i].t, date: rows[i].date, gain: rows[i].c - rows[i - 1].c - (rows[i].intro || 0) });
   }
-  return best;
+  return out;
+}
+
+// "Best day since X": X is the most recent EARLIER day that did at least as
+// well. null means nothing on record beats it.
+function bestSinceDay(days, idx, gainOf = (d) => d.gain, dayOf = (d) => d.date) {
+  const g = gainOf(days[idx]);
+  for (let j = idx - 1; j >= 0; j--) {
+    if (gainOf(days[j]) >= g) return dayOf(days[j]);
+  }
+  return null;
+}
+
+// Short stream-day label for "best since …": the year only when it differs.
+function formatSinceDay(scrapeDay, refScrapeDay) {
+  const d = parseLocalDate(toStreamDay(scrapeDay));
+  if (isNaN(d.getTime())) return String(scrapeDay || '');
+  const sameYear = refScrapeDay && parseLocalDate(toStreamDay(refScrapeDay)).getFullYear() === d.getFullYear();
+  return d.toLocaleDateString('en-US', sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Highest single-day gain in the window, for the "best day" tile, plus the
+// last day before it that matched it (searched over the WHOLE history).
+function bestDayInHistory(rows, sinceMs) {
+  const days = singleDayGains(rows);
+  let bi = -1;
+  for (let i = 0; i < days.length; i++) {
+    if (days[i].t < sinceMs || days[i].gain <= 0) continue;
+    if (bi < 0 || days[i].gain > days[bi].gain) bi = i;
+  }
+  if (bi < 0) return null;
+  return {
+    gain: days[bi].gain,
+    date: days[bi].date,
+    since: bestSinceDay(days, bi),
+    firstDate: days[0].date
+  };
 }
 
 function trendSummary(history) {
@@ -751,6 +799,17 @@ function trendTile(label, value, sub, tone) {
     </div>`;
 }
 
+// "Oct 9 · best since Jul 30" — the best day of the last 30, and how far back
+// you have to go to find one as good.
+function bestDaySub(best) {
+  if (!best) return 'last 30 days';
+  const day = formatSinceDay(best.date, best.date);
+  const since = best.since
+    ? `best since ${formatSinceDay(best.since, best.date)}`
+    : `best since tracking began (${formatSinceDay(best.firstDate, best.date)})`;
+  return `<span title="Best day in the last 30 days. The last day with as many streams was ${best.since ? escHtml(formatDate(toStreamDay(best.since))) : 'never — it is the best on record'}.">${escHtml(day)} · ${escHtml(since)}</span>`;
+}
+
 function renderTrendStrip(el, history) {
   if (!el) return;
   const t = trendSummary(history);
@@ -771,7 +830,7 @@ function renderTrendStrip(el, history) {
     ${trendTile('This week', formatSignedGain(t.thisWeek), degisim, yon)}
     ${trendTile('Last week', t.prevWeek === null ? '—' : formatSignedGain(t.prevWeek), 'previous 7 days')}
     ${trendTile('Daily average', formatSignedGain(t.dailyAvg), 'this week')}
-    ${trendTile('Best day', t.best ? formatSignedGain(t.best.gain) : '—', t.best ? formatChartDate(t.best.date) : 'last 30 days')}
+    ${trendTile('Best day', t.best ? formatSignedGain(t.best.gain) : '—', bestDaySub(t.best))}
   `;
 }
 
@@ -798,7 +857,7 @@ function chartSeriesFor(history, type, range, weekCount = 12) {
   }
   const filtered = filterHistoryByRange(history, range);
   return {
-    dates: filtered.map(row => formatChartDate(row.recorded_date)),
+    dates: filtered.map(row => formatChartDate(toStreamDay(row.recorded_date))),
     dataPoints: filtered.map(row => Number(type === 'daily' ? row.daily_gain : row.cumulative)),
     seriesName: type === 'daily' ? 'Daily Streams' : 'Total Streams',
     apexType: type === 'daily' ? 'bar' : 'area'
@@ -1055,7 +1114,7 @@ async function fetchData() {
       if (removed < 0) {
         dailyRemovedEl.textContent = `${formatRemoved(removed)} removed by Spotify`;
         dailyRemovedEl.title = statsData.removed_on
-          ? `Spotify took streams back from this catalogue (${formatDate(statsData.removed_on)})`
+          ? `Spotify took streams back from this catalogue (${formatDate(toStreamDay(statsData.removed_on))})`
           : 'Spotify took streams back from this catalogue';
         dailyRemovedEl.classList.remove('hidden');
       } else {
@@ -1064,7 +1123,7 @@ async function fetchData() {
     }
     
     totalSongsEl.textContent = statsData.total_songs ?? '0';
-    lastUpdateEl.textContent = formatDate(statsData.last_update);
+    setLastUpdate(statsData.last_update);
     // If this artist is still being assembled, replace the rolling aggregate
     // above with the last complete browser-cached snapshot (or an honest dash).
     applySnapshotLoadingUI(currentSnapshotState);
@@ -1375,7 +1434,7 @@ function renderSongs() {
     // on that day, losing 3.13M is the story, not gaining nothing.
     const removed = showsNegatives() ? (Number(song.removed_streams) || 0) : 0;
     if (removed < 0) {
-      const when = song.removed_on ? formatDate(song.removed_on) : '';
+      const when = song.removed_on ? formatDate(toStreamDay(song.removed_on)) : '';
       gainHtml = `<span class="gain-cell gain-removed" title="Spotify removed streams from this song${when ? ` (${when})` : ''}">${formatRemoved(removed)}</span>`;
     }
 
@@ -2705,7 +2764,7 @@ async function openDailyCard() {
           <div class="dc-album">${esc(albumName) || 'Album'}</div>
           <div class="dc-artist">${esc(currentArtistName || '')}</div>
           ${edition ? `<div class="dc-edition">${esc(edition[1])}</div>` : ''}
-          <div class="dc-date">${formatCardDate(recordedDate)}</div>
+          <div class="dc-date">${formatCardDate(toStreamDay(recordedDate))}</div>
           <div class="dc-summary">
             <div class="dc-summary-metrics">
               <div class="dc-daily-metric">
@@ -3637,7 +3696,7 @@ async function openSongCard() {
       <div class="dc-head-text">
         <div class="dc-album">${esc(cleanTrackTitle(currentSongMeta.title))}</div>
         <div class="dc-artist">${esc(artistLine.toUpperCase())}</div>
-        <div class="dc-date">${formatCardDate(recordedDate)}</div>
+        <div class="dc-date">${formatCardDate(toStreamDay(recordedDate))}</div>
       </div>
     </div>
     <div class="dc-divider"></div>
@@ -3992,7 +4051,7 @@ function openMilestoneCard() {
       ${foto ? `<img class="mc-avatar" src="${esc(foto)}" crossorigin="anonymous" alt="">` : ''}
       <div class="dc-head-text">
         <div class="dc-artist">${esc(ad.toUpperCase())}</div>
-        <div class="dc-date">${formatCardDate(currentArtistRawStats && currentArtistRawStats.last_update)}</div>
+        <div class="dc-date">${formatCardDate(toStreamDay(currentArtistRawStats && currentArtistRawStats.last_update))}</div>
       </div>
     </div>
     <div class="dc-divider"></div>
@@ -4514,7 +4573,7 @@ function renderAchievedMilestones(rows) {
         <span class="achieved-milestone">${formatMilestoneName(Number(r.milestone))}</span>
         ${badgeHtml}
         <span class="achieved-song" title="${escHtml(r.title)}">${escHtml(r.title)}</span>
-        <span class="achieved-date">${formatDate(r.reached_date)}</span>
+        <span class="achieved-date">${formatDate(toStreamDay(r.reached_date))}</span>
       </div>
     `;
   }).join('');
@@ -4557,7 +4616,7 @@ window.openSongById = async function(songId) {
     modalSongGain.classList.remove('gain-positive');
     modalSongGain.classList.add('gain-removed');
     modalSongGain.title = song.removed_on
-      ? `Spotify removed streams from this song (${formatDate(song.removed_on)})`
+      ? `Spotify removed streams from this song (${formatDate(toStreamDay(song.removed_on))})`
       : 'Spotify removed streams from this song';
   } else {
     modalSongGain.textContent = (Number(song.daily_gain) > 0 ? '+' : '') + formatNumber(song.daily_gain);
@@ -6184,7 +6243,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     titleStr += `${currentArtistName} Spotify Stats`;
     
     if (isDateChecked && currentArtistRawStats && currentArtistRawStats.last_update) {
-      const d = parseLocalDate(currentArtistRawStats.last_update);
+      const d = parseLocalDate(toStreamDay(currentArtistRawStats.last_update));
       if (!isNaN(d.getTime())) {
         const dateFormatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         titleStr += ` (${dateFormatted})`;
@@ -7458,6 +7517,23 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     const gains = win.map((r) => Number(r.daily_gain) || 0);
     const maxGain = Math.max(...gains, 0);
     const best = win.reduce((b, r) => ((Number(r.daily_gain) || 0) > (Number(b?.daily_gain) || 0) ? r : b), null);
+    // "Best since": searched over the whole history up to the anchor, not just
+    // the window. The first row has no previous reading, so its gain is no gain.
+    const gainOf = (r) => Number(r.daily_gain) || 0;
+    const idx0 = new Map(upto.map((r, i) => [r, i]));
+    const sinceOf = (r) => {
+      const i = idx0.get(r);
+      return i > 1 ? bestSinceDay(upto, i, gainOf, dayOf) : null;
+    };
+    const firstDay = upto.length > 1 ? dayOf(upto[1]) : dayOf(upto[0]);
+    const sinceLabel = (r) => {
+      const s = sinceOf(r);
+      return s ? `best since ${formatSinceDay(s, dayOf(r))}` : `best since ${formatSinceDay(firstDay, dayOf(r))}`;
+    };
+    // "That day" only earns the caption when it beats at least a week.
+    const lastSince = sinceOf(last);
+    const lastIsNotable = gainOf(last) > 0 && idx0.get(last) > 1 && (!lastSince
+      || (parseLocalDate(dayOf(last)) - parseLocalDate(lastSince)) / 86400000 >= 7);
 
     const rangeBtns = HISTORY_RANGES.map((r) => `
       <button type="button" class="tm-preset ${r.key === d.range ? 'active' : ''}" data-tm-hrange="${r.key}">${r.label}</button>`
@@ -7487,11 +7563,11 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       ${head}
       <div class="tm-detail-summary">
         ${dsum(`Total on ${esc(formatDate(anchorStream))}`, formatNumber(last.cumulative), 'streams')}
-        ${dsum('That day', (Number(last.daily_gain) || 0) > 0 ? '+' + formatNumber(last.daily_gain) : '—', '', 'gain-positive')}
+        ${dsum('That day', (Number(last.daily_gain) || 0) > 0 ? '+' + formatNumber(last.daily_gain) : '—', lastIsNotable ? esc(sinceLabel(last)) : '', 'gain-positive')}
         ${dsum('Gained in view', '+' + formatNumber(gainedInWindow), `over ${formatNumber(spanDays)} day${spanDays === 1 ? '' : 's'}`, 'gain-positive')}
         ${perDay != null ? dsum('Average', '+' + formatNumber(perDay), 'per day') : ''}
         ${best && (Number(best.daily_gain) || 0) > 0
-          ? dsum('Best day', '+' + formatNumber(best.daily_gain), esc(formatChartDate(toStreamDay(dayOf(best)))), 'gain-positive')
+          ? dsum('Best day', '+' + formatNumber(best.daily_gain), esc(`${formatChartDate(toStreamDay(dayOf(best)))} · ${sinceLabel(best)}`), 'gain-positive')
           : ''}
       </div>
       <div class="tm-detail-ranges">${rangeBtns}</div>
