@@ -2181,7 +2181,7 @@ async function downloadModalAsImage() {
   if (!modalCard) return;
 
   const closeBtn = document.getElementById('modal-close-btn');
-  const downloadBtn = document.getElementById('modal-download-btn');
+  const downloadBtn = document.getElementById('modal-top-actions');
   const backdrop = document.getElementById('album-modal');
   
   // Hide UI buttons from card capture

@@ -2255,14 +2255,18 @@ body.modal-open {
     font-size: 0.9rem;
   }
 
+  .modal-top-actions {
+    top: 12px;
+    right: 48px;
+    gap: 6px;
+  }
+
   .modal-download-btn span {
     display: none;
   }
 
   .modal-download-btn {
     padding: 8px;
-    top: 12px;
-    right: 48px;
     border-radius: 50%;
     width: 32px;
     height: 32px;
@@ -2355,10 +2359,18 @@ body.modal-open {
   }
 }
 
-.modal-download-btn {
+/* Daily Card + Save Card, top-right, to the left of the close button. */
+.modal-top-actions {
   position: absolute;
   top: 20px;
-  right: 68px; /* Sits to the left of the close button */
+  right: 68px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+}
+
+.modal-download-btn {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
@@ -2384,6 +2396,26 @@ body.modal-open {
 .modal-download-btn svg {
   width: 14px;
   height: 14px;
+}
+
+/* The card worth sharing: tinted with the album's own colour so it reads as
+   the main action next to the plain Save Card. */
+.modal-daily-card-btn {
+  background: rgba(var(--album-accent-rgb, 30, 215, 96), 0.22);
+  border-color: rgba(var(--album-accent-rgb, 30, 215, 96), 0.6);
+  box-shadow: 0 0 18px rgba(var(--album-accent-rgb, 30, 215, 96), 0.25);
+}
+
+/* The actions get their own band above the header, so a long album title
+   never runs underneath them. The Save Card capture resets the padding. */
+#album-modal .modal-card {
+  padding-top: 64px;
+}
+
+.modal-daily-card-btn:hover {
+  background: rgba(var(--album-accent-rgb, 30, 215, 96), 0.34);
+  border-color: var(--album-accent, var(--accent-green));
+  color: var(--text-primary);
 }
 
 /* Trend Cell Styles */
@@ -3045,7 +3077,7 @@ body.modal-open {
     width: 94%;
     max-height: 94vh;
     margin-top: 2vh;
-    padding: 16px 12px;
+    padding: 58px 12px 16px;
   }
 
   /* Compact header: cover beside details (row) instead of stacked */
@@ -3069,7 +3101,7 @@ body.modal-open {
   #album-modal #modal-album-title {
     font-size: 1.15rem;
     line-height: 1.2;
-    padding-right: 90px; /* clear the absolute Save/close buttons */
+    /* No right padding: the Daily/Save buttons sit in their own band above. */
   }
   #album-modal .modal-subtitle {
     font-size: 0.78rem;
@@ -3100,15 +3132,32 @@ body.modal-open {
   }
 
   /* Save Card button: icon-only to free up top-right space */
+  #album-modal .modal-top-actions {
+    right: 56px;
+  }
   #album-modal .modal-download-btn {
     font-size: 0 !important;
     padding: 7px !important;
-    right: 56px;
     gap: 0;
   }
   #album-modal .modal-download-btn svg {
     width: 18px;
     height: 18px;
+  }
+  /* Daily Card keeps its label on phones: it is the one to tap. */
+  #album-modal .modal-daily-card-btn {
+    width: auto;
+    border-radius: 999px;
+    font-size: 0.78rem !important;
+    padding: 6px 12px !important;
+    gap: 6px;
+  }
+  #album-modal .modal-daily-card-btn span {
+    display: inline;
+  }
+  #album-modal .modal-daily-card-btn svg {
+    width: 15px;
+    height: 15px;
   }
 }
 
