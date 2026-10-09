@@ -774,26 +774,41 @@ const VALID_TODAY_STAMP_SQL = `
 // son satırı eski olan kopyalar (10-06) yazıldı, NSYNC/Billie/Nicki/BSB 0 daily
 // gösterdi. Yarım koşunun devamı ancak yayın gerçekten olduysa anlamlı.
 //
-// recorded_at değil recorded_date: ilk sürüm (31e16d0) okunma anına
-// bakıyordu, ama geç-güncelleme taşıması (fixLateUpdateDay) bugünün satırlarını
-// düne aldıktan sonra Mirrors'ın okunma anı hâlâ bu pencerede kalıyor ve sonraki
-// koşu bütün kadroyu yeniden, dünün sayılarıyla bugüne yazardı. Bedeli: JT elle
-// önden taşınırsa (10-02) kalanlar canary yoluyla devam etmez; o durumda admin
-// taraması gerekir.
+// Asıl kanıt recorded_date: ilk sürüm (31e16d0) okunma anına bakıyordu, ama
+// geç-güncelleme taşıması (fixLateUpdateDay) bugünün satırlarını düne aldıktan
+// sonra Mirrors'ın okunma anı hâlâ bu pencerede kalıyor ve sonraki koşu bütün
+// kadroyu yeniden, dünün sayılarıyla bugüne yazardı.
+//
+// İkinci yol: JT elle önden düne taşındıysa (10-02, 10-09) Mirrors bugünde
+// değil, dünde durur ama bu pencerede okunmuştur. Dalga hâlâ sürüyorsa (bugüne
+// damgalı gerçek bir satır yığını var) yayın olmuş demektir. Kadro bitip
+// taşıma yapıldıktan sonra bugün boşalır ve bu yol kapanır.
+// A wave still in progress writes thousands of rows (09:00-09:40 on 10-09:
+// 8,182); repair tools and a single small artist write a handful.
+const MOVED_AHEAD_MIN_TODAY_ROWS = 1000;
 async function spotifyPublishedThisDay(client) {
   const res = await client.query(
     `WITH bounds AS (
-       SELECT ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date AS today
+       SELECT ((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date AS today,
+              ((((NOW() - INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul')::date)::timestamp
+               + INTERVAL '12 hours') AT TIME ZONE 'Europe/Istanbul' AS since
      ),
      canary AS (
-       SELECT ss.stream_count, ss.recorded_date
+       SELECT ss.stream_count, ss.recorded_date, ss.recorded_at
        FROM songs s JOIN stream_stats ss ON ss.song_id = s.id
        WHERE COALESCE(s.canonical_id, s.id) = '4rHZZAmHpZrA3iH5zx8frV'
          AND ss.recorded_date >= CURRENT_DATE - 10
      )
-     SELECT COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_date =  b.today), 0)
-          > COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_date <  b.today), 0)
-            AS published`
+     SELECT
+       COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_date = b.today), 0)
+         > COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_date < b.today), 0)
+       OR (
+         COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b
+                    WHERE c.recorded_date = b.today - 1 AND c.recorded_at >= b.since), 0)
+           > COALESCE((SELECT MAX(c.stream_count) FROM canary c, bounds b WHERE c.recorded_date < b.today - 1), 0)
+         AND (SELECT COUNT(*) FROM stream_stats ss, bounds b WHERE ss.recorded_date = b.today) >= $1
+       ) AS published`,
+    [MOVED_AHEAD_MIN_TODAY_ROWS]
   );
   return !!res.rows[0]?.published;
 }
