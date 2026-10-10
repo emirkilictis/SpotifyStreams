@@ -806,8 +806,25 @@ function bestDaySub(best) {
   const day = formatSinceDay(best.date, best.date);
   const since = best.since
     ? `best since ${formatSinceDay(best.since, best.date)}`
-    : `best since tracking began (${formatSinceDay(best.firstDate, best.date)})`;
-  return `<span title="Best day in the last 30 days. The last day with as many streams was ${best.since ? escHtml(formatDate(toStreamDay(best.since))) : 'never — it is the best on record'}.">${escHtml(day)} · ${escHtml(since)}</span>`;
+    : `best since ${formatSinceDay(best.firstDate, best.date)}`;
+  return `<span title="Best day in the last 30 days. The last day with as many streams was ${best.since ? escHtml(formatDate(toStreamDay(best.since))) : `never — it is the best day since ${escHtml(formatDate(toStreamDay(best.firstDate)))}, the first day on record`}.">${escHtml(day)} · ${escHtml(since)}</span>`;
+}
+
+// The song list's caption under a row's daily gain: "best since Oct 5" when
+// the latest day is the song's best on record, or beats at least a week back.
+// Every song would carry one otherwise ("best since 2 days ago" is noise).
+// The server works the dates out (best_since / gain_first_date on /api/songs).
+const SONG_BEST_SINCE_MIN_DAYS = 7;
+function songBestSinceLabel(song) {
+  if (!song || !(Number(song.daily_gain) > 0) || !song.gain_date) return '';
+  if (song.best_since) {
+    const span = (parseLocalDate(song.gain_date) - parseLocalDate(song.best_since)) / 86400000;
+    if (!(span >= SONG_BEST_SINCE_MIN_DAYS)) return '';
+    return `best since ${formatSinceDay(song.best_since, song.gain_date)}`;
+  }
+  // Nothing earlier matched it: the best day on record, which reads as "since"
+  // the first day we have, not "since tracking began".
+  return song.gain_first_date ? `best since ${formatSinceDay(song.gain_first_date, song.gain_date)}` : '';
 }
 
 function renderTrendStrip(el, history) {
@@ -1436,6 +1453,11 @@ function renderSongs() {
     if (removed < 0) {
       const when = song.removed_on ? formatDate(toStreamDay(song.removed_on)) : '';
       gainHtml = `<span class="gain-cell gain-removed" title="Spotify removed streams from this song${when ? ` (${when})` : ''}">${formatRemoved(removed)}</span>`;
+    } else {
+      const bestSince = songBestSinceLabel(song);
+      if (bestSince) {
+        gainHtml += `<span class="best-since" title="${escHtml(formatDate(toStreamDay(song.gain_date)))} was this song's best day ${escHtml(bestSince.replace('best ', ''))}">${escHtml(bestSince)}</span>`;
+      }
     }
 
     let badgeClass = 'badge-lead';

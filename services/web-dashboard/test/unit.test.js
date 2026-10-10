@@ -262,3 +262,37 @@ test('normalizeTitle - empty/edge', () => {
   assert.equal(normalizeTitle(''), '');
   assert.equal(normalizeTitle(null), '');
 });
+
+// ---------------------------------------------------------------------------
+// songBestSinceLabel — the song list's "best since …" caption
+// ---------------------------------------------------------------------------
+test('songBestSinceLabel', () => {
+  const { songBestSinceLabel } = loadAppFunctions(
+    ['songBestSinceLabel', 'formatSinceDay', 'toStreamDay', 'parseLocalDate'],
+    { STREAM_DATE_OFFSET_DAYS: -1, SONG_BEST_SINCE_MIN_DAYS: 7 }
+  );
+  // Dates are scrape dates; labels are stream days (one earlier).
+  // Best day on record (500, 400, 450, then 550): since the first day we have.
+  assert.equal(
+    songBestSinceLabel({ daily_gain: 550, gain_date: '2026-10-09', best_since: null, gain_first_date: '2026-10-06' }),
+    'best since Oct 5'
+  );
+  // Beats more than a week back.
+  assert.equal(
+    songBestSinceLabel({ daily_gain: 300, gain_date: '2026-10-09', best_since: '2026-09-03', gain_first_date: null }),
+    'best since Sep 2'
+  );
+  // Only beats a couple of days: no caption.
+  assert.equal(
+    songBestSinceLabel({ daily_gain: 450, gain_date: '2026-10-08', best_since: '2026-10-06', gain_first_date: null }),
+    ''
+  );
+  // Another year spells the year out.
+  assert.equal(
+    songBestSinceLabel({ daily_gain: 9, gain_date: '2026-10-09', best_since: '2025-02-10', gain_first_date: null }),
+    'best since Feb 9, 2025'
+  );
+  // No gain, or a debut with nothing before it: nothing to say.
+  assert.equal(songBestSinceLabel({ daily_gain: 0, gain_date: '2026-10-09', best_since: null, gain_first_date: '2026-10-01' }), '');
+  assert.equal(songBestSinceLabel({ daily_gain: 5, gain_date: '2026-10-09', best_since: null, gain_first_date: null }), '');
+});

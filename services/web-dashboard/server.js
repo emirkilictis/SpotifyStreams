@@ -2221,7 +2221,15 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
         -- for the day it happened (REMOVAL_SHOWN_SINCE_SQL); then the song goes
         -- back to normal days.
         drop_info.removed::bigint AS removed_streams,
-        drop_info.applied_on::text AS removed_on
+        drop_info.applied_on::text AS removed_on,
+        -- "Best day since X" for the latest day: X is the most recent EARLIER
+        -- day that did at least as well, so a fan can say "its biggest day
+        -- since Oct 5" off the song list. When nothing on record matches it,
+        -- best_since is NULL and gain_first_date says how far back the record
+        -- goes. Same rule as bestSinceDay() on the song page.
+        dsc.recorded_date::text AS gain_date,
+        best_prev.recorded_date::text AS best_since,
+        first_day.first_date::text AS gain_first_date
       FROM songs s
       LEFT JOIN albums a ON s.album_id = a.id
       LEFT JOIN agg dsc ON s.id = dsc.canonical_id
@@ -2233,6 +2241,29 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
         ORDER BY c.applied_on DESC, c.id DESC
         LIMIT 1
       ) drop_info ON TRUE
+      -- Read off chart_daily_streams (the per-day gains every page already
+      -- agrees on), walking back through its (canonical_id, recorded_date)
+      -- index: an ordinary day stops a row or two back, only a record walks
+      -- the whole history.
+      LEFT JOIN LATERAL (
+        SELECT c.recorded_date
+        FROM chart_daily_streams c
+        WHERE dsc.daily_gain > 0
+          AND c.canonical_id = s.id
+          AND c.recorded_date < dsc.recorded_date
+          AND c.daily_gain >= dsc.daily_gain
+        ORDER BY c.recorded_date DESC
+        LIMIT 1
+      ) best_prev ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT MIN(c.recorded_date) AS first_date
+        FROM chart_daily_streams c
+        WHERE dsc.daily_gain > 0
+          AND best_prev.recorded_date IS NULL
+          AND c.canonical_id = s.id
+          AND c.recorded_date < dsc.recorded_date
+          AND c.daily_gain IS NOT NULL
+      ) first_day ON TRUE
       WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
       AND s.id NOT IN (${hiddenTrackIdsSql()})
       -- NULLS LAST: a release discovered before Spotify shows its first

@@ -950,6 +950,16 @@ tbody tr.featured-row:hover {
   white-space: nowrap;
 }
 
+/* "best since Oct 5" under a song's daily gain — same slot as .real-drop. */
+.best-since {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .stat-delta {
   display: inline-block;
   margin-top: 4px;
