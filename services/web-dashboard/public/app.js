@@ -787,7 +787,7 @@ function trendSummary(history) {
   };
 }
 
-function trendTile(label, value, sub, tone) {
+function trendTile(label, value, sub, tone, wrapSub) {
   const renk = tone === 'up' ? 'var(--accent-green)'
              : tone === 'down' ? 'var(--accent-red)'
              : 'var(--text-primary)';
@@ -795,7 +795,7 @@ function trendTile(label, value, sub, tone) {
     <div class="trend-tile">
       <div class="trend-tile-label">${label}</div>
       <div class="trend-tile-value" style="color:${renk}">${value}</div>
-      <div class="trend-tile-sub">${sub || '&nbsp;'}</div>
+      <div class="trend-tile-sub${wrapSub ? ' trend-tile-sub--wrap' : ''}">${sub || '&nbsp;'}</div>
     </div>`;
 }
 
@@ -830,7 +830,7 @@ function renderTrendStrip(el, history) {
     ${trendTile('This week', formatSignedGain(t.thisWeek), degisim, yon)}
     ${trendTile('Last week', t.prevWeek === null ? '—' : formatSignedGain(t.prevWeek), 'previous 7 days')}
     ${trendTile('Daily average', formatSignedGain(t.dailyAvg), 'this week')}
-    ${trendTile('Best day', t.best ? formatSignedGain(t.best.gain) : '—', bestDaySub(t.best))}
+    ${trendTile('Best day', t.best ? formatSignedGain(t.best.gain) : '—', bestDaySub(t.best), undefined, true)}
   `;
 }
 

@@ -3448,6 +3448,15 @@ body.modal-open {
   text-overflow: ellipsis;
 }
 
+/* "Oct 8 · best since Mar 3, 2026" must stay readable on narrow tiles. */
+.trend-tile-sub--wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
 .trend-empty {
   grid-column: 1 / -1;
   padding: 14px;
