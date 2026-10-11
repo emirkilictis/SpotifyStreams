@@ -729,6 +729,16 @@ function bestSinceDay(days, idx, gainOf = (d) => d.gain, dayOf = (d) => d.date) 
   return null;
 }
 
+// When nothing earlier matches it the day is a record: the runner-up is the
+// highest EARLIER day, which is what "best since tracking began" should name.
+function previousBestDay(days, idx, gainOf = (d) => d.gain, dayOf = (d) => d.date) {
+  let bj = -1;
+  for (let j = 0; j < idx; j++) {
+    if (bj < 0 || gainOf(days[j]) >= gainOf(days[bj])) bj = j;
+  }
+  return bj < 0 ? null : dayOf(days[bj]);
+}
+
 // Short stream-day label for "best since …": the year only when it differs.
 function formatSinceDay(scrapeDay, refScrapeDay) {
   const d = parseLocalDate(toStreamDay(scrapeDay));
@@ -753,6 +763,7 @@ function bestDayInHistory(rows, sinceMs) {
     gain: days[bi].gain,
     date: days[bi].date,
     since: bestSinceDay(days, bi),
+    prevBest: previousBestDay(days, bi),
     firstDate: days[0].date
   };
 }
@@ -806,7 +817,9 @@ function bestDaySub(best) {
   const day = formatSinceDay(best.date, best.date);
   const since = best.since
     ? `best since ${formatSinceDay(best.since, best.date)}`
-    : `best since tracking began (${formatSinceDay(best.firstDate, best.date)})`;
+    : best.prevBest
+      ? `record · prev. best ${formatSinceDay(best.prevBest, best.date)}`
+      : `best since tracking began (${formatSinceDay(best.firstDate, best.date)})`;
   return `<span title="Best day in the last 30 days. The last day with as many streams was ${best.since ? escHtml(formatDate(toStreamDay(best.since))) : 'never — it is the best on record'}.">${escHtml(day)} · ${escHtml(since)}</span>`;
 }
 
@@ -7528,7 +7541,10 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
     const firstDay = upto.length > 1 ? dayOf(upto[1]) : dayOf(upto[0]);
     const sinceLabel = (r) => {
       const s = sinceOf(r);
-      return s ? `best since ${formatSinceDay(s, dayOf(r))}` : `best since ${formatSinceDay(firstDay, dayOf(r))}`;
+      if (s) return `best since ${formatSinceDay(s, dayOf(r))}`;
+      const i = idx0.get(r);
+      const prev = i > 1 ? previousBestDay(upto.slice(1), i - 1, gainOf, dayOf) : null;
+      return prev ? `record · prev. best ${formatSinceDay(prev, dayOf(r))}` : `best since ${formatSinceDay(firstDay, dayOf(r))}`;
     };
     // "That day" only earns the caption when it beats at least a week.
     const lastSince = sinceOf(last);
