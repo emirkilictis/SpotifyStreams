@@ -1,5 +1,5 @@
 /**
- * pin-tracks.js — elle verilen track'lerin albümlerini bir sanatçıya pinler.
+ * pin-tracks.js — elle verilen track'leri bir sanatçının kataloğuna pinler.
  *
  * Reconcile kworb listesinden çalışıyor; kworb'un görmediği ya da sıraya
  * giremeyen kayıtlar için bu araç var. Birinin "şu şarkılar eksik" diye
@@ -12,7 +12,13 @@
  * kredilendirmiyorsa pinlenmez. Aksi halde bir yanlış link, başkasının albümünü
  * bu sanatçının kataloğuna sokardı ve toplamı sessizce şişirirdi.
  *
- * Pinlenen albüm o sanatçının BİR SONRAKİ taramasında çekilir.
+ * İki durumu birlikte çözer:
+ *   - Track bizde yoksa albümünü extra_scrape_albums'a pinler; sanatçının bir
+ *     sonraki taraması Spotify'dan şarkıyı ve playcount'u alır.
+ *   - Track başka takip edilen sanatçının kovasında zaten varsa canonical
+ *     head'i extra_artist_songs ile hedef sanatçıya da bağlar. Önce yine
+ *     Spotify kredisini doğrular; playlist'e yanlış şarkı konması toplamı
+ *     şişiremez.
  */
 const { launchBrowser } = require('./spotify');
 const { resolveTracks } = require('./kworb');
@@ -43,15 +49,51 @@ async function main() {
   const artistUri = `spotify:artist:${artistId}`;
   const client = await getPool().connect();
   const { browser, page } = await launchBrowser(process.env.SP_DC);
+  let inTx = false;
   try {
-    const bizde = await client.query(`SELECT id FROM songs WHERE id = ANY($1)`, [ids]);
-    const varOlan = new Set(bizde.rows.map(r => r.id));
+    const bizde = await client.query(
+      `SELECT s.id,
+              COALESCE(s.canonical_id, s.id) AS head_id,
+              COALESCE(head.primary_artist, s.primary_artist) AS primary_artist,
+              EXISTS (
+                SELECT 1 FROM extra_artist_songs eas
+                WHERE eas.artist_id = $2
+                  AND eas.song_id = COALESCE(s.canonical_id, s.id)
+              ) AS already_extra
+         FROM songs s
+         LEFT JOIN songs head ON head.id = COALESCE(s.canonical_id, s.id)
+        WHERE s.id = ANY($1)`,
+      [ids, artistId]
+    );
+    const varOlan = new Map(bizde.rows.map(r => [r.id, r]));
     const eksik = ids.filter(i => !varOlan.has(i));
-    console.log(`[pin] ${ids.length} track, ${varOlan.size} zaten DB'de, ${eksik.length} eksik.`);
-    if (!eksik.length) return;
+    const baglanacakAday = ids.filter((id) => {
+      const row = varOlan.get(id);
+      return row && row.primary_artist !== artistUri && !row.already_extra;
+    });
+    console.log(`[pin] ${ids.length} track, ${varOlan.size} zaten DB'de, ${eksik.length} eksik, ${baglanacakAday.length} ek profil bağı adayı.`);
 
-    const cozulen = await resolveTracks(page, eksik);
+    // Eksik track'in albümünü ve mevcut-other-bucket track'in kredisini aynı
+    // Spotify doğrulamasında çöz. Zaten hedef kovada olanlar için ağ isteği yok.
+    const dogrulanacak = [...new Set([...eksik, ...baglanacakAday])];
+    const cozulen = dogrulanacak.length ? await resolveTracks(page, dogrulanacak) : new Map();
     const pinlenecek = new Map();
+    const baglanacak = new Map();
+    for (const id of baglanacakAday) {
+      const a = cozulen.get(id);
+      if (!a) { console.warn(`[pin] ${id}: Spotify'da çözülemedi, profil bağı atlandı.`); continue; }
+      if (!a.artistUris?.length) {
+        console.warn(`[pin] ${a.name || id}: kredi listesi boş (şema değişmiş olabilir), profil bağı atlandı.`);
+        continue;
+      }
+      if (!a.artistUris.includes(artistUri)) {
+        console.warn(`[pin] ${a.name || id}: Spotify bu sanatçıyı kredilendirmiyor, profil bağı atlandı.`);
+        continue;
+      }
+      const headId = varOlan.get(id).head_id;
+      baglanacak.set(headId, a);
+      console.log(`[pin] ${a.name || id}\n      → mevcut track hedef sanatçıya da bağlanacak (${headId})`);
+    }
     for (const id of eksik) {
       const a = cozulen.get(id);
       if (!a) { console.warn(`[pin] ${id}: Spotify'da çözülemedi, atlandı.`); continue; }
@@ -67,11 +109,19 @@ async function main() {
       console.log(`[pin] ${a.name || id}\n      → ${a.albumName} (${a.albumId})`);
     }
 
-    if (!pinlenecek.size) return console.log('\n[pin] Pinlenecek albüm yok.');
-    console.log(`\n[pin] ${pinlenecek.size} albüm pinlenecek.`);
+    if (!pinlenecek.size && !baglanacak.size) return console.log('\n[pin] Yeni albüm ya da profil bağı yok.');
+    console.log(`\n[pin] ${pinlenecek.size} albüm, ${baglanacak.size} ek profil bağı yazılacak.`);
     if (!apply) return console.log('[pin] DRY-RUN — yazmak için --apply ekle.');
 
     await client.query('BEGIN');
+    inTx = true;
+    for (const [headId] of baglanacak) {
+      await client.query(
+        `INSERT INTO extra_artist_songs (artist_id, song_id)
+         VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [artistId, headId]
+      );
+    }
     for (const [albumId, a] of pinlenecek) {
       await upsertAlbum(client, { id: albumId, title: a.albumName, release_date: a.release, image_url: a.coverUrl });
       await client.query(
@@ -81,9 +131,10 @@ async function main() {
         [artistId, albumId, a.albumName, a.release || null, false]);
     }
     await client.query('COMMIT');
-    console.log(`[pin] ${pinlenecek.size} albüm pinlendi — sanatçının bir sonraki taramasında çekilecek.`);
+    inTx = false;
+    console.log(`[pin] ${pinlenecek.size} albüm ve ${baglanacak.size} ek profil bağı yazıldı${pinlenecek.size ? ' — eksik albümler sanatçının bir sonraki taramasında çekilecek' : ''}.`);
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (inTx) await client.query('ROLLBACK').catch(() => {});
     console.error('[pin] HATA:', err.message);
     process.exitCode = 1;
   } finally {
