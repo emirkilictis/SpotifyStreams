@@ -45,7 +45,7 @@ async function dismissCookieBanner(page) {
 async function launchBrowser(spDc) {
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
-    headless: 'new',
+    headless: true,
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
   });
   const page = await browser.newPage();
@@ -59,7 +59,7 @@ async function launchBrowser(spDc) {
     }
   });
 
-  await page.setCookie({
+  await browser.setCookie({
     name: 'sp_dc', value: spDc,
     domain: '.spotify.com', path: '/', secure: true, httpOnly: true,
   });

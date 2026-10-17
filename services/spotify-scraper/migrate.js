@@ -1,9 +1,10 @@
+const { databaseConfig } = require('../web-dashboard/lib/database');
 require('dotenv').config({ path: '../../.env' });
 const fs   = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ ...databaseConfig() });
 
 async function migrate() {
   const dir   = path.join(__dirname, 'migrations');

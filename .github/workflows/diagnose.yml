@@ -1,16 +1,13 @@
+# Diagnostic checks are read-only except for the explicitly gated one-off repair.
 name: Diagnose
 
-# Read-only tesbit kosusu. Hicbir sey yazmaz — sadece SELECT calistirip raporu
-# log'a basar. Gelistirme dallarina push'ta calisir cunku workflow_dispatch
-# yalnizca default branch'ten tetiklenebiliyor ve tesbit genelde dal ustunde
-# yaziliyor.
 on:
   push:
     branches: ['claude/**']
   workflow_dispatch:
     inputs:
       artist:
-        description: 'Artist id or name fragment'
+        description: 'Artist ID or part of an artist name'
         type: string
         default: 'Cardi'
 
@@ -18,18 +15,23 @@ concurrency:
   group: diagnose-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   diagnose:
-    name: Diagnose artist daily
+    name: Inspect artist daily statistics
     runs-on: ubuntu-latest
+    env:
+      DB_SSL_CA: ${{ secrets.DB_SSL_CA }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
-          cache-dependency-path: services/spotify-scraper/package.json
+          cache-dependency-path: services/spotify-scraper/package-lock.json
       - name: Install dependencies
         working-directory: services/spotify-scraper
         run: npm ci
@@ -37,17 +39,12 @@ jobs:
         working-directory: services/spotify-scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          # Girdiyi komut satirina interpolate etme — env uzerinden gecir.
+          # Pass user input through the environment, not shell interpolation.
           ARTIST: ${{ inputs.artist || 'Cardi' }}
         run: node diagnose-artist-daily.js --artist="$ARTIST" --days=14 --top=30
 
-      # Dashboard'un servis ettigi headline sorgusunun ta kendisini gercek DB'ye
-      # karsi calistirir. lib/agg-sql.js'i require ettigi icin burada gecen SQL
-      # ile sayfada calisan SQL ayni metin.
-      # Salt okunur. Bir basligin altindaki butun satirlari, nasil gruplandiklarini
-      # ve onlara dokunan kalici merge kurallarini basar; --live ile Spotify'in
-      # su anki degerini de sorar.
-      - name: Inspect the songs showing no daily
+      # Inspect stored grouping and merge rules, with optional live Spotify values.
+      - name: Inspect songs with missing daily gains
         continue-on-error: true
         working-directory: services/spotify-scraper
         env:
@@ -56,11 +53,7 @@ jobs:
         run: |
           node inspect-title.js --history=12 --live 'give it to me'
 
-      # Salt okunur. "Toplam sismis mi?" sorusunun tek kesin cevabi: her grubun
-      # MAX'ini tasiyan uyeyi Spotify'dan okuyup bizdekiyle karsilastir.
-      # Canli okuma Spotify yavaslarsa dakikalarca asilabiliyor ve isin 10
-      # dakikalik butcesini yiyip ARDINDAN gelen SELECT adimlarini hic
-      # calistirmiyor. Bu adim yardimci, sonrakiler asil soru — sinirla.
+      # Disabled by default: live reads can consume the diagnostic time budget.
       - name: Audit JT stored values against live Spotify
         if: false
         continue-on-error: true
@@ -71,9 +64,8 @@ jobs:
           SP_DC: ${{ secrets.SP_DC }}
         run: node audit-live-vs-stored.js --artist=31TPClRtHm23RisEBtV3X7 --top=60
 
-      # Kirpma bu gece ne yapardi? Gercek reconcileStreamDrops, gercek canli
-      # dogrulama, ama --apply olmadan: karar gorunur, veri kipirdamaz.
-      - name: What tonight's clamp would do
+      # Preview stream-drop reconciliation without applying changes.
+      - name: Preview stream-drop reconciliation
         continue-on-error: true
         timeout-minutes: 5
         working-directory: services/spotify-scraper
@@ -82,9 +74,7 @@ jobs:
           SP_DC: ${{ secrets.SP_DC }}
         run: node verify-drop-candidates.js
 
-      # TEK SEFERLIK. Kirpmanin aldigi degeri track sayfasindan geri yazar.
-      # Yalnizca commit mesajinda [repair-stale] varsa calisir; yazan bir adimin
-      # her push'ta kendiliginden atesleme hakki yok.
+      # This write operation runs only with the [repair-stale] commit marker.
       - name: Restore stale playcounts (one-off)
         if: contains(github.event.head_commit.message, '[repair-stale]')
         timeout-minutes: 6
@@ -94,15 +84,14 @@ jobs:
           SP_DC: ${{ secrets.SP_DC }}
         run: node repair-stale-playcounts.js --apply --days=3 --limit=40 --min=1000000 --artist=31TPClRtHm23RisEBtV3X7
 
-      # Salt okunur. Bugunun gunlugunun ne kadari o gun kazanildi, ne kadari
-      # donmus bir degerin geri gelmesi?
-      - name: Where today's JT daily comes from
+      - name: Inspect the sources of JT daily gains
         continue-on-error: true
         working-directory: services/spotify-scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node audit-catchup.js --artist=31TPClRtHm23RisEBtV3X7
 
+      # Use the same SQL helper as the dashboard against the configured database.
       - name: Check the served headline query
         working-directory: services/web-dashboard
         env:
@@ -114,10 +103,8 @@ jobs:
           echo "--- Justin Timberlake"
           node scripts/check-stats-sql.js 31TPClRtHm23RisEBtV3X7 'give it to me'
 
-      # "Site yavas" uc ayri yerden gelebilir: Render'in uykudan uyanmasi,
-      # Postgres'in sorguyu calistirmasi, ya da sorgunun kendisinin
-      # pahalilasmasi. Bu adim ucunu de ayri ayri olcer.
-      - name: How slow, and where
+      # Separate database query time from Render cold-start and HTTP latency.
+      - name: Measure database and dashboard latency
         continue-on-error: true
         timeout-minutes: 5
         working-directory: services/web-dashboard
@@ -125,13 +112,10 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           npm install --no-audit --no-fund
-          echo "--- veritabani"
+          echo "--- database"
           node scripts/bench-agg.js
-          # Site olcumu EN SONA: log kuyrugundan okunan tek sey bu olsun.
-          # 0,6 saniyelik bir sorgu tek basina "cok yavas" hissi vermez; asil
-          # soru sunucunun uykudan uyanip uyanmadigi.
-          echo "--- canli site (Render): ilk istek uyandirmayi da icerir"
+          echo "--- live site (Render): the first request may include a cold start"
           for i in 1 2 3; do
-            curl -s -o /dev/null -w "  deneme $i: baglanti %{time_connect}s  ilk bayt %{time_starttransfer}s  toplam %{time_total}s  kod %{http_code}\n" \
-              --max-time 90 https://spotify-streams-dashboard.onrender.com/health || echo "  deneme $i: ulasilamadi"
+            curl -s -o /dev/null -w "  attempt $i: connect %{time_connect}s  first byte %{time_starttransfer}s  total %{time_total}s  status %{http_code}\n" \
+              --max-time 90 https://spotify-streams-dashboard.onrender.com/health || echo "  attempt $i: unreachable"
           done

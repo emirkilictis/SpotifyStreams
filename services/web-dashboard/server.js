@@ -1,9 +1,12 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
-const cookieParser = require('cookie-parser');
 const compression = require('compression');
+const { databaseConfig } = require('./lib/database');
+const { validPushEndpoint, validPushKeys } = require('./lib/push-endpoint');
+const { securityConfig, secretsMatch, proxyTrust, adminGuard } = require('./lib/security');
+const { fetchImage } = require('./lib/image-proxy');
+const { contentSecurityPolicy } = require('./lib/csp');
 const { Pool } = require('pg');
 const { groupSameStreamDuplicates } = require('./lib/dups');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
@@ -12,19 +15,20 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 // disable itself.
 const { pushEnabled, VAPID_PUBLIC, pendingAnnouncements, sendToFollowers } = require('./lib/push');
 
+// Validate secrets before creating pools or starting any background work.
+const { getAdminRole, isJcAllowed, hashIp } = securityConfig();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Behind Render's proxy — trust X-Forwarded-* so req.protocol is https (used for absolute OG urls).
-app.set('trust proxy', true);
+app.set('trust proxy', proxyTrust());
+app.set('query parser', 'simple');
 
 // Don't advertise the framework/version.
 app.disable('x-powered-by');
 
-// Conservative security headers on every response. Deliberately NO Content-Security-
-// Policy and NO Cross-Origin-Resource-Policy: a CSP would risk breaking inline
-// scripts/html2canvas blobs, and CORP would stop Twitter/Facebook from fetching the
-// OG share image. These headers are safe and don't change how the page renders.
+// Enforce script hashes and disallow inline event handlers.
+app.use(contentSecurityPolicy(path.join(__dirname, 'public')));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');           // no MIME sniffing
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');               // clickjacking guard
@@ -57,11 +61,6 @@ const ARTIST_ROSTER_FALLBACK = [
   { artist_id: '4qwGe91Bz9K2T8jXTZ815W', name: 'Janet Jackson',     image_url: 'https://i.scdn.co/image/ab6761610000e5eb8b290c36cbc9e89827ff562a', accent: '#d81b60', sort_order: 14, album_only: false, locked: false },
 ];
 
-// Accepted access codes for a locked artist (currently JC Chasez). Both unlock
-// any artist flagged `locked` in the roster.
-const JC_PASSCODES = ['peakedinhighschool', 'flop'];
-const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
-
 // True if the given artist id is currently flagged `locked` in the live roster
 // (tracked_artists). Server-side access control reads this so the admin `locked`
 // toggle is the SINGLE source of truth — removing the lock in the panel actually
@@ -69,47 +68,6 @@ const isJcAllowed = (passcode) => JC_PASSCODES.includes(passcode);
 // frontend was unlocked → "NaN" in the stat tiles).
 const isArtistLockedById = (artistId) =>
   allArtistsCache.some(a => a.artist_id === artistId && a.locked);
-
-// Admin passcode for reading visitor feedback/requests. Set ADMIN_PASSCODE in the
-// environment (Render dashboard); falls back to a dev default so local runs work.
-const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || 'pairofwings';
-// Constant-time compare so the response time can't leak how many leading chars of
-// the passcode are correct. Hashing both sides first keeps it constant-time even
-// when the lengths differ (timingSafeEqual requires equal-length buffers).
-const _passHash = (s) => crypto.createHash('sha256').update(String(s)).digest();
-const _adminHash = _passHash(ADMIN_PASSCODE);
-// Same constant-time rule for any other shared secret (the push dispatcher's).
-const secretsMatch = (a, b) =>
-  Boolean(a) && Boolean(b) && crypto.timingSafeEqual(_passHash(a), _passHash(b));
-const SECADMIN_PASSCODE = process.env.SECADMIN_PASSCODE || 'pineapple';
-const _secHash = _passHash(SECADMIN_PASSCODE);
-
-const getAdminRole = (passcode) => {
-  if (typeof passcode !== 'string' || passcode.length === 0) return null;
-  const hashed = _passHash(passcode);
-  if (crypto.timingSafeEqual(hashed, _adminHash)) return 'admin';
-  if (crypto.timingSafeEqual(hashed, _secHash)) return 'secadmin';
-
-  if (passcode.includes(':')) {
-    const colonIdx = passcode.indexOf(':');
-    const user = passcode.slice(0, colonIdx);
-    const pass = passcode.slice(colonIdx + 1);
-    const passHashed = _passHash(pass);
-    if (user === 'secadmin' && crypto.timingSafeEqual(passHashed, _secHash)) {
-      return 'secadmin';
-    }
-    if (user === 'admin' && crypto.timingSafeEqual(passHashed, _adminHash)) {
-      return 'admin';
-    }
-  }
-  return null;
-};
-
-const isAdmin = (passcode) => getAdminRole(passcode) !== null;
-
-// Salt for hashing submitter IPs (abuse tracking without storing raw IPs).
-const IP_HASH_SECRET = process.env.IP_HASH_SECRET || 'spotify-streams-ip-salt';
-const hashIp = (ip) => crypto.createHash('sha256').update(String(ip) + IP_HASH_SECRET).digest('hex').slice(0, 32);
 
 // In-memory throttle: one submission per IP-hash per 30s (best-effort, resets on redeploy).
 const lastSubmitAt = new Map();
@@ -281,6 +239,7 @@ async function refreshExtraArtistSongsCache() {
     );
     const temp = {};
     for (const row of res.rows) {
+      if (!SPOTIFY_ID_RE.test(row.artist_id) || !SPOTIFY_ID_RE.test(row.song_id)) continue;
       if (!temp[row.artist_id]) temp[row.artist_id] = [];
       temp[row.artist_id].push(row.song_id);
     }
@@ -805,10 +764,7 @@ const DB_STATEMENT_TIMEOUT_MS = positiveIntEnv('DB_STATEMENT_TIMEOUT_MS', 30000)
 
 // PostgreSQL Connection Pool
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  },
+  ...databaseConfig(),
   // A Nano Supabase instance is easily saturated by several of the aggregate
   // endpoints at once. Keeping three queries in flight leaves headroom for
   // Supabase's own monitoring and for the scraper/status connection.
@@ -1016,8 +972,8 @@ async function refreshActiveArtistsCache() {
        FROM tracked_artists ORDER BY sort_order, name`
     );
     if (r.rows.length) {
-      allArtistsCache = r.rows;
-      activeArtistsCache = r.rows.filter(a => a.active);
+      allArtistsCache = r.rows.filter(a => SPOTIFY_ID_RE.test(a.artist_id));
+      activeArtistsCache = allArtistsCache.filter(a => a.active);
       rosterLoadedFromDb = true;
       return;
     }
@@ -1039,7 +995,7 @@ async function refreshActiveArtistsCache() {
 async function refreshHiddenSongsCache() {
   try {
     const r = await dbQuery(`SELECT song_id FROM hidden_songs`);
-    hiddenSongsCache = r.rows.map(x => x.song_id);
+    hiddenSongsCache = r.rows.map(x => x.song_id).filter(id => SPOTIFY_ID_RE.test(id));
     hiddenSongsLoaded = true;
   } catch (err) {
     console.warn('[cache] hidden_songs table unavailable:', err.code || err.message);
@@ -1062,8 +1018,7 @@ process.on('uncaughtException', (err) => {
 // difference between instant and a visible wait on a phone connection.
 app.use(compression());
 
-app.use(express.json());
-app.use(cookieParser('spotify-streams-secret-key'));
+app.use(express.json({ limit: '100kb' }));
 // Refresh the roster/OG caches off the back of real traffic instead of a timer,
 // so an idle site lets the database suspend. See touchRosterCaches.
 //
@@ -1123,7 +1078,7 @@ app.get('/healthz', (req, res) => {
 // point at these two paths, so they land on the site; a leftover fan_session
 // cookie is cleared on the way. The admin panel keeps its own passcode gate.
 app.get(['/login', '/logout'], (req, res) => {
-  if (req.signedCookies.fan_session) res.clearCookie('fan_session');
+  res.clearCookie('fan_session');
   res.redirect('/');
 });
 
@@ -1135,6 +1090,7 @@ app.get('/style.css', (req, res) => {
 const validateArtistAccess = (req, res, next) => {
   const artistParam = req.query.artist;
   if (artistParam) {
+    if (typeof artistParam !== 'string') return res.status(400).json({ error: 'Invalid artist.' });
     const artistId = artistParam.replace('spotify:artist:', '');
     if (isArtistLockedById(artistId)) {
       const passcode = req.headers['x-jc-passcode'];
@@ -3985,9 +3941,13 @@ app.post('/api/feedback', async (req, res) => {
       return res.status(400).json({ error: 'Message too long (max 2000 characters).' });
     }
 
-    const ip = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const ip = req.ip || 'unknown';
     const ipHash = hashIp(ip);
     const now = Date.now();
+    for (const [key, at] of lastSubmitAt) if (now - at >= 30000) lastSubmitAt.delete(key);
+    if (lastSubmitAt.size >= 5000 && !lastSubmitAt.has(ipHash)) {
+      return res.status(429).json({ error: 'Too many submissions. Try again later.' });
+    }
     const prev = lastSubmitAt.get(ipHash) || 0;
     if (now - prev < 30000) {
       return res.status(429).json({ error: 'Too fast — please try again in a few seconds.' });
@@ -4006,39 +3966,8 @@ app.post('/api/feedback', async (req, res) => {
   }
 });
 
-// Admin: list submissions. Auth via X-Admin-Passcode header or ?key= query.
-// Brute-force guard: the passcode is short and there's no account system, so after
-// a burst of wrong guesses from one IP we lock that IP out for a while. Counts only
-// FAILURES and a correct passcode clears the counter, so the real admin is never
-// locked out by their own successful access.
-const adminFails = new Map(); // ip -> { count, until }
-const ADMIN_MAX_FAILS = 10;
-const ADMIN_LOCK_MS = 15 * 60 * 1000;
-const clientIp = (req) =>
-  (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim() || 'unknown';
-const requireAdmin = (req, res, next) => {
-  const ip = clientIp(req);
-  const now = Date.now();
-  if (adminFails.size > 5000) {                 // bound memory under a distributed flood
-    for (const [k, v] of adminFails) if (v.until < now && v.count === 0) adminFails.delete(k);
-  }
-  const rec = adminFails.get(ip);
-  if (rec && rec.until > now) {
-    return res.status(429).json({ error: 'Too many attempts. Try again later.' });
-  }
-  const key = req.headers['x-admin-passcode'] || req.query.key;
-  const role = getAdminRole(key);
-  if (!role) {
-    const r = rec || { count: 0, until: 0 };
-    r.count += 1;
-    if (r.count >= ADMIN_MAX_FAILS) { r.until = now + ADMIN_LOCK_MS; r.count = 0; }
-    adminFails.set(ip, r);
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  adminFails.delete(ip);                          // success clears the counter
-  req.adminRole = role;
-  next();
-};
+// Admin authentication uses headers only and bounds failed attempts.
+const requireAdmin = adminGuard(getAdminRole);
 
 const requireSuperAdmin = (req, res, next) => {
   if (req.adminRole !== 'admin') {
@@ -4189,25 +4118,10 @@ app.get('/api/img-proxy', async (req, res) => {
   const host = target.hostname.toLowerCase();
   if (!imgProxyHostAllowed(host)) return res.status(403).end();
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    const upstream = await fetch(target.href, {
-      signal: ctrl.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (SpotifyStreams image proxy)' },
-    });
-    clearTimeout(timer);
-    if (!upstream.ok) return res.status(502).end();
-    // A redirect must land on an allowed host too.
-    try {
-      if (!imgProxyHostAllowed(new URL(upstream.url).hostname.toLowerCase())) return res.status(502).end();
-    } catch { return res.status(502).end(); }
-    const ct = upstream.headers.get('content-type') || '';
-    if (!ct.startsWith('image/')) return res.status(415).end();
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    if (buf.length > 8 * 1024 * 1024) return res.status(413).end();
-    res.set('Content-Type', ct);
+    const { type, body } = await fetchImage(target.href, imgProxyHostAllowed);
+    res.set('Content-Type', type);
     res.set('Cache-Control', 'public, max-age=86400');
-    res.send(buf);
+    res.send(body);
   } catch (err) {
     res.status(502).end();
   }
@@ -4797,7 +4711,7 @@ app.delete('/api/admin/snapshots/:id', requireAdmin, requireSuperAdmin, async (r
 // Admin: re-run canonical deduplication on demand (when duplicates/inflation
 // appear without waiting for a full scrape). Wrapped in a transaction so a
 // mid-run failure rolls back instead of leaving the catalogue un-deduped.
-const { dedupCanonical } = require('../spotify-scraper/dedup');
+const { dedupCanonical } = require('./lib/dedup');
 let dedupRunning = false;
 app.post('/api/admin/dedup', requireAdmin, requireSuperAdmin, async (req, res) => {
   if (dedupRunning) return res.status(409).json({ error: 'Dedup is already running.' });
@@ -5471,12 +5385,12 @@ app.post('/api/push/subscribe', async (req, res) => {
   if (!pushEnabled) return res.status(503).json({ error: 'Push notifications are not configured.' });
   const sub = req.body && req.body.subscription;
   const artists = Array.isArray(req.body && req.body.artists) ? req.body.artists : [];
-  if (!sub || typeof sub.endpoint !== 'string' || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+  if (!sub || !validPushKeys(sub.keys)) {
     return res.status(400).json({ error: 'A push subscription is required.' });
   }
   // Endpoints are URLs issued by the browser vendor's push service; anything
   // else is a client bug or someone poking at the API.
-  if (!/^https:\/\//.test(sub.endpoint) || sub.endpoint.length > 1000) {
+  if (!validPushEndpoint(sub.endpoint)) {
     return res.status(400).json({ error: 'Invalid subscription endpoint.' });
   }
   const ids = [...new Set(artists.filter((a) => typeof a === 'string' && /^[A-Za-z0-9]{10,40}$/.test(a)))].slice(0, 100);
@@ -5531,17 +5445,12 @@ app.post('/api/push/unsubscribe', async (req, res) => {
 // The dispatcher. Called by the scrape workflow when a run finishes, and open
 // to the admin panel; the ledger in push_sent_days is what makes calling it
 // twice harmless. Authorised by a shared secret so it cannot be used to spam.
-app.post('/api/push/dispatch', async (req, res) => {
+app.post('/api/push/dispatch', (req, res, next) => {
+  const given = req.headers['x-dispatch-secret'] || req.body?.secret;
+  if (secretsMatch(given, process.env.PUSH_DISPATCH_SECRET)) return next();
+  return requireAdmin(req, res, next);
+}, async (req, res) => {
   if (!pushEnabled) return res.status(503).json({ error: 'Push notifications are not configured.' });
-  const secret = process.env.PUSH_DISPATCH_SECRET || '';
-  const given = req.headers['x-dispatch-secret'] || (req.body && req.body.secret) || '';
-  const adminKey = req.headers['x-admin-passcode'] || req.query.key;
-  const isAdmin = Boolean(getAdminRole(adminKey));
-  if (!isAdmin) {
-    if (!secretsMatch(String(given), secret)) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-  }
   try {
     const pending = await pendingAnnouncements(
       dbQuery,
@@ -5820,6 +5729,15 @@ app.use(requireAuth, express.static(path.join(__dirname, 'public')));
 // Catch-all redirect to home
 app.get('*', requireAuth, (req, res) => {
   res.redirect('/');
+});
+
+// Do not expose stack traces or parser internals in error responses.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = err.status === 413 ? 413 : err.status === 400 ? 400 : 500;
+  if (status === 500) console.error('[http] Request failed:', err.message);
+  res.status(status).json({ error: status === 413 ? 'Request body too large.'
+    : status === 400 ? 'Invalid request.' : 'Internal server error.' });
 });
 
 app.listen(PORT, async () => {

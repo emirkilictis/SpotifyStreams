@@ -1,3 +1,4 @@
+const { databaseConfig } = require('../lib/database');
 /**
  * bench-agg.js — panonun ağır sorgusu ne kadar sürüyor, ve bunun ne kadarı
  * benim eklediğim adım-yayma?
@@ -98,7 +99,7 @@ async function timeIt(pool, sql, params, n = 3) {
 
 async function main() {
   if (!process.env.DATABASE_URL) { console.error('DATABASE_URL yok.'); process.exit(1); }
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  const pool = new Pool({ ...databaseConfig() });
   const ids = process.argv.slice(2).filter(a => !a.startsWith('--'));
   const artists = ids.length ? ids : ['31TPClRtHm23RisEBtV3X7', '4kYSro6naA4h99UJvo89HB'];
 

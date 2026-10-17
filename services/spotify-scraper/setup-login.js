@@ -35,7 +35,7 @@ const ENV_PATH = path.join(__dirname, '../../.env');
   let spDc = null;
   for (let i = 0; i < 600; i++) { // 10 dakika timeout
     await new Promise(r => setTimeout(r, 1000));
-    const cookies = await page.cookies('https://open.spotify.com', 'https://accounts.spotify.com');
+    const cookies = await browser.cookies();
     const dc = cookies.find(c => c.name === 'sp_dc');
     if (dc) {
       spDc = dc.value;
@@ -52,7 +52,7 @@ const ENV_PATH = path.join(__dirname, '../../.env');
     process.exit(1);
   }
 
-  console.log('\n✅ sp_dc yakalandı:', spDc.slice(0, 50) + '...');
+  console.log('\n✅ sp_dc yakalandı.');
 
   // .env dosyasını güncelle
   let envContent = fs.readFileSync(ENV_PATH, 'utf8');
@@ -61,7 +61,8 @@ const ENV_PATH = path.join(__dirname, '../../.env');
   } else {
     envContent += `\nSP_DC=${spDc}\n`;
   }
-  fs.writeFileSync(ENV_PATH, envContent);
+  fs.writeFileSync(ENV_PATH, envContent, { mode: 0o600 });
+  fs.chmodSync(ENV_PATH, 0o600);
   console.log('✅ .env güncellendi.\n');
   console.log('Şimdi `node scraper.js` çalıştırabilirsin.');
 })().catch(err => { console.error('HATA:', err.message); process.exit(1); });

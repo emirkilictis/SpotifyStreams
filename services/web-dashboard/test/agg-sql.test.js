@@ -19,6 +19,7 @@ test('cached artist aggregate bounds caller-provided history depth', () => {
 
 test('live artist aggregate remains the raw-history fallback', () => {
   const sql = artistLatestAggCTE('s.primary_artist = $1');
-  assert.match(sql, /FROM stream_stats ss/);
+  assert.match(sql, /FROM stream_stats x/);
+  assert.match(sql, /WHERE x\.song_id = ai\.song_id/);
   assert.doesNotMatch(sql, /FROM chart_daily_streams c/);
 });

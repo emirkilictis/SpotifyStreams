@@ -1,7 +1,7 @@
 {
   "name": "spotify-scraper",
   "version": "1.0.0",
-  "description": "Justin Timberlake Spotify stream count scraper",
+  "description": "Multi-artist Spotify data collection, release discovery, and PostgreSQL history maintenance.",
   "main": "scraper.js",
   "scripts": {
     "scrape": "node scraper.js",
@@ -9,13 +9,16 @@
     "setup": "node migrate.js && node scraper.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
+    "axios": "^1.20.0",
     "better-sqlite3": "^12.9.0",
-    "dotenv": "^16.4.0",
-    "pg": "^8.11.0",
+    "dotenv": "^16.6.1",
+    "pg": "^8.20.0",
     "playwright": "^1.59.1",
-    "puppeteer": "^24.42.0",
+    "puppeteer": "^25.14.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

@@ -1,9 +1,9 @@
+const { databaseConfig } = require('../web-dashboard/lib/database');
 const { Pool } = require('pg');
 require('dotenv').config({ path: '../../.env' }); // load .env from root
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ...databaseConfig(),
 });
 
 async function main() {
