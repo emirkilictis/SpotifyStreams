@@ -62,6 +62,18 @@ test('custom CA is preserved and insecure remote/deployed connections are refuse
   assert.throws(() => databaseConfig({ DATABASE_URL: 'secret-is-not-a-url' }), { message: 'DATABASE_URL must be a valid PostgreSQL URL.' });
 });
 
+test('the official bundled CA is scoped to Supabase poolers and explicit CA settings take precedence', () => {
+  const pooler = 'postgresql://user:password@aws-0-region.pooler.supabase.com/db?sslmode=no-verify';
+  const config = databaseConfig({ DATABASE_URL: pooler });
+  assert.equal(config.ssl.rejectUnauthorized, true);
+  const cert = new (require('node:crypto').X509Certificate)(config.ssl.ca);
+  assert.equal(cert.ca, true);
+  assert.equal(cert.fingerprint256, '80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA');
+  assert.equal(databaseConfig({ DATABASE_URL: pooler, DB_SSL_CA: 'explicit-ca' }).ssl.ca, 'explicit-ca');
+  assert.equal(databaseConfig({ DATABASE_URL: pooler.replace('.com/', '.com.attacker.example/') }).ssl.ca, undefined);
+  assert.equal(databaseConfig({ DATABASE_URL: 'postgresql://user:password@other.example/db' }).ssl.ca, undefined);
+});
+
 test('proxy trust is bounded and defaults to direct access outside Render', () => {
   assert.equal(proxyTrust({}), 0);
   assert.equal(proxyTrust({ RENDER: 'true' }), 1);

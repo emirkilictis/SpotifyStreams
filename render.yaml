@@ -29,8 +29,8 @@ services:
         sync: false
       - key: DB_SSL_MODE
         value: verify-full
-      # If required, add DB_SSL_CA (PEM) or DB_SSL_CA_FILE (secret file path)
-      # using the CA downloaded from your database provider's dashboard.
+      # Supabase poolers use the bundled official public CA automatically.
+      # Other providers can use DB_SSL_CA (PEM) or DB_SSL_CA_FILE (secret file path).
       - key: TRUST_PROXY_HOPS
         value: 1
       # Web push. Without these the notification feature reports itself

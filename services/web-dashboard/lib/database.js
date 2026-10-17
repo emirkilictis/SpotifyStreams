@@ -33,6 +33,10 @@ function databaseConfig(env = process.env) {
     ssl.ca = env.DB_SSL_CA
       ? env.DB_SSL_CA.replace(/\\n/g, '\n')
       : fs.readFileSync(env.DB_SSL_CA_FILE, 'utf8');
+  } else if (ssl && url.hostname.endsWith('.pooler.supabase.com')) {
+    // Supabase publishes this public root through its official dashboard.
+    // Trust it only for Supabase pooler hosts; keep hostname checks enabled.
+    ssl.ca = fs.readFileSync(require('node:path').join(__dirname, '../certs/supabase-prod-ca-2021.crt'), 'utf8');
   }
   return { connectionString: url.toString(), ssl };
 }

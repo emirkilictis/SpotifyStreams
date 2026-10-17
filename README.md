@@ -60,7 +60,7 @@ Edit `.env` using the guidance in [`.env.example`](.env.example).
 | `SECADMIN_PASSCODE` | Secondary administrator credential; at least 32 characters |
 | `IP_HASH_SECRET` | Independent key used to hash feedback submitter IPs; at least 32 characters |
 | `JC_PASSCODES` | Optional comma-separated codes for locked artist profiles; each at least 32 characters |
-| `DB_SSL_CA` or `DB_SSL_CA_FILE` | Provider CA certificate as PEM text or a file path, when required |
+| `DB_SSL_CA` or `DB_SSL_CA_FILE` | Optional provider CA override as PEM text or a file path |
 | `DB_SSL_MODE` | `verify-full` by default; `disable` is restricted to local loopback development |
 | `TRUST_PROXY_HOPS` | Number of trusted reverse proxies; defaults to 1 on Render and 0 locally |
 | `PORT` | Dashboard port; defaults to 3000 |
@@ -77,7 +77,9 @@ To obtain `SP_DC`, sign in to the Spotify web player and inspect **Developer Too
 
 ### 3. Configure database certificate verification
 
-For Supabase, open [Database Settings](https://supabase.com/dashboard/project/_/database/settings), select the project, and locate **SSL Configuration → Download certificate**. Configure either:
+Supabase shared pooler hosts (`*.pooler.supabase.com`) automatically use the bundled official public CA. No certificate download or secret is needed for the standard pooler connection. See the [certificate provenance and fingerprint](services/web-dashboard/certs/README.md).
+
+For a custom CA or another provider, configure the appropriate certificate. To download the Supabase CA manually, open [Database Settings](https://supabase.com/dashboard/project/_/database/settings), select the project, and locate **SSL Configuration → Download certificate**. Configure either:
 
 ```dotenv
 DB_SSL_CA_FILE=/absolute/path/to/provider-ca.crt
@@ -163,7 +165,7 @@ The Blueprint uses:
 - **Start command:** `node server.js`
 - **Node version:** 24
 
-The Blueprint generates independent administrator credentials and an IP hashing key for a new service. Existing or manually configured services need their environment variables updated in the Render dashboard. Set the database CA before deploying code that requires verified TLS.
+The Blueprint generates independent administrator credentials and an IP hashing key for a new service. Existing or manually configured services need their environment variables updated in the Render dashboard. Supabase shared poolers use the bundled CA. Configure an explicit CA before deployment if a different database endpoint requires one.
 
 `TRUST_PROXY_HOPS=1` assumes a single trusted Render proxy. Adjust it to match a different deployment topology. Use `/healthz` to check service health and the deployed commit.
 
@@ -192,4 +194,4 @@ npm audit
 
 ## Security status
 
-See [SECURITY.md](SECURITY.md) for the dated review, implemented protections, validation results, and required production rollout steps. Code-level fixes do not establish that an existing deployment has received the new credentials or database CA.
+See [SECURITY.md](SECURITY.md) for the dated review, implemented protections, validation results, and required production rollout steps. Code-level fixes do not establish that an existing deployment has received the new credentials or application version.
