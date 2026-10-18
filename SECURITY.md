@@ -1,6 +1,8 @@
 # Security review — October 18, 2026
 
-The code changes described below are prepared in the working tree. They have not been deployed to the production Render service. Production credential rotation and deployment remain required. The configured Supabase connection now passes verified TLS using the bundled official CA.
+The security update was deployed to the existing production Render service on October 18, 2026 at 15:18 Istanbul time (UTC+3). Application revision `a1675828bd33009c3f79c465ffa65f5c8356983f` is serving at [Spotify Streams](https://spotify-streams-dashboard.onrender.com).
+
+Production administrator credentials, the locked-profile code, and the IP hashing secret were rotated. The service uses Node 24.22.0, and the configured Supabase connection passes verified TLS using the bundled official CA.
 
 ## Implemented protections
 
@@ -32,13 +34,19 @@ Gitleaks scanned the current Git-visible files and the complete local, non-shall
 
 Dependency audit results are a dated snapshot. They do not guarantee that all application vulnerabilities have been found.
 
-## Required production rollout
+## Production rollout
 
-1. Set strong, independent `ADMIN_PASSCODE`, `SECADMIN_PASSCODE`, and `IP_HASH_SECRET` values on Render. The local ignored `.env` file has new values for these credentials and the locked-profile code. Keep them out of public commits and chat messages.
-2. Standard Supabase shared poolers use the bundled CA automatically. For a different database endpoint, configure `DB_SSL_CA` or `DB_SSL_CA_FILE` on Render and the `DB_SSL_CA` repository secret for GitHub Actions if a custom CA is needed. Confirm verified TLS after deployment. See the [certificate provenance](services/web-dashboard/certs/README.md).
-3. Configure `JC_PASSCODES` if locked-profile access is needed. The old published codes are no longer accepted by the updated code. Keep the push dispatch secret strong and independent.
-4. Set Render to Node 24. For services not managed through the Blueprint, update their dashboard settings manually: root `services/web-dashboard`, build `npm ci`, start `node server.js`.
-5. Deploy after the required settings are in place. Verify service health, administrator login, role restrictions, and read-only data endpoints in production.
+- Render deployment `dep-dbabhnbbc2fs73apdllg` completed successfully for application revision `a1675828bd33009c3f79c465ffa65f5c8356983f`.
+- The main and secondary administrator credentials, IP hashing key, and locked-profile code were updated without replacing unrelated service environment variables. The matching local values remain in the ignored `.env` file.
+- Node 24.22.0 was confirmed in the production build logs. The existing Render service uses `npm install` with the committed lockfile; the Blueprint specifies `npm ci` for reproducible provisioning.
+- Both GitHub security checks on the release passed. The production build also reported 0 known dependency vulnerabilities.
+- All 12 production smoke checks passed: deployed revision, dashboard/CSP, public artist roster and statistics, anonymous administrator denial, rejection of both published passwords, acceptance of both rotated administrator credentials, secondary-role restrictions, loopback image-proxy rejection, and malformed artist-query rejection.
+
+## Operating the deployment
+
+Keep administrator credentials and the IP hashing key independent and rotate them if exposed. Never publish their values. Supabase shared poolers use the bundled CA automatically; review the [certificate provenance and expiry](services/web-dashboard/certs/README.md) when the provider rotates its CA. Other database endpoints can use explicit `DB_SSL_CA` or `DB_SSL_CA_FILE` overrides.
+
+Verify `/healthz` and administrator role restrictions after future releases. At this rollout, Render's automatic Git integration did not start a deployment for the merge, and the optional `RENDER_DEPLOY_HOOK` GitHub secret was absent; the release was explicitly deployed through the connected Render integration with a cleared build cache.
 
 A full scraper run with real Spotify credentials was not performed, production data was not modified, and this review does not claim to be a complete penetration test.
 
