@@ -1255,9 +1255,9 @@ function renderTrending(rows) {
     const lift = Number(t.lift_pct) || 0;
     const recent = Number(t.recent_avg) || 0;
     return `
-      <button class="trending-card" onclick="openSongById('${t.id}')" title="${escHtml(t.title)} — normally +${formatNumber(Number(t.base_avg) || 0)}/day">
+      <button class="trending-card" data-open-song="${escHtml(t.id)}" title="${escHtml(t.title)} — normally +${formatNumber(Number(t.base_avg) || 0)}/day">
         <div class="trending-cover">
-          <img src="${cover}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${fallbackSvg}'">
+          <img src="${cover}" alt="" loading="lazy" data-image-fallback="${fallbackSvg}">
           <span class="trending-badge">▲ ${lift}%</span>
         </div>
         <div class="trending-meta">
@@ -1466,7 +1466,7 @@ function renderSongs() {
         <td><strong>${idx + 1}</strong></td>
         <td>
           <div class="song-title-cell">
-            <span class="song-title song-link" onclick="openSongById('${song.id}')">${escHtml(song.title)}</span>
+            <span class="song-title song-link" data-open-song="${escHtml(song.id)}">${escHtml(song.title)}</span>
             <div class="badge-wrapper">
               <span class="badge ${badgeClass}">
                 ${badgeText}
@@ -1567,16 +1567,15 @@ function renderAlbums() {
     const dailyGain = Number(album.daily_gain);
     const dateFormatted = album.release_date || '';
     const coverUrl = album.image_url || ALBUM_COVERS[album.album_id] || '';
-    // Quotes are %-encoded so the data URI survives both the src attribute and
-    // the single-quoted JS string inside onerror (raw ' broke the fallback).
+    // Quotes are %-encoded so the data URI survives HTML attributes.
     const fallbackSvg = `data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%2756%27 height=%2756%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%231db954%27 stroke-width=%271.5%27 style=%27background:%23181818%27><circle cx=%2712%27 cy=%2712%27 r=%2710%27/><circle cx=%2712%27 cy=%2712%27 r=%273%27/><path d=%27M12 9v6%27/></svg>`;
     const gainClass = dailyGain > 0 ? 'gain-positive' : (dailyGain < 0 ? 'gain-negative' : 'gain-neutral');
-    const clickHandler = `openAlbumById('${album.album_id}', '${escJs(album.album_title)}', '${dateFormatted}', '${escJs(coverUrl)}')`;
+    const albumAttrs = `data-open-album="${escHtml(album.album_id)}" data-title="${escHtml(album.album_title)}" data-date="${escHtml(dateFormatted)}" data-cover="${escHtml(coverUrl)}"`;
 
     return `
-      <div class="album-row glass" onclick="${escHtml(clickHandler)}">
+      <div class="album-row glass" ${albumAttrs}>
         <div class="album-row-cover">
-          <img src="${escHtml(coverUrl) || fallbackSvg}" alt="${escHtml(album.album_title)}" class="album-row-cover-img" onerror="this.onerror=null;this.src='${fallbackSvg}'">
+          <img src="${escHtml(coverUrl) || fallbackSvg}" alt="${escHtml(album.album_title)}" class="album-row-cover-img" data-image-fallback="${fallbackSvg}">
         </div>
         <div class="album-row-info">
           <h3 class="album-row-title">${escHtml(album.album_title)}</h3>
@@ -1852,7 +1851,7 @@ window.openAlbumById = async function(albumId, title = null, releaseDate = null,
         return `
           <tr>
             <td><strong>${idx + 1}</strong></td>
-            <td><span class="song-title song-link" onclick="openSongById('${s.id}')">${escHtml(s.title)}</span></td>
+            <td><span class="song-title song-link" data-open-song="${escHtml(s.id)}">${escHtml(s.title)}</span></td>
             <td class="col-duration">${formatDuration(s.duration_ms)}</td>
             <td>${formatSongStreams(s.cumulative)}</td>
             <td>${gainHtml}</td>
@@ -4286,22 +4285,20 @@ function renderMilestones() {
 
     // Sanatci kartinin acacagi bir detay yok — sarki/album modali gibi bir
     // karsiligi olmadigi icin tiklanabilir gostermek yanlis vaat olurdu.
-    const clickHandler = isArtist
-      ? ''
-      : isAlbum
-        ? `openAlbumById('${item.id}', '${escJs(item.title)}', '${item.release_date}', '${escJs(item.image_url)}')`
-        : `openSongById('${item.id}')`;
+    const clickAttrs = isArtist ? '' : isAlbum
+      ? `data-open-album="${escHtml(item.id)}" data-title="${escHtml(item.title)}" data-date="${escHtml(item.release_date || '')}" data-cover="${escHtml(item.image_url || '')}"`
+      : `data-open-song="${escHtml(item.id)}"`;
 
     const projectedVal = getYearEndProjection(item.cumulative, item.daily_gain);
     return `
-      <div class="milestone-card glass${isArtist ? ' milestone-card-artist' : ''}"${clickHandler ? ` onclick="${escHtml(clickHandler)}" style="cursor: pointer;"` : ''}>
+      <div class="milestone-card glass${isArtist ? ' milestone-card-artist' : ''}"${clickAttrs ? ` ${clickAttrs} style="cursor: pointer;"` : ''}>
         <div class="milestone-card-header">
           <h4 title="${escHtml(item.title)}">${escHtml(item.title)}</h4>
           <span class="eta-badge">${etaText}</span>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: -4px;">
           ${badgeHtml}
-          ${isArtist ? `<button type="button" class="mc-share-btn" onclick="openMilestoneCard()" title="Create a shareable image">📸 Card</button>` : ''}
+          ${isArtist ? `<button type="button" class="mc-share-btn" data-open-milestone-card title="Create a shareable image">📸 Card</button>` : ''}
         </div>
         <div class="milestone-target">
           Target: <strong>${formatMilestoneName(item.nextMilestone)}</strong>
@@ -5316,7 +5313,7 @@ function aiChartRow(row, kind, period, metricsReady = true) {
             data-artist="${escHtml(row.artist_id || '')}"
             data-artist-name="${escHtml(row.artist_name || row.title || '')}">
       <span class="ai-chart-rank-wrap"><small>No.</small><span class="ai-chart-rank rank-${rank}">${rank}</span></span>
-      <img class="ai-chart-cover${shape}" src="${image}" alt="" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/images/default.jpg'">
+      <img class="ai-chart-cover${shape}" src="${image}" alt="" loading="lazy" decoding="async" data-image-fallback="/images/default.jpg">
       <span class="ai-chart-copy">
         <strong title="${escHtml(row.title)}">${escHtml(row.title)}</strong>
         <small title="${escHtml(meta)}">${escHtml(meta)}</small>
@@ -6580,7 +6577,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       }
       trigger.classList.add('has-val');
       trigger.innerHTML =
-        '<img class="cmp-combo-ava" src="' + proxied(artistImg(v)) + '" alt="" onerror="this.src=\'/images/default.jpg\'">' +
+        '<img class="cmp-combo-ava" src="' + proxied(artistImg(v)) + '" alt="" data-image-fallback="/images/default.jpg">' +
         '<span class="cmp-combo-name">' + cesc(opt.textContent) + '</span>' + chevronSVG;
     }
     function buildRows(filter) {
@@ -6590,7 +6587,7 @@ function showMobileImageOverlay(imageUrl, albumTitle) {
       if (!opts.length) { listEl.innerHTML = '<div class="cmp-combo-empty">No artists</div>'; return; }
       listEl.innerHTML = opts.map(o =>
         '<button type="button" class="cmp-combo-row' + (o.value === sel.value ? ' selected' : '') + '" data-val="' + cesc(o.value) + '">' +
-          '<img class="cmp-combo-ava" src="' + proxied(artistImg(o.value)) + '" alt="" loading="lazy" onerror="this.src=\'/images/default.jpg\'">' +
+          '<img class="cmp-combo-ava" src="' + proxied(artistImg(o.value)) + '" alt="" loading="lazy" data-image-fallback="/images/default.jpg">' +
           '<span class="cmp-combo-name">' + cesc(o.textContent) + '</span>' +
         '</button>').join('');
     }
@@ -7909,3 +7906,20 @@ async function toggleNotify() {
 
 if (notifyBtn) notifyBtn.addEventListener('click', toggleNotify);
 pushInit();
+
+// Delegation also covers cards inserted after an API refresh. No inline JS.
+document.addEventListener('click', (event) => {
+  const target = event.target.closest('[data-open-song], [data-open-album], [data-open-milestone-card]');
+  if (!target) return;
+  if (target.hasAttribute('data-open-milestone-card')) openMilestoneCard();
+  else if (target.dataset.openSong) openSongById(target.dataset.openSong);
+  else if (target.dataset.openAlbum) openAlbumById(target.dataset.openAlbum,
+    target.dataset.title || '', target.dataset.date || '', target.dataset.cover || '');
+});
+document.addEventListener('error', (event) => {
+  const image = event.target;
+  if (image.tagName !== 'IMG' || !image.dataset.imageFallback) return;
+  const fallback = image.dataset.imageFallback;
+  delete image.dataset.imageFallback;
+  image.src = fallback;
+}, true);

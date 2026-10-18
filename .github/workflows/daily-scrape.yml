@@ -1,55 +1,33 @@
 name: Spotify Stream Scrape
 
 on:
-  # Tetikleme harici scheduler'dan (cron-job.org) workflow_dispatch ile geliyor.
-  # GitHub'in kendi schedule cron'u guvenilmez (job'lari dusuruyor), o yuzden kaldirildi.
+  # An external scheduler and the admin panel use workflow_dispatch.
   workflow_dispatch:
     inputs:
       force:
-        description: 'Force a full scrape + dedup even if today is already captured'
+        description: 'Force collection and duplicate reconciliation even if today is already captured'
         type: boolean
         default: false
       artists:
-        description: 'Comma-separated artist IDs to scrape (empty = full roster). Used by the admin panel per-artist sync.'
+        description: 'Comma-separated artist IDs; leave empty for the full roster. Used by admin artist sync.'
         type: string
         default: ''
 
-# Saatlik cron-job.org tetiklemeleri gercek bir tarama (yeni gun / yeni sanatci)
-# 20-30 dk surdugunde cakisabiliyor. cancel-in-progress: false ile devam eden
-# run iptal edilmiyor, yenisi sira bekliyor — iki run ayni anda DB'ye yazip
-# birbirini ezmesin diye.
-#
-# AMA tek kuyruk, elle tetiklenen hedefli senkronlari yiyordu. GitHub bir grupta
-# yalnizca BIR bekleyen run tutuyor: siradaki yeni bir tetikleme geldiginde
-# onceki BEKLEYEN run iptal ediliyor. Madonna eklendikten 23 saniye sonra
-# tetiklenen senkron, uzun suren saatlik taramanin arkasinda 55 dakika bekledi
-# ve calismadan iptal oldu — sanatci uc sarkiyla kaldi.
-#
-# Sanatciya OZEL run'lar artik kendi seridinde: kisalar, tek bir sanatciya
-# dokunurlar ve saatlik tarama onlari bir daha kuyrukta oldurmez. Yazim
-# guvenli kaliyor cunku playcount upsert'i GREATEST ile yaziyor — ayni satira
-# iki taraftan gelen yazim daha dusuk olani asla kabul etmiyor.
+# Keep active runs; separate targeted requests from the full-roster queue.
 concurrency:
   group: spotify-scrape-${{ inputs.artists && 'manual' || 'auto' }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   scrape:
-    name: Scrape JT Stream Counts
+    name: Collect Spotify data
     runs-on: ubuntu-latest
-    # Yogun gunler (yeni sanatci backfill + appears-on) uzun surebiliyor. Scraper
-    # artik kendi SCRAPE_BUDGET_MS (varsayilan 35 dk) butcesiyle yeni sanatci
-    # baslatmayi birakip temiz cikiyor (dedup + exit 0); kalanlar bir sonraki
-    # saatlik run'da resume ile tamamlaniyor. Bu cap sadece guvenlik agi — butce +
-    # ucan sanatci + dedup'a pay birakacak sekilde 50'ye cikarildi.
-    #
-    # 50 dakika TUM job'in siniriydi: 2026-10-03'te zorlamali senkron scraper
-    # adimini 49 dakikada BASARIYLA bitirdi, kworb adimi 1 dakika sonra job
-    # sinirina takildi ve run "cancelled" oldu. Render auto-deploy commit'in
-    # kontrolleri gecince deploy ediyor; iptal edilmis bir run commit'i bloke
-    # etti ve a63ad0e bir gun canliya inmedi. Artik scraper'in kendi 55 dk
-    # siniri var, job sonraki adimlarin (her birinin kendi timeout'u var)
-    # sigacagi kadar uzun.
+    env:
+      DB_SSL_CA: ${{ secrets.DB_SSL_CA }}
+    # Allow time for collection and the separately bounded maintenance steps.
     timeout-minutes: 100
 
     steps:
@@ -59,9 +37,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
-          cache-dependency-path: services/spotify-scraper/package.json
+          cache-dependency-path: services/spotify-scraper/package-lock.json
 
       - name: Install dependencies
         working-directory: services/spotify-scraper
@@ -86,25 +64,14 @@ jobs:
           node scraper.js $ARGS | tee "$SCRAPER_LOG"
           if grep -q '^\[scraper\] OUTCOME=updated$' "$SCRAPER_LOG"; then
             echo "did_update=true" >> "$GITHUB_OUTPUT"
-            echo "Yeni Spotify verisi işlendi; bakım adımları çalışacak."
+            echo "New Spotify data processed; maintenance steps will run."
           else
             echo "did_update=false" >> "$GITHUB_OUTPUT"
-            echo "Yeni veri yok; ağır bakım adımları atlanacak."
+            echo "No new data; expensive maintenance steps will be skipped."
           fi
 
-      # Self-healing kworb reconciliation. A newly added artist virtually always
-      # sits below their kworb page — a co-tracked collab lands in the OTHER
-      # artist's bucket, and a guest feature whose lead we don't track never
-      # shows up in appears-on so it is never scraped at all. Both used to need a
-      # manual audit + a code edit; this step now finds and repairs them from
-      # data (kworb is only a discovery hint — every number still comes from
-      # Spotify, and nothing is pinned unless Spotify credits the artist).
-      #
-      # It self-paces: never-checked artists first (i.e. the one you just added),
-      # then a ~20h per-artist cooldown, a few artists per run, and its own time
-      # budget — so the hourly trigger amortises the whole roster over a day
-      # without ever threatening the scrape job's timeout. Non-fatal by design:
-      # a kworb outage must never fail the run that already captured the data.
+      # Use kworb for discovery hints; verify credits and counts with Spotify.
+      # Per-artist cooldowns and a time budget keep this optional work bounded.
       - name: Reconcile against kworb
         if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
@@ -120,24 +87,8 @@ jobs:
           if [ -n "$SCRAPE_ARTISTS" ]; then ARGS="--artists=$SCRAPE_ARTISTS --force"; fi
           node reconcile-kworb.js $ARGS
 
-      # Bayat playcount onarimi. Scraper playcount'u ALBUM sayfasindan okuyor ve
-      # bazi sarkilarda o sayfa gunlerce guncellenmiyor: JT'nin "Holy Grail"i
-      # sekiz gun 406.032.077'de dondu, sarkinin kendi sayfasi 406.368.183
-      # diyorken. Veri yanlis degil, eski — ve donmus bir sarki sanatcinin
-      # gunluk toplamindan sessizce eksiliyor.
-      #
-      # Bu adim gunlerdir kipirdamayan sarkilari canli okuyup gercek degerine
-      # cekiyor. Sadece YUKARI yazar; dususler teyit isteyen ayri mekanizmanin
-      # isi.
-      #
-      # Okuma artik SARKININ KENDI sayfasindan yapiliyor. Albumden okumak
-      # bayatlayan kaynagi yeniden okumak demekti: fark 0 cikiyor, sarki ertesi
-      # saat yine ilk sirada aday oluyor ve arkasindaki kuyrugu tikiyordu.
-      # Featured sarkilar (baskasinin albumunde yasayanlar) tam da bu yuzden
-      # dashboard'da gunlerce "-" gorunuyordu. Track sorgusunun imzasi ilk
-      # sayfadan yakalanip sonrakilerde tekrar kullanildigi icin bir tur artik
-      # 12 degil 30 sarkiya bakabiliyor; esik de 1M'den 100k'ya indi, boylece
-      # kucuk featured surumler de kapsaniyor.
+      # Read track pages to repair stale album-page counts. Only increases
+      # are applied; stream drops use a separate verification path.
       - name: Repair stale playcounts
         if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
@@ -149,19 +100,9 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node repair-stale-playcounts.js --limit=30 --min=100000 --apply
 
-      # Dedup only after a REAL update. Running this on every hourly no-op canary
-      # check needlessly rebuilt the catalogue and chart cache, exhausting the
-      # Supabase Nano Disk IO budget.
-      #
-      # Bu adim vaktiyle Neon yuzunden kaldirilmisti: her calisma compute'u
-      # uyandiriyor, fatura da uyanik kalma suresine gore kesiliyordu. Supabase
-      # oyle bir sey faturalamiyor, o yuzden geri geldi.
-      #
-      # Ardindan audit-duplicate-heads: dedup'in goremedigi iki deseni (ayni
-      # kaydi tasiyan ikiz baslar, yanlis gruba baglanmis uye) tarar ve yalnizca
-      # kaniti kesin olanlari — ayni gunde birebir ayni playcount, 3+ gun —
-      # manual_merges kurali olarak birlestirir. Geri kalani rapora yazar.
-      - name: Deduplicate + audit
+      # Run only after new data to avoid unnecessary catalogue and cache rebuilds.
+      # The audit adds merge rules only when repeated exact counts support them.
+      - name: Deduplicate and audit
         if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
         timeout-minutes: 10
@@ -172,25 +113,10 @@ jobs:
           node run-dedup.js
           node audit-duplicate-heads.js --apply
 
-      # JT'nin aylik dinleyici sayisini gunde bir tweetler. Veriyi Spotify'dan
-      # degil bu run'in DB'ye yazdigi satirdan okur, yani tweet her zaman
-      # sitedeki rakamla ayni olur. tweet_log defteri sayesinde idempotent:
-      # saatlik tetiklemelerin tamami cagirsa da gun basina tek tweet cikar.
-      #
-      # YALNIZCA ARTIS gunlerinde atar: dinleyici dunden dusmus ya da ayni
-      # kalmissa susar.
-      #
-      # Supheye dusunce SUSAR: gunun satiri yoksa, o gun icin zaten atildiysa,
-      # ya da degisim %10'u asiyorsa (aylik dinleyici gunde ~%0.1 oynar, %10 =
-      # veri kazasi) hicbir sey gondermez. Sahibi yokken calisiyor ve yanlis
-      # rakami geri almak hic atmamaktan pahali.
-      #
-      # X anahtarlari yoksa sessizce atlanir; hicbir kosulda run'i dusurmez.
-      - name: Tweet monthly listeners
-        # Her run'da (sadece did_update'te degil): betik gunde tek tweet atar
-        # (tweet_log) ve gun oturmadan atmaz. Yeni veriyi isleyen run tweet'ten
-        # once biterse (job siniri, iptal, gece yarisi) bir sonraki saatlik run
-        # yine atabilsin — 2026-10-03'un tweet'i boyle kaybolmustu.
+      # The posting ledger permits at most one post per day. Missing credentials,
+      # incomplete data, decreases, or implausible changes suppress publication.
+      # Run after any successful scrape so a later run can retry a missed post.
+      - name: Post monthly listeners to X
         if: steps.scraper.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 5
@@ -201,23 +127,13 @@ jobs:
           X_CONSUMER_SECRET: ${{ secrets.X_CONSUMER_SECRET }}
           X_ACCESS_TOKEN:    ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET:   ${{ secrets.X_ACCESS_SECRET }}
-          # Tweet'in sonuna eklenen serbest not. Repository variable, secret
-          # degil: gecici duyurular icin (ornegin tatil) GitHub'dan yazilir,
-          # ise yaramaz olunca silinir. Bos birakilirsa hicbir sey eklenmez.
+          # Optional public note configured as a repository variable.
           TWEET_FOOTER:      ${{ vars.TWEET_FOOTER }}
         run: node tweet-monthly-listeners.js
 
-      # JT'nin gunluk stream'i esigi (varsayilan 9M) asarsa gunun ozeti + en cok
-      # akan 5 sarki. Rakamlar siteden okunur, DB'den degil: atif kurali basit
-      # bir primary_artist filtresi degil ve elle hesaplanan sayi sayfadakiyle
-      # tutmuyor. JT'nin sarkilarinin %90'i o gune yazilmadan bakilmaz —
-      # tarama surerken gunluk rakam oturana kadar oynuyor (9.8M → 9.4M), yarim
-      # bir gunle atilan tweet birkac dakika sonra yanlisa donebilir.
-      - name: Tweet daily recap
-        # Her run'da (sadece did_update'te degil): betik gunde tek tweet atar
-        # (tweet_log) ve gun oturmadan atmaz. Yeni veriyi isleyen run tweet'ten
-        # once biterse (job siniri, iptal, gece yarisi) bir sonraki saatlik run
-        # yine atabilsin — 2026-10-03'un tweet'i boyle kaybolmustu.
+      # Publish only when the daily threshold and data completeness checks pass.
+      # Read dashboard attribution and use the ledger to prevent duplicate posts.
+      - name: Post daily recap to X
         if: steps.scraper.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 5
@@ -229,18 +145,13 @@ jobs:
           X_CONSUMER_SECRET: ${{ secrets.X_CONSUMER_SECRET }}
           X_ACCESS_TOKEN:    ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET:   ${{ secrets.X_ACCESS_SECRET }}
+          # Optional public note configured as a repository variable.
           TWEET_FOOTER:      ${{ vars.TWEET_FOOTER }}
         run: node tweet-daily-recap.js
 
-      # Yeni gunun sayilari yakalandiysa takipcilere web push gonder. Endpoint
-      # idempotent (push_sent_days ledger'i) — her saat cagrilmasi zararsiz,
-      # sadece HENUZ duyurulmamis bir gun varsa bildirim cikar. Sanatcinin
-      # sarkilarinin %90'i o gune yazilmadan da duyurmaz, yani yarim kalan bir
-      # run gunun toplamini eksik bildirmez.
-      #
-      # Hicbir sekilde run'i dusurmez: veri zaten yazildi, bildirim sadece bir
-      # ikram — ve bir sonraki saatlik run zaten tekrar dener.
-      - name: Notify followers (web push)
+      # Notify only for complete, previously unannounced artist days.
+      # Notification failure must not invalidate a successful data collection run.
+      - name: Notify followers with web push
         if: steps.scraper.outputs.did_update == 'true'
         continue-on-error: true
         env:
@@ -248,15 +159,15 @@ jobs:
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL || 'https://spotify-streams-dashboard.onrender.com' }}
         run: |
           if [ -z "$DISPATCH_SECRET" ]; then
-            echo "PUSH_DISPATCH_SECRET yok — bildirim adimi atlandi."
+            echo "PUSH_DISPATCH_SECRET is missing; notification step skipped."
             exit 0
           fi
           curl -sS -m 120 -X POST "$DASHBOARD_URL/api/push/dispatch" \
             -H "x-dispatch-secret: $DISPATCH_SECRET" \
             -H "Content-Type: application/json" \
-            -w "\nHTTP %{http_code}\n" || echo "dispatch cagrisi basarisiz (yok sayildi)"
+            -w "\nHTTP %{http_code}\n" || echo "Dispatch request failed (ignored)"
 
       - name: Notify on failure
         if: failure()
         run: |
-          echo "Scraper başarısız oldu! Loglara bak: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Scraper failed. View the logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

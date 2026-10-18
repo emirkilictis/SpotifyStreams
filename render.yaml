@@ -4,27 +4,40 @@ services:
     env: node
     plan: free
     rootDir: services/web-dashboard
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: node server.js
-    # Her main push'unda deploy. UYARI: bu dosya yalnizca servis Blueprint'ten
-    # olusturulduysa baglayici; elle olusturulmus bir servis icin Render panelin
-    # kendi "Auto-Deploy" ayarini kullanir ve buradaki satiri yok sayar.
-    # Canlida hangi surumun kostugu /healthz -> commit alanindan gorulur.
+    # Deploy on pushes to main for Blueprint-managed services.
+    # Manually created services use their own Render dashboard settings.
+    # Check /healthz -> commit to identify the deployed revision.
     autoDeploy: true
     envVars:
+      - key: NODE_VERSION
+        value: 24
       - key: PORT
         value: 10000
       - key: DATABASE_URL
         sync: false # Supabase session pooler URI — port 5432, NOT the 6543
-        # transaction pooler (pg uses prepared statements), and it MUST end in
-        # ?sslmode=no-verify: the pooler certificate is self-signed, and plain
-        # "require" is treated as verify-full, which fails every query.
+        # transaction pooler. TLS certificate and hostname verification are required.
+        # Legacy URL SSL flags are stripped by the shared connection policy.
+      - key: ADMIN_PASSCODE
+        generateValue: true
+      - key: SECADMIN_PASSCODE
+        generateValue: true
+      - key: IP_HASH_SECRET
+        generateValue: true
+      - key: JC_PASSCODES
+        sync: false
+      - key: DB_SSL_MODE
+        value: verify-full
+      # Supabase poolers use the bundled official public CA automatically.
+      # Other providers can use DB_SSL_CA (PEM) or DB_SSL_CA_FILE (secret file path).
+      - key: TRUST_PROXY_HOPS
+        value: 1
       # Web push. Without these the notification feature reports itself
       # unavailable and the bell never appears — the site runs exactly as it did
-      # before it existed. Generate a pair with `npx web-push generate-vapid-keys`
-      # (a pair already sits in the repo-root .env) and paste the SAME values
-      # here: subscriptions are bound to the public key, so changing it later
-      # silently breaks everyone who already subscribed.
+      # before it existed. Generate a pair with `npx web-push generate-vapid-keys`.
+      # Use the same pair in environments sharing subscriptions; replacing it
+      # requires existing subscribers to subscribe again.
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY

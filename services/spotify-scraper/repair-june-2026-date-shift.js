@@ -1,3 +1,4 @@
+const { databaseConfig } = require('../web-dashboard/lib/database');
 /**
  * repair-june-2026-date-shift.js — 2026-06-11/12/13 tarih kaymasi onarimi.
  *
@@ -45,7 +46,7 @@ const ornek = async (c, etiket) => {
 
 (async()=>{
   const apply = process.argv.includes('--apply');
-  const p=new Pool({connectionString:process.env.DATABASE_URL});
+  const p=new Pool({...databaseConfig()});
   const c=await p.connect();
   try{
     await c.query('BEGIN');

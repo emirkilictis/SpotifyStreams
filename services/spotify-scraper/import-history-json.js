@@ -1,3 +1,4 @@
+const { databaseConfig } = require('../web-dashboard/lib/database');
 /**
  * One-off backfill: load pre-tracking per-song history from a JSON file into
  * stream_stats.
@@ -63,8 +64,7 @@ async function main() {
   console.log(`${file}: ${rows.length.toLocaleString()} rows across ${songIds.length} songs`);
 
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ...databaseConfig(),
   });
   const client = await pool.connect();
   try {

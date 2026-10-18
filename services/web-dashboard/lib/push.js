@@ -17,6 +17,7 @@
 // been given keys behaves exactly like one without the feature.
 // ---------------------------------------------------------------------------
 const webpush = require('web-push');
+const { validPushEndpoint, validPushKeys } = require('./push-endpoint');
 
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
@@ -154,11 +155,16 @@ async function sendToFollowers(dbQuery, announcement) {
   let delivered = 0;
   const dead = [];
   for (const sub of subs.rows) {
+    // Re-check stored rows too: older releases accepted arbitrary endpoints.
+    if (!validPushEndpoint(sub.endpoint) || !validPushKeys(sub)) {
+      dead.push(sub.endpoint);
+      continue;
+    }
     try {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         payload,
-        { TTL: 12 * 60 * 60 }   // a day's numbers stop being news after that
+        { TTL: 12 * 60 * 60, timeout: 10000 }   // bound slow push services
       );
       delivered += 1;
     } catch (err) {

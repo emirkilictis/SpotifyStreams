@@ -1,0 +1,34 @@
+name: Security checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # Tests use a fake database and never need production credentials.
+      - name: Install dashboard dependencies
+        working-directory: services/web-dashboard
+        run: npm ci --ignore-scripts
+      - name: Install scraper dependencies without browser downloads
+        working-directory: services/spotify-scraper
+        run: npm ci --ignore-scripts
+      - name: Run offline and security regression tests
+        working-directory: services/web-dashboard
+        run: npm test
+      - name: Audit dashboard dependencies
+        working-directory: services/web-dashboard
+        run: npm audit --audit-level=low
+      - name: Audit scraper dependencies
+        working-directory: services/spotify-scraper
+        run: npm audit --audit-level=low

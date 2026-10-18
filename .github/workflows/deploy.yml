@@ -1,22 +1,7 @@
-# main'e her push'ta Render'a deploy tetikler.
-#
-# NEDEN VAR. Render'in kendi GitHub entegrasyonu bu serviste guvenilir
-# calismiyor: 2026-09-04'te ff35a90 push edildi ve 15 dakika boyunca deploy
-# olmadi — /healthz uptime'i kesintisiz 1086 saniye gosterdi, yani servis hic
-# yeniden baslamadi. Ayni gun baska bir commit kendiliginden inmisti, yani
-# entegrasyon "kapali" degil, DUZENSIZ; hangisinin inip hangisinin inmedigini
-# tahmin etmek zorunda kalmak da fiilen ayni sey.
-#
-# Deploy Hook bu belirsizligi kaldiriyor: push -> GitHub Actions -> Render.
-# Render tarafinda GitHub baglantisi ne durumda olursa olsun calisir.
-#
-# KURULUM (tek seferlik):
-#   1. Render -> servis -> Settings -> Deploy Hook -> URL'yi kopyala
-#   2. GitHub -> repo -> Settings -> Secrets and variables -> Actions
-#      -> New repository secret -> ad: RENDER_DEPLOY_HOOK, deger: o URL
-#
-# Secret yoksa is atlanir ve yesil kalir — yani bu dosyayi eklemek tek basina
-# hicbir seyi bozmuyor, sadece secret eklendigi an devreye giriyor.
+# Trigger Render through its deploy hook on pushes to main or manual dispatch.
+# Set RENDER_DEPLOY_HOOK in GitHub Actions repository secrets using the URL
+# from Render > Service > Settings > Deploy Hook. Without the secret, this
+# workflow skips deployment. Keep the hook URL out of logs.
 name: Deploy to Render
 
 on:
@@ -24,8 +9,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Ust uste push'larda yalnizca sonuncusu deploy edilsin; sirada bekleyen eski
-# bir deploy'un yenisinin ustune yazmasinin anlami yok.
+# Cancel superseded deployment jobs when a newer push arrives.
 concurrency:
   group: render-deploy
   cancel-in-progress: true
@@ -39,23 +23,22 @@ jobs:
           HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           if [ -z "$HOOK" ]; then
-            echo "RENDER_DEPLOY_HOOK secret'i yok — deploy atlandi."
-            echo "Kurulum icin bu dosyanin basindaki nota bak."
+            echo "RENDER_DEPLOY_HOOK is missing; deployment skipped."
+            echo "See the setup instructions at the top of this workflow."
             exit 0
           fi
-          # Hook URL'si gizli: yalnizca HTTP kodunu basiyoruz, govdesini degil.
+          # Log only the response status; the deploy hook URL is a secret.
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$HOOK")
           echo "Render deploy hook -> HTTP $code"
-          # 2xx disinda basarisiz say: sessizce gecerse yine "deploy oldu mu"
-          # tahminine geri doneriz, ki bu dosyanin var olma sebebi tam da o.
+          # Treat non-2xx responses as failures.
           case "$code" in
-            2*) echo "Deploy tetiklendi." ;;
-            *)  echo "Deploy TETIKLENEMEDI (HTTP $code)."; exit 1 ;;
+            2*) echo "Deployment triggered." ;;
+            *)  echo "Deployment could not be triggered (HTTP $code)."; exit 1 ;;
           esac
 
-      - name: Nasil dogrulanir
+      - name: Verify the deployed version
         if: success()
         run: |
-          echo "Canlida hangi surumun kostugu:"
+          echo "Check the version running in production:"
           echo "  curl -s https://spotify-streams-dashboard.onrender.com/healthz"
-          echo "Donen commit alanini bu push'un SHA'si ile karsilastir: ${GITHUB_SHA:0:7}"
+          echo "Compare the returned commit field with this push SHA: ${GITHUB_SHA:0:7}"

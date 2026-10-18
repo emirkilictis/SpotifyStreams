@@ -1,3 +1,4 @@
+const { databaseConfig } = require('../lib/database');
 /**
  * check-stats-sql.js — /api/stats'ın headline sorgusunu GERÇEK veritabanına
  * karşı çalıştırır ve eski/yeni daily'yi yan yana basar. Hiçbir şey yazmaz.
@@ -42,8 +43,7 @@ const BUCKET = `(
 async function main() {
   if (!process.env.DATABASE_URL) { console.error('DATABASE_URL yok.'); process.exit(1); }
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ...databaseConfig(),
   });
   const filter = `s.canonical_id IS NULL AND ${BUCKET}
       AND s.id NOT IN (SELECT song_id FROM hidden_songs)`;
