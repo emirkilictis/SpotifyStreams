@@ -175,7 +175,7 @@ function isCoverOrTribute(title) {
   return false;
 }
 
-async function processAlbum(page, client, album, artistUri, stats, backdateFirst = false) {
+async function processAlbum(page, client, album, artistUri, stats, backdateFirst = false, pinnedTrackIds = new Set()) {
   const tracks = await fetchAlbumTracks(page, album.id);
   let kept = 0;
   // Collect rows and flush in two batched writes at the end of the album instead
@@ -214,7 +214,7 @@ async function processAlbum(page, client, album, artistUri, stats, backdateFirst
 
     // Unconditionally skip any tracks where target artist is not one of the artists,
     // UNLESS the track title contains the target artist's name (which handles missing metadata for remixes)
-    if (!track.artistUris?.includes(artistUri) && !matchesSearchName) continue;
+    if (!track.artistUris?.includes(artistUri) && !matchesSearchName && !pinnedTrackIds.has(track.id)) continue;
     if (isCoverOrTribute(track.title)) {
       console.log(`           [skip cover] "${track.title}"`);
       continue;
@@ -625,6 +625,12 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
     console.warn(`[scraper] extra_scrape_albums lookup skipped: ${err.message}`);
   }
 
+  // Only explicitly approved track pins bypass the usual credit requirement.
+  const pinRows = await client.query(`SELECT s.id,s.album_id FROM songs s
+    JOIN extra_artist_songs e ON e.song_id = COALESCE(s.canonical_id,s.id)
+    WHERE e.artist_id=$1`, [artistId]);
+  const pinnedTrackIds = new Set(pinRows.rows.map(r => r.id));
+  const pinnedAlbumIds = new Set(pinRows.rows.map(r => r.album_id));
   let albumsToScrape = Array.from(albumMap.values());
 
   // Album-only artists track ONLY their own discography — drop every featured/
@@ -634,7 +640,7 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
   // they just stop being re-scraped. Makes the cold-skip block below a no-op.
   if (albumOnly) {
     const before = albumsToScrape.length;
-    albumsToScrape = albumsToScrape.filter(a => !a.is_featured);
+    albumsToScrape = albumsToScrape.filter(a => !a.is_featured || pinnedAlbumIds.has(a.id));
     if (before !== albumsToScrape.length) {
       console.log(`[scraper] album-only ${artistId}: own discography only, skipped ${before - albumsToScrape.length} featured album(s).`);
     }
@@ -676,7 +682,7 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
       let skipped = 0;
       const ms = (v) => { const t = v ? new Date(v).getTime() : NaN; return Number.isFinite(t) ? t : NaN; };
       albumsToScrape = albumsToScrape.filter(a => {
-        if (!a.is_featured) return true;                       // own catalogue → always
+        if (!a.is_featured || pinnedAlbumIds.has(a.id)) return true; // own / explicit imports → always
         const rel = ms(a.release_date);
         if (Number.isFinite(rel) && rel >= recentCutoff) return true; // recent → always
         const info = lastMap.get(a.id);
@@ -701,7 +707,7 @@ async function scrapeArtist(page, client, artistId, stats, allTrackedArtistIds =
     const tag = isFeatured ? 'feat' : 'own ';
     console.log(`[${tag} ${i+1}/${albumsToScrape.length}] "${a.title}"`);
     try {
-      const n = await processAlbum(page, client, { ...a, is_featured: isFeatured }, artistUri, stats, artistIsNew);
+      const n = await processAlbum(page, client, { ...a, is_featured: isFeatured }, artistUri, stats, artistIsNew, pinnedTrackIds);
       console.log(`           ${n} track`);
     } catch (err) { failedAlbums++; console.warn('  Hata:', err.message); }
     await sleep(DELAY_MS);

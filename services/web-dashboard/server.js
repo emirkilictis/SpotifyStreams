@@ -4550,6 +4550,29 @@ const GH_DISPATCH_TOKEN =
   process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_DISPATCH_TOKEN ||
   process.env.GH_TOKEN || process.env.GITHUB_TOKEN || null;
 
+const { playlistImportRoutes } = require('./lib/playlist-import-routes');
+app.use('/api/admin/playlist-imports', playlistImportRoutes({
+  pool, requireAdmin,
+  dispatch: async (id) => {
+    if (!GH_DISPATCH_TOKEN) throw new Error('Playlist reading is not configured. Set GH_DISPATCH_TOKEN on the server.');
+    const response = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/playlist-import.yml/dispatches`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${GH_DISPATCH_TOKEN}`, Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'spotify-streams-dashboard', 'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ref: GH_REF, inputs: { import_id: id } }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (response.status !== 204) throw new Error(`Could not queue the playlist preview (HTTP ${response.status}). Check the workflow and Actions token.`);
+  },
+  refresh: async () => {
+    await refreshExtraArtistSongsCache();
+    artistAggregateSourceCache.clear();
+    invalidateResponseCache();
+  },
+}));
+
 // Admin: trigger a scrape by dispatching the GitHub Actions workflow
 // (optionally scoped to a single artist).
 app.post('/api/admin/scrape', requireAdmin, async (req, res) => {

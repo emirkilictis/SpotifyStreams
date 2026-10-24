@@ -133,6 +133,14 @@ Open [localhost:3000](http://localhost:3000). The main dashboard is public. The 
 
 Administrator API requests use the `X-Admin-Passcode` header. Credentials are not accepted in query strings. The main administrator has access to privileged maintenance operations; the secondary administrator has additional restrictions, including changes to Justin Timberlake's data.
 
+### Add missing songs from a playlist
+
+In **Admin → Artists → Add songs from a playlist**, choose the artist and paste a public Spotify playlist (up to 50 songs). **Preview songs** queues a browser read through the `playlist-import.yml` GitHub Actions workflow. Reopen an in-progress preview from recent imports after leaving the page.
+
+The preview distinguishes new songs, existing recordings to link, already included songs, hidden songs, and unrelated songs. Artist credits are selected automatically; an explicit feature credit found only in the song title requires manual selection. **Add selected songs** imports only those selections, with Spotify's observed counts and album pins for future collection. Region-restricted songs without a count stay unknown; no zero or historical daily gain is invented. Existing canonical recordings and history are preserved, and retries do not add them twice.
+
+Apply migration `033_playlist_imports.sql` and configure the same `GH_DISPATCH_TOKEN` used for artist sync. The workflow uses the repository's existing `DATABASE_URL`, `SP_DC`, and optional `DB_SSL_CA` secrets. The web service does not need Chrome or Spotify cookies. Preview results expire after 24 hours; failed or timed-out reads can be retried with a new preview.
+
 ## Optional integrations
 
 ### Browser push notifications
