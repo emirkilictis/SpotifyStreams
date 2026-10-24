@@ -1,0 +1,35 @@
+name: Preview playlist import
+on:
+  workflow_dispatch:
+    inputs:
+      import_id:
+        description: 'Import ID created by the admin panel'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: spotify-playlist-import
+  cancel-in-progress: false
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: services/spotify-scraper/package-lock.json
+      - name: Install dependencies
+        working-directory: services/spotify-scraper
+        run: npm ci
+      - name: Read playlist for review
+        working-directory: services/spotify-scraper
+        env:
+          IMPORT_ID: ${{ inputs.import_id }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DB_SSL_CA: ${{ secrets.DB_SSL_CA }}
+          SP_DC: ${{ secrets.SP_DC }}
+        run: node preview-playlist-import.js "$IMPORT_ID"

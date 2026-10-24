@@ -440,6 +440,26 @@
       background: rgba(248,113,113,0.05); padding: 14px 16px;
     }
 
+    .playlist-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 20px; }
+    .playlist-form { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) auto; gap: 12px; align-items: end; }
+    .playlist-form label { display: grid; gap: 7px; font-size: 0.8rem; color: var(--muted); }
+    .playlist-form .search { width: 100%; min-width: 0; }
+    .playlist-track { display: flex; align-items: start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .playlist-track input { margin-top: 5px; accent-color: var(--green); width: 18px; height: 18px; flex-shrink: 0; }
+    .playlist-track span { min-width: 0; overflow-wrap: anywhere; }
+    .playlist-track small { display: block; color: var(--muted); margin-top: 5px; line-height: 1.5; }
+    .playlist-track a { color: var(--text); }
+    .playlist-track:has(input:disabled) { opacity: 0.6; }
+    .playlist-warning { color: var(--amber); }
+    .playlist-recent { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    #playlist-message { margin: 12px 0 0; line-height: 1.6; }
+    @media (max-width: 760px) {
+      .playlist-form { grid-template-columns: 1fr; }
+      #artists-list .artist-row { flex-wrap: wrap; }
+      #artists-list .ar-actions { width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+      .playlist-recent .act { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+    }
+
     /* ---- Mobile (≤560px) ---- */
     @media (max-width: 560px) {
       .wrap { padding: 16px 12px 64px; }
@@ -631,6 +651,22 @@
 
     <!-- Artists view -->
     <div id="artists-view" class="hidden">
+      <section class="playlist-card" aria-labelledby="playlist-heading">
+        <h3 class="songs-h" id="playlist-heading">Add songs from a playlist</h3>
+        <p class="songs-hint">Choose the artist and paste a public Spotify playlist with up to 50 songs. Review the songs before adding them to the profile.</p>
+        <form id="playlist-form" class="playlist-form">
+          <label>Artist<select id="playlist-artist" class="search" required><option value="">Choose an artist…</option></select></label>
+          <label>Spotify playlist<input id="playlist-url" class="search" type="text" placeholder="https://open.spotify.com/playlist/…" required maxlength="2048" autocomplete="off"></label>
+          <button id="playlist-preview" type="submit" class="tool-btn">Preview songs</button>
+        </form>
+        <p id="playlist-message" role="status" aria-live="polite"></p>
+        <div id="playlist-results"></div>
+        <div id="playlist-apply-bar" class="toolbar hidden" style="margin-top:14px;margin-bottom:0">
+          <button id="playlist-apply" type="button" class="act ok" disabled>Add selected songs</button>
+          <span id="playlist-selection-count" class="songs-hint" style="margin:0"></span>
+        </div>
+        <div id="playlist-recent" class="playlist-recent" aria-label="Recent playlist imports"></div>
+      </section>
       <div class="toolbar">
         <button id="artist-add-btn" class="tool-btn">+ Add artist</button>
         <button id="artists-refresh" class="tool-btn" title="Reload">⟳ Refresh</button>
@@ -927,6 +963,7 @@
       loadExtraArtistSongs();
     }
     function lock(msg) {
+      stopPlaylistPolling();
       passcode = '';
       adminRole = '';
       sessionStorage.removeItem('admin_pass');
@@ -1921,6 +1958,154 @@
     });
 
 
+    let playlistJob = null;
+    let playlistPollTimer = null;
+    let playlistGeneration = 0;
+    let playlistBusy = false;
+    const playlistArtist = document.getElementById('playlist-artist');
+    const playlistMessage = document.getElementById('playlist-message');
+    const playlistResults = document.getElementById('playlist-results');
+    const playlistApply = document.getElementById('playlist-apply');
+    const playlistPreview = document.getElementById('playlist-preview');
+
+    function stopPlaylistPolling() {
+      clearTimeout(playlistPollTimer);
+      playlistGeneration++;
+    }
+    function populatePlaylistArtists() {
+      const previous = playlistArtist.value;
+      playlistArtist.innerHTML = '<option value="">Choose an artist…</option>' + artists
+        .filter(a => adminRole !== 'secadmin' || a.artist_id !== '31TPClRtHm23RisEBtV3X7')
+        .map(a => `<option value="${esc(a.artist_id)}">${esc(a.name)}</option>`).join('');
+      playlistArtist.value = previous;
+    }
+    async function loadPlaylistImports() {
+      const el = document.getElementById('playlist-recent');
+      try {
+        const response = await api('/api/admin/playlist-imports');
+        if (!response.ok) return;
+        const jobs = await response.json();
+        el.innerHTML = jobs.map(j => `<button type="button" class="act" data-import-id="${esc(j.id)}">${esc(artistName('spotify:artist:' + j.artist_id))} · ${esc(j.status)} · ${esc(fmtDate(j.created_at))}</button>`).join('');
+      } catch { /* the active import has its own connection error */ }
+    }
+    const playlistStates = {
+      new: 'Missing from this profile', link: 'Already tracked — add to this profile',
+      included: 'Already on this profile', hidden: 'Hidden by an administrator — skipped',
+      restricted: 'Restricted for this account', unrelated: 'This artist is not credited — skipped',
+      unresolved: 'Spotify details could not be read — skipped',
+    };
+    function playlistSelectionChanged() {
+      const count = playlistResults.querySelectorAll('input[data-import-song]:checked').length;
+      playlistApply.disabled = playlistBusy || count === 0;
+      document.getElementById('playlist-selection-count').textContent = `${count} selected`;
+    }
+    function renderPlaylistJob(job) {
+      playlistJob = job;
+      playlistResults.innerHTML = '';
+      document.getElementById('playlist-apply-bar').classList.add('hidden');
+      playlistPreview.disabled = playlistBusy || ['queued', 'reading'].includes(job.status);
+      if (job.status === 'failed') {
+        playlistMessage.textContent = job.error || 'The playlist could not be read. Try again.';
+      } else if (job.status === 'applied') {
+        const r = job.result || {};
+        playlistMessage.textContent = `Added to ${job.artist_name || 'the profile'}: ${r.added || 0} new songs, ${r.linked || 0} existing songs linked. ${r.already_included || 0} were already included.`
+          + (r.unavailable ? ` Spotify did not provide counts for ${r.unavailable} song(s); their totals remain unavailable.` : '');
+      } else if (job.status === 'ready') {
+        playlistMessage.textContent = `Review ${job.tracks.length} songs for ${job.artist_name}. Title-only credits need you to select them after checking the song. Nothing is added until you click “Add selected songs”.`;
+        playlistResults.innerHTML = job.tracks.map(t => `<label class="playlist-track">
+          <input type="checkbox" data-import-song="${esc(t.id)}" ${t.selectable ? (t.credit === 'artist' ? 'checked' : '') : 'disabled'}>
+          <span><a href="https://open.spotify.com/track/${esc(t.id)}" target="_blank" rel="noopener noreferrer">${esc(t.name || t.id)}</a>
+            <small>${esc(t.albumName || '')} · ${esc(playlistStates[t.state] || t.state)}</small>
+            ${t.credit === 'title' && t.selectable ? '<small class="playlist-warning">Artist named in the title only — check before selecting.</small>' : ''}
+            ${t.selectable ? `<small>${t.playcount == null ? 'Spotify count unavailable (may be region-restricted)' : Number(t.playcount).toLocaleString() + ' streams'}</small>` : ''}
+          </span></label>`).join('');
+        document.getElementById('playlist-apply-bar').classList.remove('hidden');
+        playlistSelectionChanged();
+      } else {
+        playlistMessage.textContent = job.status === 'reading' ? 'Reading the playlist and checking song credits… This can take a few minutes. You can reopen it from recent imports.' : 'Playlist preview queued… You can reopen it from recent imports.';
+      }
+    }
+    async function openPlaylistImport(id) {
+      if (playlistBusy) return;
+      stopPlaylistPolling();
+      const generation = playlistGeneration;
+      const poll = async () => {
+        try {
+          const response = await api('/api/admin/playlist-imports/' + encodeURIComponent(id));
+          const job = await response.json();
+          if (generation !== playlistGeneration || !passcode) return;
+          if (!response.ok) throw new Error(job.error || 'Could not load the preview.');
+          renderPlaylistJob(job);
+          if (['queued', 'reading'].includes(job.status)) playlistPollTimer = setTimeout(poll, 5000);
+          else loadPlaylistImports();
+        } catch (err) {
+          if (generation !== playlistGeneration) return;
+          playlistMessage.textContent = err.message + ' Reopen the import below to retry.';
+          playlistPreview.disabled = false;
+          loadPlaylistImports();
+        }
+      };
+      await poll();
+    }
+    document.getElementById('playlist-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      if (playlistBusy) return;
+      playlistBusy = true;
+      stopPlaylistPolling();
+      playlistJob = null;
+      playlistPreview.disabled = true;
+      playlistResults.innerHTML = '';
+      document.getElementById('playlist-apply-bar').classList.add('hidden');
+      playlistMessage.textContent = 'Starting playlist preview…';
+      try {
+        const response = await api('/api/admin/playlist-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ artist_id: playlistArtist.value, playlist_url: document.getElementById('playlist-url').value.trim() }) });
+        const job = await response.json();
+        if (!response.ok) throw new Error(job.error || 'Could not start the preview.');
+        playlistBusy = false;
+        await openPlaylistImport(job.id);
+        loadPlaylistImports();
+      } catch (err) {
+        playlistMessage.textContent = err.message;
+        playlistPreview.disabled = false;
+        loadPlaylistImports();
+      } finally { playlistBusy = false; }
+    });
+    playlistResults.addEventListener('change', playlistSelectionChanged);
+    document.getElementById('playlist-recent').addEventListener('click', e => {
+      const button = e.target.closest('[data-import-id]');
+      if (button) openPlaylistImport(button.dataset.importId);
+    });
+    playlistApply.addEventListener('click', async () => {
+      if (!playlistJob || playlistJob.status !== 'ready' || playlistBusy) return;
+      const job = playlistJob;
+      const songIds = [...playlistResults.querySelectorAll('input[data-import-song]:checked')].map(el => el.dataset.importSong);
+      if (!songIds.length) return;
+      playlistBusy = true;
+      playlistApply.disabled = true;
+      playlistPreview.disabled = true;
+      playlistMessage.textContent = 'Adding selected songs…';
+      try {
+        const response = await api('/api/admin/playlist-imports/' + encodeURIComponent(job.id) + '/apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song_ids: songIds }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not add the songs.');
+        playlistBusy = false;
+        renderPlaylistJob({ ...job, status: 'applied', result: result.result });
+        await loadExtraArtistSongs();
+        loadPlaylistImports();
+      } catch (err) { playlistMessage.textContent = err.message; }
+      finally { playlistBusy = false; playlistPreview.disabled = false; playlistSelectionChanged(); }
+    });
+    artistsListEl.addEventListener('click', e => {
+      const button = e.target.closest('[data-playlist]');
+      if (!button || playlistBusy) return;
+      playlistArtist.value = button.dataset.playlist;
+      document.getElementById('playlist-heading').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('playlist-url').focus({ preventScroll: true });
+    });
+
     async function loadArtists() {
       artistsListEl.innerHTML = '<div class="loading">Loading…</div>';
       try {
@@ -1929,6 +2114,8 @@
         if (!res.ok) throw new Error();
         artists = await res.json();
         artistsLoaded = true;
+        populatePlaylistArtists();
+        loadPlaylistImports();
         renderArtists();
       } catch {
         artistsListEl.innerHTML = '<div class="empty">Could not load artists. Is migration 013 applied?</div>';
@@ -1973,6 +2160,7 @@
               <div class="ar-id">${esc(a.artist_id)}</div>
             </div>
             <div class="ar-actions">
+              <button class="act" ${dis} data-playlist="${esc(a.artist_id)}">+ Playlist</button>
               <button class="act ok" ${dis} data-scrape="${esc(a.artist_id)}">Sync</button>
               <button class="act" ${dis} data-edit="${esc(a.artist_id)}">Edit</button>
               <button class="act" ${dis} data-toggle="${esc(a.artist_id)}">${a.active ? 'Hide' : 'Show'}</button>

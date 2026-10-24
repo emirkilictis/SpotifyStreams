@@ -8,7 +8,7 @@
     "dev": "node --watch server.js",
     "test:unit": "node --test test/unit.test.js test/partial-debut.test.js",
     "test:api": "node --test test/api.test.js",
-    "test": "node --test test/agg-sql.test.js test/ai-raw-streams.test.js test/dedup.test.js test/dups.test.js test/partial-debut.test.js test/quick-merge.test.js test/unit.test.js test/security*.test.js",
+    "test": "node --test test/agg-sql.test.js test/ai-raw-streams.test.js test/dedup.test.js test/dups.test.js test/partial-debut.test.js test/playlist-import.test.js test/quick-merge.test.js test/unit.test.js test/security*.test.js",
     "test:security": "node --test test/security*.test.js"
   },
   "dependencies": {

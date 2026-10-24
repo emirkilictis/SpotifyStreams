@@ -28,10 +28,7 @@
 const { launchBrowser } = require('./spotify');
 require('dotenv').config({ path: __dirname + '/../../.env' });
 
-const playlistId = (s) => {
-  const m = String(s).match(/playlist[/:]([A-Za-z0-9]{22})/) || String(s).match(/^([A-Za-z0-9]{22})$/);
-  return m ? m[1] : null;
-};
+const { playlistId } = require('../web-dashboard/lib/playlist-import');
 
 // Gelen JSON'un icinde nerede olursa olsun track dugumlerini topla.
 function tracklariTopla(node, out, derinlik = 0) {
@@ -50,18 +47,15 @@ function tracklariTopla(node, out, derinlik = 0) {
   for (const k of Object.keys(node)) tracklariTopla(node[k], out, derinlik + 1);
 }
 
-async function main() {
-  const sadeceId = process.argv.includes('--ids');
-  const hedef = process.argv.slice(2).find(a => !a.startsWith('--'));
-  const pid = playlistId(hedef || '');
-  if (!pid) {
-    console.error('Kullanım: node read-playlist.js [--ids] <playlistUrl|playlistId>');
-    process.exit(1);
-  }
-
+async function readPlaylist(page, pid, { maxTracks = 10000 } = {}) {
+  pid = playlistId(pid);
+  if (!pid) throw new Error('Invalid Spotify playlist.');
   const bulunan = new Map();
+  const entries = new Set();
   let beklenen = null;   // playlist'in beyan ettigi track sayisi
-  const { browser, page } = await launchBrowser(process.env.SP_DC);
+  let pending = new Set();
+  let limitExceeded = false;
+  let handler;
   try {
     // playlistV2 dugumunu bul, SADECE onun content'ini tara.
     const playlistContent = (node, derinlik = 0) => {
@@ -80,7 +74,8 @@ async function main() {
       return null;
     };
 
-    page.on('response', async (res) => {
+    handler = (res) => {
+      const task = (async () => {
       try {
         if (!res.url().includes('pathfinder')) return;
         const body = await res.json().catch(() => null);
@@ -88,9 +83,17 @@ async function main() {
         const content = playlistContent(body);
         if (!content) return;
         if (content.totalCount != null) beklenen = Number(content.totalCount);
+        // uid identifies playlist entries, so repeated tracks do not make a
+        // fully read playlist look incomplete. Output still deduplicates ids.
+        for (const item of content.items || []) if (typeof item.uid === 'string') entries.add(item.uid);
         tracklariTopla(content, bulunan);
+        if (beklenen > maxTracks || bulunan.size > maxTracks) limitExceeded = true;
       } catch {}
-    });
+      })();
+      pending.add(task);
+      task.finally(() => pending.delete(task));
+    };
+    page.on('response', handler);
 
     await page.goto(`https://open.spotify.com/playlist/${pid}`, { waitUntil: 'networkidle2', timeout: 60000 });
     await new Promise(r => setTimeout(r, 3000));
@@ -116,33 +119,46 @@ async function main() {
 
     let durgun = 0;
     for (let tur = 0; tur < 120 && durgun < 4; tur++) {
-      if (beklenen != null && bulunan.size >= beklenen) break;
+      if (limitExceeded) break;
+      if (beklenen != null && Math.max(bulunan.size, entries.size) >= beklenen) break;
       const once = bulunan.size;
       await kaydir();
       await new Promise(r => setTimeout(r, 1100));
       durgun = bulunan.size === once ? durgun + 1 : 0;
     }
 
-    if (!bulunan.size) {
-      console.error('[playlist] Hiç track okunamadı — playlist gizli olabilir ya da SP_DC süresi dolmuş olabilir.');
-      process.exitCode = 1;
-      return;
-    }
+    await Promise.all([...pending]);
+    if (limitExceeded) throw new Error(`Use a playlist with at most ${maxTracks} songs.`);
+    if (!bulunan.size) throw new Error('No songs could be read. The playlist may be empty or private, or the Spotify session may have expired.');
     // Eksik okuma sessizce gecmemeli: yarim liste, "playlist'te bu kadar var"
     // gibi gorunup gercekten eksik sarkilarin gozden kacmasina yol acar.
-    if (beklenen != null && bulunan.size < beklenen) {
-      console.error(`[playlist] UYARI: playlist ${beklenen} track diyor, ${bulunan.size} okunabildi — liste EKSIK.`);
-      process.exitCode = 1;
+    if (!Number.isInteger(beklenen) || beklenen < 1 || Math.max(bulunan.size, entries.size) < beklenen) {
+      throw new Error(`Playlist could not be read completely (${Math.max(bulunan.size, entries.size)}/${beklenen ?? '?'}). No songs were imported.`);
     }
+    return { tracks: [...bulunan].map(([id, name]) => ({ id, name })), total: beklenen };
+  } finally {
+    if (handler) page.off('response', handler);
+  }
+}
+
+async function main() {
+  const sadeceId = process.argv.includes('--ids');
+  const hedef = process.argv.slice(2).find(a => !a.startsWith('--'));
+  const pid = playlistId(hedef || '');
+  if (!pid) throw new Error('Kullanım: node read-playlist.js [--ids] <playlistUrl|playlistId>');
+  const { browser, page } = await launchBrowser(process.env.SP_DC);
+  try {
+    const { tracks, total } = await readPlaylist(page, pid);
     if (sadeceId) {
-      console.log([...bulunan.keys()].join(' '));
+      console.log(tracks.map(t => t.id).join(' '));
     } else {
-      console.error(`[playlist] ${pid}: ${bulunan.size}${beklenen != null ? '/' + beklenen : ''} track`);
-      for (const [id, ad] of bulunan) console.log(`${id}  ${ad}`);
+      console.error(`[playlist] ${pid}: ${tracks.length}/${total} track`);
+      for (const { id, name } of tracks) console.log(`${id}  ${name}`);
     }
   } finally {
     await browser.close();
   }
 }
 
-main().catch(e => { console.error('[playlist] HATA:', e.message); process.exit(1); });
+if (require.main === module) main().catch(e => { console.error('[playlist] HATA:', e.message); process.exitCode = 1; });
+module.exports = { readPlaylist, tracklariTopla };

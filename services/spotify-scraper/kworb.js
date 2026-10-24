@@ -215,6 +215,7 @@ async function resolveTracks(page, trackIds, { onProgress } = {}) {
         ...(tr.artists?.items || []),
       ].map((a) => a?.uri).filter(Boolean);
       out.set(trackId, {
+        id: trackId,
         albumId: ao.uri.split(':')[2],
         albumName: ao.name,
         release: ao.date?.isoString?.slice(0, 10) || null,
@@ -222,6 +223,9 @@ async function resolveTracks(page, trackIds, { onProgress } = {}) {
         artistUris: [...new Set(artistUris)],
         playcount: Number(tr.playcount) || null,
         name: tr.name || null,
+        duration_ms: tr.duration?.totalMilliseconds || null,
+        track_number: tr.trackNumber || null,
+        unavailable: tr.playability?.playable === false,
       });
     }
     if (onProgress) onProgress(i + 1, trackIds.length, trackId, out.get(trackId) || null);
