@@ -1534,6 +1534,10 @@ function renderAlbums() {
 
   // 2) Sort based on albumSortField
   filteredAlbums.sort((a, b) => {
+    if (a.sort_order != null || b.sort_order != null) {
+      const order = (a.sort_order ?? 10000) - (b.sort_order ?? 10000);
+      if (order) return order;
+    }
     switch (albumSortField) {
       case 'streams-desc':
         return Number(b.total_streams || 0) - Number(a.total_streams || 0);
@@ -1579,7 +1583,7 @@ function renderAlbums() {
         </div>
         <div class="album-row-info">
           <h3 class="album-row-title">${escHtml(album.album_title)}</h3>
-          <span class="album-row-sub">${formatDate(album.release_date)} · ${album.track_count} songs</span>
+          <span class="album-row-sub">${album.release_type && album.release_type !== 'auto' ? escHtml(album.release_type === 'ep' ? 'EP' : album.release_type === 'album' ? 'Album' : 'Single') + ' · ' : ''}${formatDate(album.release_date)} · ${album.track_count} songs</span>
         </div>
         <div class="album-row-stats">
           <div class="album-row-stat">

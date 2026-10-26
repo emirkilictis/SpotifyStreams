@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>Admin — Requests &amp; Feedback</title>
+  <title>Admin — Spotify Streams</title>
   <style>
     :root {
       --bg: #0a0e16;
@@ -493,6 +493,37 @@
       .health-row, .artist-row { padding: 10px 12px; gap: 10px; }
       .item-meta { margin-left: 0; text-align: left; width: 100%; }
     }
+
+    .release-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:20px; }
+    .release-heading h2 { margin:0 0 6px; font-size:22px; }
+    .release-controls { display:grid; grid-template-columns:1fr 1.2fr .8fr; gap:12px; margin-bottom:18px; }
+    .release-controls label, .release-settings label { display:flex; flex-direction:column; gap:7px; font-size:12px; color:var(--muted); }
+    .release-controls .search, .release-settings .search { width:100%; min-width:0; }
+    .release-diagnose { border:1px solid var(--border); border-radius:12px; padding:16px; background:var(--card); }
+    .release-diagnose label { display:block; font-size:14px; font-weight:600; margin-bottom:10px; }
+    .release-diagnose .toolbar { margin:0; }
+    .release-workspace { display:grid; grid-template-columns:minmax(240px,.85fr) minmax(0,1.3fr); gap:20px; align-items:start; }
+    .release-row { width:100%; display:flex; gap:12px; align-items:center; padding:12px; text-align:left; background:var(--card); border:1px solid var(--border); border-radius:10px; color:var(--text); cursor:pointer; margin-bottom:8px; }
+    .release-row:hover, .release-row[aria-pressed="true"] { border-color:var(--green); background:rgba(30,215,96,.06); }
+    .release-row img { width:46px; height:46px; object-fit:cover; border-radius:5px; flex:none; }
+    .release-row span { min-width:0; }
+    .release-row b { display:block; font-size:14px; overflow-wrap:anywhere; }
+    .release-row small { display:block; margin-top:5px; font-size:11px; color:var(--muted); }
+    .release-state { display:inline-block; font-size:11px; color:var(--amber); }
+    .release-state.visible { color:var(--green); }
+    .release-panel, .release-placeholder { border:1px solid var(--border); border-radius:12px; padding:20px; background:var(--card); }
+    .release-placeholder { color:var(--muted); margin-top:36px; line-height:1.7; }
+    .release-panel h3 { margin:0 0 10px; overflow-wrap:anywhere; }
+    .release-panel p { line-height:1.6; }
+    .release-panel a { color:var(--green); }
+    .release-settings { display:grid; grid-template-columns:1fr 1fr; align-items:start; gap:12px; padding:16px 0; border-top:1px solid var(--border); margin-top:16px; }
+    .release-settings .release-save-row { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .release-save-row .act.ok { color:var(--green); border-color:rgba(30,215,96,.3); }
+    .release-track { padding:12px 0; border-top:1px solid var(--border); }
+    .release-track b { font-size:13px; display:block; margin-bottom:6px; }
+    .release-track small { display:block; color:var(--muted); font-size:11px; line-height:1.7; }
+    .release-track .act { margin-top:8px; }
+    @media(max-width:800px) { .release-workspace { grid-template-columns:1fr; } #release-detail { grid-row:1; } .release-settings { grid-template-columns:1fr; } .release-controls { grid-template-columns:1fr; } .release-placeholder { margin-top:0; } }
   </style>
 </head>
 <body>
@@ -525,6 +556,7 @@
       <button class="tab active" data-view="feedback">Requests</button>
       <button class="tab" data-view="health">Health</button>
       <button class="tab" data-view="artists">Artists</button>
+      <button class="tab" data-view="releases">Albums &amp; EPs</button>
       <button class="tab" data-view="songs">Songs</button>
       <button class="tab" data-view="status">Status</button>
       <button class="tab" data-view="god">⚡ God</button>
@@ -597,6 +629,25 @@
       </div>
     </div>
 
+    <section id="releases-view" class="hidden" aria-labelledby="releases-heading">
+      <div class="release-heading"><div><h2 id="releases-heading">Albums &amp; EPs</h2>
+        <p class="songs-hint">Manage the releases on each artist’s profile and find out why something is missing.</p></div>
+        <button type="button" id="releases-refresh" class="tool-btn">⟳ Refresh</button></div>
+      <div class="release-controls">
+        <label>Artist<select id="releases-artist" class="search"><option value="">Choose an artist…</option></select></label>
+        <label>Search releases<input id="releases-search" type="search" class="search" placeholder="Title or Spotify ID"></label>
+        <label>Visibility<select id="releases-filter" class="search"><option value="all">All releases</option><option value="visible">Visible on profile</option><option value="missing">Not shown</option></select></label>
+      </div>
+      <form id="release-diagnose-form" class="release-diagnose">
+        <label for="release-reference">Why isn’t it showing?</label>
+        <div class="toolbar"><input id="release-reference" class="search" type="text" maxlength="2048" placeholder="Paste a Spotify album or song link" required>
+          <button id="release-check" type="submit" class="tool-btn">Check visibility</button></div>
+      </form>
+      <p id="releases-message" role="status" aria-live="polite"></p>
+      <div class="release-workspace"><div><p id="releases-count" class="songs-hint"></p><div id="releases-list"><div class="empty">Choose an artist to see their releases.</div></div></div>
+        <div id="release-detail" aria-live="polite"><div class="release-placeholder">Select a release to inspect its visibility and songs.</div></div></div>
+    </section>
+
     <!-- Songs view (hide/unhide tracks) -->
     <div id="songs-view" class="hidden">
       <div class="toolbar">
@@ -652,8 +703,8 @@
     <!-- Artists view -->
     <div id="artists-view" class="hidden">
       <section class="playlist-card" aria-labelledby="playlist-heading">
-        <h3 class="songs-h" id="playlist-heading">Add songs from a playlist</h3>
-        <p class="songs-hint">Choose the artist and paste a public Spotify playlist with up to 50 songs. Review the songs before adding them to the profile.</p>
+        <h3 class="songs-h" id="playlist-heading">Import songs from Spotify</h3>
+        <p class="songs-hint">Choose an artist and preview a public playlist with up to 50 songs. To import an album, open Albums &amp; EPs and paste its Spotify link. Review songs before adding them.</p>
         <form id="playlist-form" class="playlist-form">
           <label>Artist<select id="playlist-artist" class="search" required><option value="">Choose an artist…</option></select></label>
           <label>Spotify playlist<input id="playlist-url" class="search" type="text" placeholder="https://open.spotify.com/playlist/…" required maxlength="2048" autocomplete="off"></label>
@@ -964,6 +1015,7 @@
     }
     function lock(msg) {
       stopPlaylistPolling();
+      window.releaseAdmin?.reset();
       passcode = '';
       adminRole = '';
       sessionStorage.removeItem('admin_pass');
@@ -1113,12 +1165,14 @@
       statusView.classList.toggle('hidden', v !== 'status');
       document.getElementById('health-view').classList.toggle('hidden', v !== 'health');
       document.getElementById('songs-view').classList.toggle('hidden', v !== 'songs');
+      document.getElementById('releases-view').classList.toggle('hidden', v !== 'releases');
       document.getElementById('god-view').classList.toggle('hidden', v !== 'god');
       if (v === 'artists' && !artistsLoaded) loadArtists();
       if (v === 'status') loadScraperStatus();
       if (v === 'health') loadHealth();
       if (v === 'songs') { loadHiddenSongs(); loadManualMerges(); loadExtraArtistSongs(); }
       if (v === 'god') loadGod();
+      if (v === 'releases') window.releaseAdmin.open();
     }));
 
     // ---- Songs: hide / unhide tracks ----
@@ -1985,11 +2039,11 @@
         const response = await api('/api/admin/playlist-imports');
         if (!response.ok) return;
         const jobs = await response.json();
-        el.innerHTML = jobs.map(j => `<button type="button" class="act" data-import-id="${esc(j.id)}">${esc(artistName('spotify:artist:' + j.artist_id))} · ${esc(j.status)} · ${esc(fmtDate(j.created_at))}</button>`).join('');
+        el.innerHTML = jobs.map(j => `<button type="button" class="act" data-import-id="${esc(j.id)}">${esc(artistName('spotify:artist:' + j.artist_id))} · ${esc(j.source_type === 'album' ? 'Album' : 'Playlist')} · ${esc(j.status)} · ${esc(fmtDate(j.created_at))}</button>`).join('');
       } catch { /* the active import has its own connection error */ }
     }
     const playlistStates = {
-      new: 'Missing from this profile', link: 'Already tracked — add to this profile',
+      membership: 'Already tracked — add to this release', new: 'Missing from this profile', link: 'Already tracked — add to this profile',
       included: 'Already on this profile', hidden: 'Hidden by an administrator — skipped',
       restricted: 'Restricted for this account', unrelated: 'This artist is not credited — skipped',
       unresolved: 'Spotify details could not be read — skipped',
@@ -2005,10 +2059,11 @@
       document.getElementById('playlist-apply-bar').classList.add('hidden');
       playlistPreview.disabled = playlistBusy || ['queued', 'reading'].includes(job.status);
       if (job.status === 'failed') {
-        playlistMessage.textContent = job.error || 'The playlist could not be read. Try again.';
+        playlistMessage.textContent = job.error || 'The Spotify link could not be read. Try again.';
       } else if (job.status === 'applied') {
         const r = job.result || {};
         playlistMessage.textContent = `Added to ${job.artist_name || 'the profile'}: ${r.added || 0} new songs, ${r.linked || 0} existing songs linked. ${r.already_included || 0} were already included.`
+          + (job.source_type === 'album' ? ' Album membership was added without moving existing recordings. Refresh Albums & EPs to review visibility.' : '')
           + (r.unavailable ? ` Spotify did not provide counts for ${r.unavailable} song(s); their totals remain unavailable.` : '');
       } else if (job.status === 'ready') {
         playlistMessage.textContent = `Review ${job.tracks.length} songs for ${job.artist_name}. Title-only credits need you to select them after checking the song. Nothing is added until you click “Add selected songs”.`;
@@ -2022,7 +2077,7 @@
         document.getElementById('playlist-apply-bar').classList.remove('hidden');
         playlistSelectionChanged();
       } else {
-        playlistMessage.textContent = job.status === 'reading' ? 'Reading the playlist and checking song credits… This can take a few minutes. You can reopen it from recent imports.' : 'Playlist preview queued… You can reopen it from recent imports.';
+        playlistMessage.textContent = job.status === 'reading' ? 'Reading Spotify and checking song credits… This can take a few minutes. You can reopen it from recent imports.' : 'Spotify preview queued… You can reopen it from recent imports.';
       }
     }
     async function openPlaylistImport(id) {
@@ -2808,5 +2863,6 @@ ORDER BY m.created_at DESC`],
       }
     });
   </script>
+  <script src="/admin-releases.js"></script>
 </body>
 </html>

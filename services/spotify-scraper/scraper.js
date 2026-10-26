@@ -17,6 +17,7 @@ const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAvatar 
 const { discoverAllAlbumsPuppeteer } = require('./discover');
 const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, fixLateUpdateDay, foldPartialDebuts, reconcileStreamDrops, closePool } = require('./db');
 const { dedupCanonical, quickMergeNewCopies } = require('./dedup');
+const { syncArtistCredits } = require('./artist-credits');
 
 // Auto-backfill any active artist still missing a profile photo (e.g. a freshly
 // added roster member) — no manual CDN-URL pasting needed. Called both on the
@@ -182,6 +183,7 @@ async function processAlbum(page, client, album, artistUri, stats, backdateFirst
   // of 2 awaited round-trips per track — the dominant cost against Neon's latency.
   const songRows = [];
   const streamRows = [];
+  const creditTracks = [];
   for (const track of tracks) {
     // Kara liste, JT tek sanatciyken yazildi ve IKI ayri isi birden yapiyor:
     //   1. Baskasinin sarkisini JT'nin CATCH-ALL kovasindan uzak tutmak
@@ -255,6 +257,7 @@ async function processAlbum(page, client, album, artistUri, stats, backdateFirst
     if (track.playCount > 0) {
       streamRows.push({ songId: track.id, streamCount: track.playCount });
     }
+    if (track.artistUris?.length > 1) creditTracks.push(track);
     stats.tracksProcessed++;
     kept++;
   }
@@ -264,6 +267,10 @@ async function processAlbum(page, client, album, artistUri, stats, backdateFirst
   await upsertSongsBatch(client, songRows);
   const written = await upsertStreamStatsBatch(client, streamRows, backdateFirst);
   stats.streamsUpdated += written;
+  if (creditTracks.length) {
+    const credits = await syncArtistCredits(client, album, creditTracks);
+    if (credits.linked) console.log(`[credits] ${album.title}: linked ${credits.linked} guest recording(s) to their profiles.`);
+  }
   return kept;
 }
 

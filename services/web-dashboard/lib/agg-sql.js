@@ -79,6 +79,11 @@ function debutBaselineSQL(src, idCol = 'canonical_id') {
         JOIN albums debut_a ON debut_a.id = debut_s.album_id
         WHERE debut_a.release_date IS NOT NULL
           AND debut_f.d1 - debut_a.release_date BETWEEN -1 AND ${DEBUT_WINDOW_DAYS}
+          AND NOT EXISTS (
+            SELECT 1 FROM stream_stats imported JOIN songs physical ON physical.id=imported.song_id
+            WHERE imported.baseline_only AND imported.recorded_date=debut_f.d1
+              AND COALESCE(physical.canonical_id,physical.id)=debut_f.${idCol}
+          )
           AND (
             (debut_f.d2 IS NOT NULL
              AND debut_f.c2 > debut_f.c1
@@ -219,7 +224,11 @@ function artistLatestAggCTE(songFilter) {
       -- The nested CASE guarantees the EXISTS only runs on first rows.
       agg_flag AS (
         SELECT agg_steps.*,
-               CASE WHEN rn_asc = 1 THEN
+               CASE WHEN rn_asc = 1 AND NOT EXISTS (
+                 SELECT 1 FROM stream_stats imported JOIN songs physical ON physical.id=imported.song_id
+                 WHERE imported.baseline_only AND imported.recorded_date=agg_steps.recorded_date
+                   AND COALESCE(physical.canonical_id,physical.id)=agg_steps.canonical_id
+               ) THEN
                  CASE
                    WHEN next_count IS NOT NULL THEN
                      CASE WHEN next_count > stream_count AND EXISTS (

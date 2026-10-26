@@ -1,0 +1,140 @@
+{
+  "date": "2026-10-26",
+  "playlist": "4mE4DY8BGeBb49SAyfy36V",
+  "import_id": "55c82bba-3b47-42ca-b174-98b9b545b57d",
+  "tate": {
+    "added": 7,
+    "linked": 0,
+    "already_included": 0,
+    "unavailable": 0
+  },
+  "tate_new_streams": 702000,
+  "tate_tracks": [
+    {
+      "id": "2yD5VRlZkzzzVrOyWreOAm",
+      "title": "she's all i wanna be - Live from Kentish Town Forum, London",
+      "streams": 125454
+    },
+    {
+      "id": "2a851gJjQHfEtGQD5Iaaeb",
+      "title": "stupid - Acoustic",
+      "streams": 37665
+    },
+    {
+      "id": "1uV4zMwJJoynsuFhU1k2BZ",
+      "title": "what would you do? - Live from Kentish Town Forum, London",
+      "streams": 36596
+    },
+    {
+      "id": "4TfHDbMc9DRSLhHPmjjT41",
+      "title": "you broke me first - Live at Home",
+      "streams": 33822
+    },
+    {
+      "id": "7KpjFUt7VKOGjOQ53JaqbJ",
+      "title": "slower - Live",
+      "streams": 23922
+    },
+    {
+      "id": "4bDCEfPt06crCoEvl4Okm7",
+      "title": "stupid - Live at KiSS 92.5",
+      "streams": 6486
+    },
+    {
+      "id": "61LsiYvjx6R4taEZUOyWQb",
+      "title": "Housewife - Live from The Victoria's Secret Fashion Show 2026",
+      "streams": 438055
+    }
+  ],
+  "tini": {
+    "linked": 1,
+    "pinned": 1,
+    "classifications": 0
+  },
+  "anitta": {
+    "track_id": "3exI11DomlhLOW4aGi83PP",
+    "title": "La Loto - live",
+    "streams": 147377
+  },
+  "existing_live_album_history_preserved": true,
+  "live_verification": {
+    "45dkTj5sMRSjrmBSBeiHym": {
+      "before_count": 133,
+      "after_count": 140,
+      "streams_before": 19874539999,
+      "streams_after": 19875241999,
+      "delta": 702000,
+      "added": [
+        {
+          "id": "61LsiYvjx6R4taEZUOyWQb",
+          "title": "Housewife - Live from The Victoria's Secret Fashion Show 2026",
+          "cumulative": "438055",
+          "daily_gain": "0"
+        },
+        {
+          "id": "2yD5VRlZkzzzVrOyWreOAm",
+          "title": "she's all i wanna be - Live from Kentish Town Forum, London",
+          "cumulative": "125454",
+          "daily_gain": "0"
+        },
+        {
+          "id": "2a851gJjQHfEtGQD5Iaaeb",
+          "title": "stupid - Acoustic",
+          "cumulative": "37665",
+          "daily_gain": "0"
+        },
+        {
+          "id": "1uV4zMwJJoynsuFhU1k2BZ",
+          "title": "what would you do? - Live from Kentish Town Forum, London",
+          "cumulative": "36596",
+          "daily_gain": "0"
+        },
+        {
+          "id": "4TfHDbMc9DRSLhHPmjjT41",
+          "title": "you broke me first - Live at Home",
+          "cumulative": "33822",
+          "daily_gain": "0"
+        },
+        {
+          "id": "7KpjFUt7VKOGjOQ53JaqbJ",
+          "title": "slower - Live",
+          "cumulative": "23922",
+          "daily_gain": "0"
+        },
+        {
+          "id": "4bDCEfPt06crCoEvl4Okm7",
+          "title": "stupid - Live at KiSS 92.5",
+          "cumulative": "6486",
+          "daily_gain": "0"
+        }
+      ],
+      "headline_total": "19875241999"
+    },
+    "7FNnA9vBm6EKceENgCGRMb": {
+      "before_count": 433,
+      "after_count": 434,
+      "streams_before": 16526821542,
+      "streams_after": 16526968919,
+      "delta": 147377,
+      "added": [
+        {
+          "id": "3exI11DomlhLOW4aGi83PP",
+          "title": "La Loto - live",
+          "cumulative": "147377",
+          "daily_gain": "50684"
+        }
+      ],
+      "headline_total": "16526968919"
+    },
+    "7vXDAI8JwjW531ouMGbfcp": {
+      "before_count": 166,
+      "after_count": 166,
+      "streams_before": 8771426911,
+      "streams_after": 8771426911,
+      "delta": 0,
+      "added": [],
+      "headline_total": "8771426911"
+    }
+  },
+  "import_first_observations_are_baselines": true
+}

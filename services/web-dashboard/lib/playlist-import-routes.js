@@ -2,6 +2,7 @@
 const express = require('express');
 const { randomUUID } = require('node:crypto');
 const { playlistId, inspectTracks, applyTracks, JT, ID, MAX_TRACKS } = require('./playlist-import');
+const { spotifyReference } = require('./spotify-reference');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function playlistImportRoutes({ pool, requireAdmin, dispatch, refresh }) {
@@ -9,14 +10,14 @@ function playlistImportRoutes({ pool, requireAdmin, dispatch, refresh }) {
   router.use(requireAdmin);
   const allowed = (job, role) => !(role === 'secadmin' && (job.artist_id === JT || job.requested_role === 'admin'));
   const errorResponse = (res, err) => {
-    if (err.code === '42P01') return res.status(503).json({ error: 'Playlist import setup is incomplete. Apply migration 033 first.' });
+    if (['42P01','42703'].includes(err.code)) return res.status(503).json({ error: 'Playlist import setup is incomplete. Apply migrations 033 and 034 first.' });
     console.error('[playlist-import]', err.message);
     return res.status(err.status || 500).json({ error: err.status ? err.message : 'Playlist import failed. Please try again.' });
   };
 
   router.get('/', async (req, res) => {
     try {
-      const r = await pool.query(`SELECT id,artist_id,playlist_id,status,error,result,created_at,updated_at
+      const r = await pool.query(`SELECT id,artist_id,playlist_id,source_type,status,error,result,created_at,updated_at
         FROM playlist_imports WHERE ($1='admin' OR (requested_role='secadmin' AND artist_id<>$2))
         ORDER BY created_at DESC LIMIT 12`, [req.adminRole, JT]);
       res.json(r.rows);
@@ -25,8 +26,10 @@ function playlistImportRoutes({ pool, requireAdmin, dispatch, refresh }) {
 
   router.post('/', async (req, res) => {
     const artistId = req.body?.artist_id;
-    const pid = playlistId(req.body?.playlist_url);
-    if (typeof artistId !== 'string' || !ID.test(artistId) || !pid) return res.status(400).json({ error: 'Choose an artist and enter a Spotify playlist link.' });
+    const album = req.body?.album_url === undefined ? null : spotifyReference(req.body.album_url);
+    const sourceType = req.body?.album_url === undefined ? 'playlist' : 'album';
+    const pid = sourceType === 'album' ? (album?.kind === 'album' ? album.id : null) : playlistId(req.body?.playlist_url);
+    if (typeof artistId !== 'string' || !ID.test(artistId) || !pid) return res.status(400).json({ error: 'Choose an artist and enter a Spotify playlist or album link.' });
     if (req.adminRole === 'secadmin' && artistId === JT) return res.status(403).json({ error: 'This artist is restricted.' });
     let client, id;
     try {
@@ -39,11 +42,11 @@ function playlistImportRoutes({ pool, requireAdmin, dispatch, refresh }) {
       if (!artist.rows.length) throw Object.assign(new Error('Artist not found.'), { status: 404 });
       const active = await client.query(`SELECT id FROM playlist_imports WHERE status IN ('queued','reading')
         AND updated_at > NOW() - INTERVAL '40 minutes' LIMIT 1`);
-      if (active.rows.length) throw Object.assign(new Error('A playlist is already being read. Wait for it to finish before starting another.'), { status: 409 });
-      await client.query(`UPDATE playlist_imports SET status='failed',error='Reading timed out. Please preview the playlist again.',updated_at=NOW()
+      if (active.rows.length) throw Object.assign(new Error('A Spotify import is already being read. Wait for it to finish before starting another.'), { status: 409 });
+      await client.query(`UPDATE playlist_imports SET status='failed',error='Reading timed out. Please start a new preview.',updated_at=NOW()
         WHERE status IN ('queued','reading') AND updated_at <= NOW() - INTERVAL '40 minutes'`);
       id = randomUUID();
-      await client.query(`INSERT INTO playlist_imports(id,artist_id,playlist_id,requested_role) VALUES($1,$2,$3,$4)`, [id, artistId, pid, req.adminRole]);
+      await client.query(`INSERT INTO playlist_imports(id,artist_id,playlist_id,requested_role,source_type) VALUES($1,$2,$3,$4,$5)`, [id, artistId, pid, req.adminRole, sourceType]);
       await client.query('COMMIT');
     } catch (err) {
       if (client) await client.query('ROLLBACK').catch(() => {});
@@ -67,10 +70,10 @@ function playlistImportRoutes({ pool, requireAdmin, dispatch, refresh }) {
       if (!allowed(job, req.adminRole)) return res.status(403).json({ error: 'This import is restricted.' });
       // A killed runner cannot write a failure. Surface it without polling forever.
       if (['queued', 'reading'].includes(job.status) && Date.now() - new Date(job.updated_at).getTime() > 40 * 60 * 1000) {
-        job.status = 'failed'; job.error = 'Reading timed out. Please preview the playlist again.';
+        job.status = 'failed'; job.error = 'Reading timed out. Please start a new preview.';
       }
       const artist = (await pool.query('SELECT artist_id,name FROM tracked_artists WHERE artist_id=$1', [job.artist_id])).rows[0];
-      const tracks = job.status === 'ready' && artist ? await inspectTracks(pool, job.tracks, artist, req.adminRole) : [];
+      const tracks = job.status === 'ready' && artist ? await inspectTracks(pool, job.tracks, artist, req.adminRole, { albumImport: job.source_type === 'album' }) : [];
       res.json({ ...job, tracks, artist_name: artist?.name });
     } catch (err) { errorResponse(res, err); }
   });

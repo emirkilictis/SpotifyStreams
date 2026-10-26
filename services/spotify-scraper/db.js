@@ -852,7 +852,11 @@ async function foldPartialDebuts(client) {
     JOIN ranked r2 ON r2.head = r1.head AND r2.rn = 2
     JOIN songs h ON h.id = r1.head
     JOIN albums a ON a.id = h.album_id
-    WHERE r1.rn = 1`);
+    WHERE r1.rn = 1 AND NOT EXISTS (
+      SELECT 1 FROM stream_stats imported JOIN songs physical ON physical.id=imported.song_id
+      WHERE imported.baseline_only AND imported.recorded_date=r1.d
+        AND COALESCE(physical.canonical_id,physical.id)=r1.head
+    )`);
   const folds = pickPartialDebutFolds(cand.rows, today);
   if (!folds.length) return [];
   await client.query('BEGIN');

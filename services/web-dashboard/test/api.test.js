@@ -106,6 +106,27 @@ test('The 20/20 Experience editions remain separate album cards', async () => {
   assert.ok(Number(complete.track_count) > 20, 'Complete keeps its physical tracks and radio-edit extras');
 });
 
+test('LISA new releases appear alongside her curated collaboration releases', async () => {
+  const artist = '5L1lO4eRHmJ7a0Q6csE5cT';
+  const res = await get(`/api/albums?artist=${artist}`);
+  assert.equal(res.status, 200);
+  const albums = await res.json();
+  const ep = albums.find(album => album.album_id === '7H0c8sfmrbAbrMjYuEvWQk');
+  assert.ok(ep, 'PRESS PLAY is present without a title allowlist entry');
+  assert.equal(ep.album_title, 'PRESS PLAY');
+  assert.equal(ep.track_count, 6);
+  assert.ok(albums.some(album => /^Priceless/i.test(album.album_title)), 'curated collaboration remains');
+  assert.ok(!albums.some(album => ['63AicYq6PMi8MmtumYd4F7', '7kIi4z3UO8ZqH3GVX18p7h'].includes(album.album_id)),
+    'unrelated releases with the same title stay excluded');
+
+  const tracksRes = await get(`/api/albums/${ep.album_id}/songs`);
+  assert.equal(tracksRes.status, 200);
+  const tracks = await tracksRes.json();
+  assert.equal(tracks.length, 6);
+  assert.deepEqual(tracks.map(track => track.title).sort(),
+    ['SaWaDiKa', 'V12', 'Cobra', 'Tarantino', 'Cut U Off', 'Sweat'].sort());
+});
+
 test('/api/charts returns the requested category before history finishes', async () => {
   const res = await get('/api/charts?category=kpop');
   assert.equal(res.status, 200);

@@ -154,6 +154,9 @@ test('admin routes enforce authorization, queue previews without importing and m
     assert.equal((await send('/imports', 'admin', { artist_id: artist.artist_id, playlist_url: 'https://evil.example/playlist/anything' })).status, 400);
     assert.equal((await send('/imports', 'admin', { artist_id: artist.artist_id, playlist_url: job([]).playlist_id })).status, 202);
     assert.match(dispatched, /^[0-9a-f-]{36}$/);
+    assert.equal((await send('/imports', 'admin', { artist_id: artist.artist_id, album_url: 'https://open.spotify.com/album/' + track().albumId })).status, 202);
+    assert.equal((await send('/imports', 'secadmin', { artist_id: JT, album_url: 'https://open.spotify.com/album/' + track().albumId })).status, 403);
+    assert.equal((await send('/imports', 'admin', { artist_id: artist.artist_id, album_url: 'https://open.spotify.com/track/' + track().id })).status, 400);
     assert.ok(!calls.some(sql => sql.includes('INSERT INTO songs')));
     assert.equal((await send(`/imports/${jobId}/apply`, 'secadmin', { song_ids: [track().id] })).status, 403);
     const response = await send(`/imports/${jobId}/apply`, 'admin', { song_ids: [track().id] });

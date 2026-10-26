@@ -141,6 +141,44 @@ The preview distinguishes new songs, existing recordings to link, already includ
 
 Apply migration `033_playlist_imports.sql` and configure the same `GH_DISPATCH_TOKEN` used for artist sync. The workflow uses the repository's existing `DATABASE_URL`, `SP_DC`, and optional `DB_SSL_CA` secrets. The web service does not need Chrome or Spotify cookies. Preview results expire after 24 hours; failed or timed-out reads can be retried with a new preview.
 
+### Manage albums and EPs
+
+**Admin → Albums & EPs** lists the collected releases for an artist, including
+releases excluded from their public album list. Search by title or Spotify ID,
+filter by visibility, and select a release to review its songs and settings.
+
+- Choose **Automatic**, **Show on profile**, or **Hide from profile**. These
+  settings affect the selected artist's album list, not access codes or charts.
+- Set an Album/EP/Single label and optional display priority. Lower priorities
+  appear first; releases without a priority follow the visitor's selected sort.
+- Paste an album or song link into **Why isn't it showing?** to check collection,
+  profile filters, artist membership, hidden recordings and canonical merges.
+- **Preview album import** reads a Spotify album of up to 50 songs through the
+  existing Spotify import workflow. Review and select songs in **Artists → Import
+  songs from Spotify**. Existing recordings keep their ownership, original album
+  and stream history; additional album membership is stored separately. Hidden
+  releases are not automatically unhidden by an import.
+- Add an existing recording by its Spotify song link, or remove an added
+  membership. Original scraped membership remains available through song tools.
+
+Apply `034_release_management.sql` and `035_import_observation_baselines.sql`
+after migration 033 before deploying this feature. Album previews use the same Actions token, Spotify session and workflow
+as playlist imports. Secondary administrators cannot modify Justin Timberlake
+or releases containing his recordings. Successful edits invalidate the public
+response cache immediately.
+
+`npm run test:releases:db --prefix services/web-dashboard` runs the optional real
+PostgreSQL regression with synthetic fixtures inside a transaction that is
+rolled back, including all route writes. The ordinary `npm test` suite requires
+no database.
+
+When Spotify adds guest credits after a release, subsequent album reads link
+those recordings to active full-catalogue guest profiles and retain the source
+album for future collection. Canonical ownership and historical observations
+stay intact; hidden songs and album-only guest profiles are excluded.
+Administrative imports mark their first observed count as a lifetime baseline,
+so a recent release's accumulated streams cannot appear as one day's growth.
+
 ## Optional integrations
 
 ### Browser push notifications

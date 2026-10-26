@@ -33,17 +33,18 @@ function validTrack(t) {
     && (t.playcount === null || /^\d{4}-\d{2}-\d{2}$/.test(t.observed_date || ''));
 }
 
-async function inspectTracks(client, tracks, artist, role) {
+async function inspectTracks(client, tracks, artist, role, { albumImport = false } = {}) {
   if (!Array.isArray(tracks) || tracks.length > MAX_TRACKS) throw new Error('Invalid playlist result.');
   const ids = tracks.filter(t => ID.test(t?.id)).map(t => t.id);
   const existing = await client.query(`
     SELECT s.id, COALESCE(s.canonical_id, s.id) AS head_id,
-           COALESCE(h.primary_artist, s.primary_artist) AS primary_artist,
+           CASE WHEN h.id IS NOT NULL THEN h.primary_artist ELSE s.primary_artist END AS primary_artist,
+           ${albumImport ? `EXISTS (SELECT 1 FROM album_extra_tracks m WHERE m.artist_id=$2 AND m.album_id = ANY($3::text[]) AND m.song_id=s.id)` : 'false'} AS release_linked,
            EXISTS (SELECT 1 FROM extra_artist_songs e WHERE e.artist_id = $2
                    AND e.song_id IN (s.id, COALESCE(s.canonical_id, s.id))) AS linked,
            EXISTS (SELECT 1 FROM hidden_songs x WHERE x.song_id IN (s.id, COALESCE(s.canonical_id, s.id))) AS hidden
     FROM songs s LEFT JOIN songs h ON h.id = s.canonical_id WHERE s.id = ANY($1::text[])
-  `, [ids, artist.artist_id]);
+  `, albumImport ? [ids, artist.artist_id, [...new Set(tracks.map(t => t.albumId))]] : [ids, artist.artist_id]);
   const byId = new Map(existing.rows.map(r => [r.id, r]));
   return tracks.map(t => {
     const row = byId.get(t.id);
@@ -53,8 +54,8 @@ async function inspectTracks(client, tracks, artist, role) {
       || (row && (!row.primary_artist || row.primary_artist === `spotify:artist:${JT}`)));
     const already = row && (row.primary_artist === `spotify:artist:${artist.artist_id}` || row.linked);
     const state = !validTrack(t) ? 'unresolved' : protectedSong ? 'restricted'
-      : row?.hidden ? 'hidden' : already ? 'included' : credit === 'none' ? 'unrelated' : row ? 'link' : 'new';
-    return { ...t, credit, state, head_id: row?.head_id || t.id, selectable: ['new', 'link'].includes(state) };
+      : row?.hidden ? 'hidden' : already ? (albumImport && !row.release_linked ? 'membership' : 'included') : credit === 'none' ? 'unrelated' : row ? 'link' : 'new';
+    return { ...t, credit, state, head_id: row?.head_id || t.id, selectable: ['new', 'link', 'membership'].includes(state) };
   });
 }
 
@@ -69,7 +70,7 @@ async function applyTracks(client, job, selectedIds, role) {
   const artistResult = await client.query('SELECT artist_id, name FROM tracked_artists WHERE artist_id = $1', [job.artist_id]);
   const artist = artistResult.rows[0];
   if (!artist) throw Object.assign(new Error('Artist no longer exists.'), { status: 404 });
-  const tracks = await inspectTracks(client, job.tracks, artist, role);
+  const tracks = await inspectTracks(client, job.tracks, artist, role, { albumImport: job.source_type === 'album' });
   const selected = selectedIds.map(id => tracks.find(t => t.id === id));
   if (selected.some(t => !t || (!t.selectable && t.state !== 'included'))) {
     throw Object.assign(new Error('Some selected songs are hidden, restricted or do not credit this artist. Preview again.'), { status: 409 });
@@ -77,9 +78,11 @@ async function applyTracks(client, job, selectedIds, role) {
   const summary = { added: 0, linked: 0, already_included: 0, unavailable: 0 };
   for (const t of selected) {
     if (t.state === 'included') { summary.already_included++; continue; }
-    if (t.state === 'new') {
+    if (t.state === 'new' || job.source_type === 'album') {
       await client.query(`INSERT INTO albums(id, title, release_date, image_url)
         VALUES($1, $2, $3, $4) ON CONFLICT(id) DO NOTHING`, [t.albumId, t.albumName, t.release, t.coverUrl]);
+    }
+    if (t.state === 'new') {
       // Keep imports in the target bucket, as the normal artist scraper does.
       // ON CONFLICT preserves any ownership/canonical changes made meanwhile.
       await client.query(`INSERT INTO songs(id,title,album_id,duration_ms,track_number,is_featured,primary_artist,is_solo)
@@ -89,8 +92,8 @@ async function applyTracks(client, job, selectedIds, role) {
       if (t.playcount !== null) {
         // Only the first reading, on the observation day. Never manufacture a
         // zero count for a region-restricted song or backdate its lifetime total.
-        await client.query(`INSERT INTO stream_stats(song_id,stream_count,recorded_date,recorded_at)
-          SELECT $1,$2,$3::date,NOW() WHERE NOT EXISTS(SELECT 1 FROM stream_stats WHERE song_id=$1)
+        await client.query(`INSERT INTO stream_stats(song_id,stream_count,recorded_date,recorded_at,baseline_only)
+          SELECT $1,$2,$3::date,NOW(),true WHERE NOT EXISTS(SELECT 1 FROM stream_stats WHERE song_id=$1)
           ON CONFLICT(song_id,recorded_date) DO NOTHING`, [t.id, t.playcount, t.observed_date]);
       }
       summary.added++;
@@ -100,7 +103,13 @@ async function applyTracks(client, job, selectedIds, role) {
       SELECT $1,COALESCE(canonical_id,id) FROM songs WHERE id=$2 ON CONFLICT DO NOTHING`, [artist.artist_id, t.id]);
     await client.query(`INSERT INTO extra_scrape_albums(artist_id,album_id,title,release_date,is_featured,source,note)
       VALUES($1,$2,$3,$4,true,'manual',$5) ON CONFLICT DO NOTHING`,
-    [artist.artist_id, t.albumId, t.albumName, t.release, `Admin playlist ${job.playlist_id}`]);
+    [artist.artist_id, t.albumId, t.albumName, t.release, `Admin ${job.source_type || 'playlist'} ${job.playlist_id}`]);
+    if (job.source_type === 'album') {
+      await client.query(`INSERT INTO album_extra_tracks(artist_id,album_id,song_id,track_number)
+        VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [artist.artist_id,t.albumId,t.id,t.track_number]);
+      await client.query(`INSERT INTO album_profile_settings(artist_id,album_id,visibility)
+        VALUES($1,$2,'show') ON CONFLICT DO NOTHING`, [artist.artist_id,t.albumId]);
+    }
     if (t.playcount === null) summary.unavailable++;
   }
   return summary;

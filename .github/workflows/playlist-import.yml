@@ -1,4 +1,4 @@
-name: Preview playlist import
+name: Preview Spotify import
 on:
   workflow_dispatch:
     inputs:
@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         working-directory: services/spotify-scraper
         run: npm ci
-      - name: Read playlist for review
+      - name: Read Spotify source for review
         working-directory: services/spotify-scraper
         env:
           IMPORT_ID: ${{ inputs.import_id }}
