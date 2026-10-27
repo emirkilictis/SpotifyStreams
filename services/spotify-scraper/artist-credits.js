@@ -25,7 +25,6 @@ async function syncArtistCredits(client, album, tracks) {
       JOIN songs head ON head.id=COALESCE(s.canonical_id,s.id)
       JOIN tracked_artists ta ON 'spotify:artist:' || ta.artist_id=i.artist_uri
       WHERE ta.active=true AND ta.album_only IS NOT TRUE
-        AND ta.artist_id <> '31TPClRtHm23RisEBtV3X7'
         AND head.primary_artist IS DISTINCT FROM i.artist_uri
         AND head.id <> '6233Z1W8t9Wn1f1gZqHhQ5'
         AND NOT EXISTS(SELECT 1 FROM hidden_songs h WHERE h.song_id IN(s.id,head.id))

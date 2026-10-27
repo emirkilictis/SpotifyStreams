@@ -601,9 +601,19 @@ function artistBucketMatchSQL(s, a) {
     .join('\n    ');
 
   return `(
-    ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7'${jtExclusions ? ' AND (' + jtExclusions + ')' : ''})
+    ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND ((${jtExclusions || 'TRUE'}) OR ${s}.id IN (${getExtraTrackIdsSql('31TPClRtHm23RisEBtV3X7')})))
     ${normalClauses}
   )`;
+}
+
+// Shared recordings retain their lead artist's metadata. On JT's profile an
+// explicitly linked guest recording is a feature, even when its owner tracks
+// the same recording as a lead release (e.g. Madonna's 4 Minutes).
+function artistFeaturedSQL(s) {
+  return `(CASE WHEN $1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7'
+    AND ${s}.primary_artist IS DISTINCT FROM $1
+    AND ${s}.id IN (${getExtraTrackIdsSql('31TPClRtHm23RisEBtV3X7')})
+    THEN true ELSE ${s}.is_featured END)`;
 }
 
 // The per-song/per-artist aggregate CTEs live in lib/agg-sql.js so the query the
@@ -623,7 +633,7 @@ function artistAlbumMatchSQL(s) {
   const imported = releaseTracksCache.map(x =>
     `($1 = 'spotify:artist:${x.artist_id}' AND COALESCE(${s}.canonical_id, ${s}.id) = (SELECT COALESCE(ix.canonical_id, ix.id) FROM songs ix WHERE ix.id = '${x.song_id}'))`).join(' OR ');
   return `(
-    ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7'${jtExclusions ? ' AND (' + jtExclusions + ')' : ''})
+    ($1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND ((${jtExclusions || 'TRUE'}) OR ${s}.id IN (${getExtraTrackIdsSql('31TPClRtHm23RisEBtV3X7')})))
     OR ($1 <> 'spotify:artist:31TPClRtHm23RisEBtV3X7' AND ${s}.primary_artist = $1)
     ${imported ? 'OR ' + imported : ''}
   )`;
@@ -2163,7 +2173,7 @@ app.get('/api/songs', requireAuth, validateArtistAccess,
       SELECT
         s.id,
         s.title,
-        s.is_featured,
+        ${artistFeaturedSQL('s')} AS is_featured,
         s.is_solo,
         s.duration_ms,
         CASE 
@@ -2293,7 +2303,7 @@ app.get('/api/trending', requireAuth, validateArtistAccess,
       -- Everything in this artist's bucket that has enough history to compare.
       scoped AS (
         SELECT
-          s.id, s.title, s.is_featured,
+          s.id, s.title, ${artistFeaturedSQL('s')} AS is_featured,
           a.title AS album_title,
           a.image_url AS album_cover_url,
           win.cumulative, win.recent_avg, win.base_avg
@@ -2364,16 +2374,16 @@ app.get('/api/stats', requireAuth, validateArtistAccess,
       ${aggSql}
       SELECT 
         COALESCE(SUM(dsc.cumulative), 0)::bigint AS total_streams,
-        COALESCE(SUM(dsc.cumulative) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_streams,
-        COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_featured), 0)::bigint AS feat_streams,
+        COALESCE(SUM(dsc.cumulative) FILTER (WHERE NOT ${artistFeaturedSQL('s')}), 0)::bigint AS lead_streams,
+        COALESCE(SUM(dsc.cumulative) FILTER (WHERE ${artistFeaturedSQL('s')}), 0)::bigint AS feat_streams,
         COALESCE(SUM(dsc.cumulative) FILTER (WHERE s.is_solo), 0)::bigint AS solo_streams,
         -- day_gain, not daily_gain: only what each head earned ON the headline
         -- day (see agg_day in artistLatestAggCTE). A head that froze after a big
         -- day used to keep re-adding that day's gain to every day after it.
         COALESCE(SUM(dsc.day_gain), 0)::bigint AS daily_gain,
-        COALESCE(SUM(dsc.day_gain) FILTER (WHERE NOT s.is_featured), 0)::bigint AS lead_daily_gain,
+        COALESCE(SUM(dsc.day_gain) FILTER (WHERE NOT ${artistFeaturedSQL('s')}), 0)::bigint AS lead_daily_gain,
         COALESCE(SUM(dsc.day_gain) FILTER (WHERE s.is_solo), 0)::bigint AS solo_daily_gain,
-        COALESCE(SUM(dsc.day_gain) FILTER (WHERE s.is_featured), 0)::bigint AS feat_daily_gain,
+        COALESCE(SUM(dsc.day_gain) FILTER (WHERE ${artistFeaturedSQL('s')}), 0)::bigint AS feat_daily_gain,
         -- 7-day trailing average of the artist's total daily gain. Smooths out
         -- Spotify's irregular update cadence (some days post 0, the next ~2x),
         -- which otherwise makes the headline daily number bounce wildly.
@@ -2517,7 +2527,7 @@ app.get('/api/period-streams', requireAuth, validateArtistAccess,
            GROUP BY 1, 2`;
     const query = `
       WITH mine AS (
-        SELECT s.id, s.is_featured, s.is_solo, a.release_date
+        SELECT s.id, ${artistFeaturedSQL('s')} AS is_featured, s.is_solo, a.release_date
         FROM songs s
         JOIN albums a ON s.album_id = a.id
         WHERE s.canonical_id IS NULL AND ${artistBucketMatchSQL('s', 'a')}
@@ -2827,7 +2837,7 @@ app.get('/api/streams-on', requireAuth, validateArtistAccess,
         SELECT
           s.id,
           s.title,
-          s.is_featured,
+          ${artistFeaturedSQL('s')} AS is_featured,
           s.is_solo,
           a.title AS album_title,
           snap.cum_at,
