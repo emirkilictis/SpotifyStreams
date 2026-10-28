@@ -1143,6 +1143,7 @@ tbody tr.featured-row:hover {
 .dc-theme-swatch {
   width: 26px;
   height: 26px;
+  flex: 0 0 26px;
   border-radius: 50%;
   border: 2px solid transparent;
   padding: 0;
@@ -5274,9 +5275,8 @@ body.modal-open .sync-banner {
 
 /* ==========================================================================
    Per-artist stats cards (LISA eras / JT albums + top tracks)
-   Deliberately NOT themed like the share cards: these reproduce the fan-post
-   layout — header band, tinted rows, solid subtotal bands. Palette per artist
-   via a .theme-* class; --sc-width is read back by app.js for the PNG export.
+   Fan-post layouts with an artist palette by default and optional card colour
+   themes. --sc-width is read back by app.js for the PNG export.
    ========================================================================== */
 .stats-card-shell { max-width: 96vw; }
 
@@ -5396,6 +5396,21 @@ body.modal-open .sync-banner {
 .stats-card.theme-lisa-cat .lc-table tr.lc-final .lc-pos { color: #6ee7a0; }
 .stats-card.theme-lisa-cat .lc-table tr.lc-final .lc-neg { color: #fca5a5; }
 .stats-card.theme-lisa-cat .lc-table tr.lc-final .lc-pct { color: rgba(255, 255, 255, 0.6); }
+
+/* Explicit colour choices also paint the fixed details of LISA's catalogue
+   layout; Auto continues to use its signature gold and black. */
+.stats-card.sc-custom-theme.theme-lisa-cat .lc-head-band {
+  background: var(--sc-band);
+  border-color: var(--sc-grid);
+}
+.stats-card.sc-custom-theme .lc-photo { border-color: var(--sc-grid); }
+.stats-card.sc-custom-theme.theme-lisa-cat .lc-table tr.lc-final td {
+  background: var(--sc-total-bg);
+  color: var(--sc-total-ink);
+}
+.stats-card.sc-custom-theme.theme-lisa-cat .lc-table tr.lc-final td.lc-song { color: var(--sc-total-ink); }
+.stats-card.sc-custom-theme.theme-lisa-cat .lc-table tr.lc-final .lc-pos { color: var(--sc-total-pos); }
+.stats-card.sc-custom-theme.theme-lisa-cat .lc-table tr.lc-final .lc-neg { color: var(--sc-total-neg); }
 
 /* --- Header: photo, name, one line of context, three figures --- */
 .theme-artist .lc-head { gap: 20px; align-items: center; margin-bottom: 22px; }

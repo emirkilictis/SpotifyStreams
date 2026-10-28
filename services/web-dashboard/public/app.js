@@ -2460,7 +2460,7 @@ const dailyCardDownloadBtn = document.getElementById('daily-card-download-btn');
 const CARD_THEMES = [
   // id stays 'artist' so saved choices keep working; the name says what it
   // does now: the cover's colour on album / song cards, the artist's otherwise.
-  { id: 'artist', name: 'Auto (cover colour)' },
+  { id: 'artist', name: 'Auto' },
   { id: 'midnight', name: 'Midnight', accent: '#1ed760', bg: 'radial-gradient(circle at 50% 0%, #131d33 0%, #080c14 100%)', page: '#080c14', glow: 'rgba(30,215,96,0.35)' },
   { id: 'noir', name: 'Noir', accent: '#f4f4f5', bg: 'linear-gradient(165deg, #1c1c1e 0%, #0a0a0b 100%)', page: '#0a0a0b', glow: 'rgba(255,255,255,0.18)' },
   { id: 'ocean', name: 'Ocean', accent: '#38bdf8', bg: 'radial-gradient(circle at 50% 0%, #0d2438 0%, #060d16 100%)', page: '#060d16', glow: 'rgba(56,189,248,0.35)' },
@@ -2468,8 +2468,20 @@ const CARD_THEMES = [
   { id: 'rose', name: 'Rose', accent: '#fb7185', bg: 'radial-gradient(circle at 50% 0%, #2e1220 0%, #120810 100%)', page: '#120810', glow: 'rgba(251,113,133,0.35)' },
   { id: 'sunset', name: 'Sunset', accent: '#fb923c', bg: 'linear-gradient(165deg, #341a12 0%, #140b09 100%)', page: '#140b09', glow: 'rgba(251,146,60,0.35)' },
   { id: 'gold', name: 'Gold', accent: '#e5b567', bg: 'linear-gradient(165deg, #241d10 0%, #0d0a06 100%)', page: '#0d0a06', glow: 'rgba(229,181,103,0.32)' },
+  { id: 'cherry', name: 'Cherry', accent: '#ff6378', bg: 'linear-gradient(165deg, #421522 0%, #1b0a12 100%)', page: '#1b0a12', glow: 'rgba(255,99,120,0.35)' },
+  { id: 'coral', name: 'Coral', accent: '#ff9b82', bg: 'linear-gradient(165deg, #42251f 0%, #1b100d 100%)', page: '#1b100d', glow: 'rgba(255,155,130,0.35)' },
+  { id: 'amber', name: 'Amber', accent: '#fbbf24', bg: 'linear-gradient(165deg, #3a2c10 0%, #181205 100%)', page: '#181205', glow: 'rgba(251,191,36,0.35)' },
+  { id: 'lime', name: 'Lime', accent: '#a3e635', bg: 'linear-gradient(165deg, #293a16 0%, #101907 100%)', page: '#101907', glow: 'rgba(163,230,53,0.35)' },
+  { id: 'emerald', name: 'Emerald', accent: '#34d399', bg: 'linear-gradient(165deg, #103c30 0%, #071b14 100%)', page: '#071b14', glow: 'rgba(52,211,153,0.35)' },
+  { id: 'teal', name: 'Teal', accent: '#2dd4bf', bg: 'linear-gradient(165deg, #123b3d 0%, #08191b 100%)', page: '#08191b', glow: 'rgba(45,212,191,0.35)' },
+  { id: 'sapphire', name: 'Sapphire', accent: '#939dff', bg: 'linear-gradient(165deg, #232b54 0%, #0d1226 100%)', page: '#0d1226', glow: 'rgba(147,157,255,0.35)' },
+  { id: 'magenta', name: 'Magenta', accent: '#e879f9', bg: 'linear-gradient(165deg, #3e1b48 0%, #1a0b20 100%)', page: '#1a0b20', glow: 'rgba(232,121,249,0.35)' },
   { id: 'paper', name: 'Paper', light: true, accent: '#1a8f4c', bg: 'linear-gradient(165deg, #ffffff 0%, #eef1f5 100%)', page: '#eef1f5', glow: 'rgba(0,0,0,0.12)' },
   { id: 'cream', name: 'Cream', light: true, accent: '#b4622a', bg: 'linear-gradient(165deg, #fbf6ec 0%, #f0e6d6 100%)', page: '#f0e6d6', glow: 'rgba(180,98,42,0.18)' },
+  { id: 'peach', name: 'Peach', light: true, accent: '#9a3412', bg: 'linear-gradient(165deg, #fff6ee 0%, #ffe3d1 100%)', page: '#ffe3d1', glow: 'rgba(154,52,18,0.18)' },
+  { id: 'lemon', name: 'Lemon', light: true, accent: '#766000', bg: 'linear-gradient(165deg, #fffced 0%, #fff2b3 100%)', page: '#fff2b3', glow: 'rgba(118,96,0,0.18)' },
+  { id: 'ice', name: 'Ice', light: true, accent: '#075985', bg: 'linear-gradient(165deg, #f1fbff 0%, #d8efff 100%)', page: '#d8efff', glow: 'rgba(7,89,133,0.18)' },
+  { id: 'lavender', name: 'Lavender', light: true, accent: '#6d28d9', bg: 'linear-gradient(165deg, #faf4ff 0%, #ebdfff 100%)', page: '#ebdfff', glow: 'rgba(109,40,217,0.18)' },
 ];
 
 const CARD_THEME_KEY = 'dc_card_theme';
@@ -2496,6 +2508,7 @@ function cardCoverAccent(el) {
 
 // The card on screen right now, for the picker's "Artist" swatch preview.
 function activeCardEl() {
+  if (statsCardModal && !statsCardModal.classList.contains('hidden')) return statsCardEl;
   if (songCardModal && !songCardModal.classList.contains('hidden')) return songCardEl;
   if (dailyCardModal && !dailyCardModal.classList.contains('hidden')) return dailyCardEl;
   return null;
@@ -2504,14 +2517,14 @@ function activeCardEl() {
 // The default ("Artist") theme now paints like the album card: the cover's
 // accent (or the artist's, when there is no cover) tints the whole card with a
 // glow at the top, instead of a dark circle fading to black that left the
-// lower two thirds of every card near-black. The nine fixed themes are the
-// user's explicit choice and stay exactly as they were.
+// lower two thirds of every card near-black. Fixed themes are an explicit
+// choice and use their own palette.
 function resolveCardTheme(id, coverAccent = null) {
   if (id === 'artist' || !id) {
     const a = ARTIST_THEMES[currentArtist] || LANDING_THEME;
     const accent = coverAccent || a.accent;
     return {
-      id: 'artist', name: 'Auto (cover colour)', accent,
+      id: 'artist', name: 'Auto', accent,
       bg: albumCardBackground(accent),
       page: '#0b1019',
       glow: `rgba(${hexToRgbTriplet(accent)}, 0.35)`,
@@ -2535,9 +2548,12 @@ function refreshCardThemes() {
   applyCardTheme(dailyCardEl, resolveCardTheme(cardThemeId, cardCoverAccent(dailyCardEl)));
   applyCardTheme(songCardEl, resolveCardTheme(cardThemeId, cardCoverAccent(songCardEl)));
   applyCardTheme(milestoneCardEl, resolveCardTheme(cardThemeId));
+  applyStatsCardTheme();
   const swatchAccent = resolveCardTheme('artist', cardCoverAccent(activeCardEl())).accent;
   document.querySelectorAll('.dc-theme-swatch').forEach((b) => {
-    b.classList.toggle('active', b.dataset.theme === cardThemeId);
+    const selected = b.dataset.theme === cardThemeId;
+    b.classList.toggle('active', selected);
+    b.setAttribute('aria-pressed', String(selected));
     if (b.dataset.theme === 'artist') {
       // The Artist swatch shows the colour the default card will actually use.
       b.style.setProperty('--sw-accent', swatchAccent);
@@ -2552,9 +2568,9 @@ function buildCardThemePickers() {
     container.dataset.built = '1';
     container.innerHTML = CARD_THEMES.map((t) => {
       const r = t.id === 'artist' ? resolveCardTheme('artist') : t;
-      const swBg = t.light ? (t.page || '#f2f2f2') : '#111a2e';
+      const swBg = r.page || '#111a2e';
       return `<button type="button" class="dc-theme-swatch" data-theme="${t.id}" title="${t.name}" aria-label="${t.name} theme"
-                style="--sw-accent:${r.accent};--sw-bg:${swBg};"></button>`;
+                aria-pressed="false" style="--sw-accent:${r.accent};--sw-bg:${swBg};"></button>`;
     }).join('');
     container.addEventListener('click', (e) => {
       const btn = e.target.closest('.dc-theme-swatch');
@@ -3426,6 +3442,47 @@ function applyStatsCardAccent(el, artistId) {
   el.style.setProperty('--sc-accent-rgb', hexToRgbTriplet(accent));
 }
 
+// Recolour the artist poster while retaining its layout, including LISA's
+// signature table. Auto restores the artist's original palette.
+function applyStatsCardTheme() {
+  if (!statsCardEl) return;
+  const conf = statsCardConfig(currentArtist);
+  if (!conf) return;
+  const theme = resolveCardTheme(cardThemeId);
+  const light = !!theme.light;
+  const catalogue = conf.theme === 'theme-artist';
+  const ink = light ? '#12161f' : '#e6ecf5';
+  const positive = light ? '#146b32' : '#63d19b';
+  const negative = light ? '#b52f32' : '#f19a9a';
+  const values = {
+    '--sc-accent': theme.accent,
+    '--sc-accent-rgb': hexToRgbTriplet(theme.accent),
+    '--sc-page': theme.bg,
+    '--sc-band': `rgba(${hexToRgbTriplet(theme.accent)}, 0.10)`,
+    '--sc-ink': ink,
+    '--sc-muted': light ? '#4b5462' : '#aab6c7',
+    '--sc-row': 'transparent',
+    '--sc-head-row': `rgba(${hexToRgbTriplet(theme.accent)}, 0.08)`,
+    '--sc-grid': light ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.14)',
+    '--sc-frame': light ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.18)',
+    '--sc-total-bg': catalogue ? 'transparent' : (light ? '#17202c' : '#253044'),
+    '--sc-total-ink': catalogue ? ink : '#ffffff',
+    '--sc-pos': positive,
+    '--sc-neg': negative,
+    '--sc-flat': light ? '#526071' : '#aab6c7',
+    '--sc-total-pos': catalogue ? positive : '#83edb7',
+    '--sc-total-neg': catalogue ? negative : '#ffb2b2',
+    '--sc-note': light ? '#4b5462' : '#aab6c7',
+  };
+  const custom = cardThemeId !== 'artist';
+  statsCardEl.classList.toggle('sc-custom-theme', custom);
+  for (const [key, value] of Object.entries(values)) {
+    if (custom) statsCardEl.style.setProperty(key, value);
+    else statsCardEl.style.removeProperty(key);
+  }
+  if (!custom && conf.accented) applyStatsCardAccent(statsCardEl, currentArtist);
+}
+
 // Called from applyArtistTheme, which every artist-switch path goes through
 // (deep link, picker card, header dropdown).
 function syncStatsCardButton(artistId) {
@@ -3572,6 +3629,7 @@ function drawStatsCard() {
   }
   if (statsCardStyleSel) statsCardStyleSel.value = statsCardStyle;
   conf.render();
+  applyStatsCardTheme();
   fitStatsCard();
 }
 
@@ -3579,6 +3637,7 @@ function openStatsCard() {
   if (!statsCardModal || !statsCardConfig(currentArtist)) return;
   statsCardModal.classList.remove('hidden');
   drawStatsCard();
+  buildCardThemePickers();
 }
 
 window.addEventListener('resize', fitStatsCard);
@@ -3596,7 +3655,7 @@ async function downloadStatsCard() {
   try {
     const canvas = await renderCard(statsCardEl, {
       ignoreElements: ignoreOutside(statsCardModal || statsCardEl),
-      backgroundColor: conf.bg || '#080c14',
+      backgroundColor: cardThemeId === 'artist' ? (conf.bg || '#080c14') : resolveCardTheme(cardThemeId).page,
       scale: 2,
       useCORS: true,
       imageTimeout: 15000,
