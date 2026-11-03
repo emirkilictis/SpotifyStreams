@@ -8,6 +8,10 @@
 --   3) When cumulative stream count is under 1,000, cumulative is NULL (total streams suppressed,
 --      matching Spotify's '< 1,000' display).
 
+-- This migration consumes categories, so establish the column before replacing the view.
+ALTER TABLE tracked_artists
+  ADD COLUMN IF NOT EXISTS categories TEXT[] NOT NULL DEFAULT '{}';
+
 CREATE OR REPLACE VIEW daily_streams_canonical AS
 WITH running_max AS (
   SELECT

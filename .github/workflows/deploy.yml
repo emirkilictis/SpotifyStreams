@@ -23,9 +23,9 @@ jobs:
           HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           if [ -z "$HOOK" ]; then
-            echo "RENDER_DEPLOY_HOOK is missing; deployment skipped."
-            echo "See the setup instructions at the top of this workflow."
-            exit 0
+            echo "RENDER_DEPLOY_HOOK is missing; refusing to report a false-green deployment."
+            echo "Add the Render deploy hook as a GitHub Actions repository secret."
+            exit 1
           fi
           # Log only the response status; the deploy hook URL is a secret.
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$HOOK")
@@ -38,7 +38,20 @@ jobs:
 
       - name: Verify the deployed version
         if: success()
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
-          echo "Check the version running in production:"
-          echo "  curl -s https://spotify-streams-dashboard.onrender.com/healthz"
-          echo "Compare the returned commit field with this push SHA: ${GITHUB_SHA:0:7}"
+          set -euo pipefail
+          expected="${EXPECTED_COMMIT:0:7}"
+          for attempt in {1..18}; do
+            payload=$(curl -fsS --max-time 15 https://spotify-streams-dashboard.onrender.com/healthz || true)
+            commit=$(printf '%s' "$payload" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit", ""))' 2>/dev/null || true)
+            echo "Health check attempt $attempt: commit=${commit:-unavailable}"
+            if [ "$commit" = "$expected" ]; then
+              echo "Production is serving commit $expected."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Production did not report commit $expected within the verification window."
+          exit 1

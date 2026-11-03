@@ -7,12 +7,16 @@ function databaseConfig(env = process.env) {
   if (env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
     throw new Error('NODE_TLS_REJECT_UNAUTHORIZED=0 is not permitted.');
   }
+  const connectionString =
+    env.DATABASE_URL || env.POSTGRES_URL_NON_POOLING || env.POSTGRES_URL;
   let url;
   try {
-    url = new URL(env.DATABASE_URL);
+    url = new URL(connectionString);
     if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error();
   } catch {
-    throw new Error('DATABASE_URL must be a valid PostgreSQL URL.');
+    throw new Error(
+      'A valid PostgreSQL URL is required in DATABASE_URL, POSTGRES_URL_NON_POOLING, or POSTGRES_URL.',
+    );
   }
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   const mode = env.DB_SSL_MODE || 'verify-full';

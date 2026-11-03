@@ -10,6 +10,7 @@ services:
     # Manually created services use their own Render dashboard settings.
     # Check /healthz -> commit to identify the deployed revision.
     autoDeploy: true
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
         value: 24

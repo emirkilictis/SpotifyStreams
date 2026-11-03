@@ -1,7 +1,9 @@
 name: Spotify Stream Scrape
 
 on:
-  # An external scheduler and the admin panel use workflow_dispatch.
+  # Run once per day by default; targeted/admin runs can still use dispatch.
+  schedule:
+    - cron: '17 6 * * *'
   workflow_dispatch:
     inputs:
       force:
