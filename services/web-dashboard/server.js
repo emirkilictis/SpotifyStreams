@@ -86,6 +86,10 @@ function hiddenTrackIdsSql() {
   return ids.map(id => `'${id}'`).join(', ');
 }
 
+// The *_EXTRA_TRACK_IDS lists below record why the first pins were seeded into
+// extra_artist_songs. The table is the only source the queries read (see
+// getExtraTrackIdsSql); these lists are documentation, not a fallback.
+//
 // Felix is credited (sub-unit / featured) on these Stray Kids tracks, so kworb
 // lists them on Felix's artist page. Their primary_artist is Stray Kids, so they
 // fall outside Felix's "primary_artist = Felix" bucket — pin them in explicitly.
@@ -223,49 +227,25 @@ let allArtistsCache = ARTIST_ROSTER_FALLBACK;
 // once loaded and why requests wait for the first load (see whenRosterReady).
 let rosterLoadedFromDb = false;
 
-let extraArtistSongsCache = {};
-let extraArtistSongsLoaded = false;
-async function refreshExtraArtistSongsCache() {
-  try {
-    // Resolve each pin to its CANONICAL HEAD. Pins are stored as whatever track
-    // id was pinned, but every bucket query filters `canonical_id IS NULL`, so a
-    // pin that dedup later turned into an alias would silently stop counting —
-    // the song just quietly vanishes from that artist's page. COALESCE keeps
-    // head pins byte-identical to before and repairs alias ones on the fly.
-    const res = await dbQuery(
-      `SELECT e.artist_id, COALESCE(s.canonical_id, e.song_id) AS song_id
-         FROM extra_artist_songs e
-         LEFT JOIN songs s ON s.id = e.song_id`
-    );
-    const temp = {};
-    for (const row of res.rows) {
-      if (!SPOTIFY_ID_RE.test(row.artist_id) || !SPOTIFY_ID_RE.test(row.song_id)) continue;
-      if (!temp[row.artist_id]) temp[row.artist_id] = [];
-      temp[row.artist_id].push(row.song_id);
-    }
-    extraArtistSongsCache = temp;
-    extraArtistSongsLoaded = true;
-  } catch (err) {
-    console.error('Failed to load extra_artist_songs from DB:', err.message);
-    if (extraArtistSongsLoaded) return; // keep the last good pins, don't drop to the hardcoded subset
-    extraArtistSongsCache = {
-      '4UIOuc84ExWojcUzFGtb8W': FELIX_EXTRA_TRACK_IDS,
-      '1odvXbzhdzNajv6un9x5Mc': IN_EXTRA_TRACK_IDS,
-      '3XSid6KaiKoMAVZs2ug3yw': CHANGBIN_EXTRA_TRACK_IDS,
-      '5jRUIqBSxmsBPNiEwKUjgZ': BANGCHAN_EXTRA_TRACK_IDS,
-      '46YvTuKiPBUu5KP9818J2F': HAN_EXTRA_TRACK_IDS,
-      '04jivE3Ek7Xu8WSGVmEqUn': LEEKNOW_EXTRA_TRACK_IDS,
-      '0ymFDpsRImjK673AGgFBcg': HYUNJIN_EXTRA_TRACK_IDS,
-      '2nTtulf6WM0raQcIbzYJuf': SEUNGMIN_EXTRA_TRACK_IDS,
-      '4kYSro6naA4h99UJvo89HB': CARDI_EXTRA_TRACK_IDS
-    };
-  }
-}
-
+// An artist's pinned songs (extra_artist_songs), as the CANONICAL HEADS they
+// belong to right now. Every bucket query filters `canonical_id IS NULL`, so a
+// pin has to name the current head or the song silently drops off the page.
+//
+// This used to be a list of head ids resolved in Node and cached for 10 minutes.
+// Heads move whenever dedup re-roots a recording (a new edition appears, a
+// manual merge lands), and between that commit and the next cache reload the
+// list named a song that was no longer a head. Any page computed in that window
+// lost the song and kept the loss in the 1-hour response cache: on 2026-11-03
+// JT read 18.95B without "4 Minutes" (572M, head 3BLQ… → 1oHC…) and Cardi
+// 22.82B without "Bet You Wanna" and "Puntería" (333M), while the song lists
+// next to them still had all three. Resolving inside the query cannot go stale.
+// The category charts already resolve pins this way.
 function getExtraTrackIdsSql(artistId) {
-  const ids = extraArtistSongsCache[artistId] || [];
-  if (ids.length === 0) return "'dummy_nonexistent_id'";
-  return ids.map(id => `'${id}'`).join(', ');
+  if (!SPOTIFY_ID_RE.test(String(artistId))) return "'dummy_nonexistent_id'";
+  return `SELECT COALESCE(pin_song.canonical_id, pin_song.id)
+            FROM extra_artist_songs pin
+            JOIN songs pin_song ON pin_song.id = pin.song_id
+           WHERE pin.artist_id = '${artistId}'`;
 }
 
 // ---- Admin-editable album tracklist overrides (display-only, migration 019) ---
@@ -273,7 +253,7 @@ function getExtraTrackIdsSql(artistId) {
 // single into its parent album). album_hidden_tracks: hide a song from album
 // tracklists/totals ONLY (stays in the flat list + artist total). Neither
 // changes canonical_id or any total — same safety as the hardcoded FSLS/TT20/ATD
-// remaps. Cached like extraArtistSongsCache; refreshed on write + via /refresh-caches.
+// remaps. Cached in memory; refreshed on write + via /refresh-caches.
 const SPOTIFY_ID_RE = /^[A-Za-z0-9]{22}$/;
 let albumTrackPinsCache = [];        // [{ song_id, album_id }]
 let albumHiddenTracksCache = [];     // [song_id, ...]
@@ -367,7 +347,7 @@ let rosterRefreshInFlight = null;
 function refreshRosterCaches() {
   rosterCacheAt = Date.now();
   return Promise.all([
-    refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(),
+    refreshActiveArtistsCache(), refreshHiddenSongsCache(),
     refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(), refreshReleaseCaches(),
   ]).then((r) => {
     // A refresh that never reached tracked_artists must not hold the 10-minute
@@ -4289,7 +4269,7 @@ app.post('/api/admin/artists/:id/purge', requireAdmin, requireSuperAdmin, async 
     await client.query(`DELETE FROM tracked_artists WHERE artist_id = $1`, [id]);
 
     await client.query('COMMIT');
-    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(), refreshReleaseCaches()]);
+    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(), refreshReleaseCaches()]);
     console.log(`[purge] ${uri}: ${songRes.rowCount} songs, ${albumsDeleted} albums removed.`);
     res.json({ success: true, songs_deleted: songRes.rowCount, albums_deleted: albumsDeleted });
   } catch (err) {
@@ -4543,7 +4523,6 @@ app.use('/api/admin/playlist-imports', playlistImportRoutes({
     if (response.status !== 204) throw new Error(`Could not queue the playlist preview (HTTP ${response.status}). Check the workflow and Actions token.`);
   },
   refresh: async () => {
-    await refreshExtraArtistSongsCache();
     await refreshReleaseCaches();
     artistAggregateSourceCache.clear();
     invalidateResponseCache();
@@ -5316,7 +5295,7 @@ app.post('/api/admin/snapshots/move-day', requireAdmin, requireSuperAdmin, async
 // redeploy (e.g. after fixing rows straight in Neon).
 app.post('/api/admin/refresh-caches', requireAdmin, requireSuperAdmin, async (req, res) => {
   try {
-    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshExtraArtistSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(), refreshReleaseCaches()]);
+    await Promise.all([refreshActiveArtistsCache(), refreshHiddenSongsCache(), refreshAlbumTrackPinsCache(), refreshAlbumHiddenTracksCache(), refreshReleaseCaches()]);
     res.json({ success: true, artists: allArtistsCache.length, hidden_songs: hiddenSongsCache.length });
   } catch (err) {
     console.error('Admin refresh-caches error:', err);
@@ -5574,7 +5553,6 @@ app.post('/api/admin/extra-artist-songs', requireAdmin, async (req, res) => {
       "INSERT INTO extra_artist_songs (artist_id, song_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
       [cleanArtistId, cleanSongId]
     );
-    await refreshExtraArtistSongsCache();
     res.json({ success: true });
   } catch (err) {
     console.error('Add extra-artist-song error:', err);
@@ -5606,7 +5584,6 @@ app.delete('/api/admin/extra-artist-songs', requireAdmin, async (req, res) => {
       "DELETE FROM extra_artist_songs WHERE artist_id = $1 AND song_id = $2",
       [cleanArtistId, cleanSongId]
     );
-    await refreshExtraArtistSongsCache();
     res.json({ success: true });
   } catch (err) {
     console.error('Delete extra-artist-song error:', err);
