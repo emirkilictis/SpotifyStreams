@@ -3543,6 +3543,9 @@ async function loadArtistAlbums(artistParam) {
         END AS release_date,
         CASE 
           WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473'
+          -- The Deluxe id's own artwork is the untitled disco-ball variant; the
+          -- real Deluxe Edition cover is the face shot.
+          WHEN id = '${FSLS_DELUXE_ID}' THEN 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473'
           ELSE image_url 
         END AS image_url
         FROM albums
