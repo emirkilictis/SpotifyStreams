@@ -3566,6 +3566,9 @@ async function loadArtistAlbums(artistParam) {
       FROM unique_albums ua
       JOIN album_canonical_songs acs ON ua.album_id = acs.album_id
       WHERE ua.album_id NOT IN (${releaseIdsSql(artistParam, 'hide')})
+        -- Undated second copy of Everything I Thought It Was: the same 18 songs
+        -- as 44e3xckIbDMtFm8jeZLLZ7 (all merged into it), so it drew a duplicate card.
+        AND ua.album_id <> '716B2iWcwoKolCXrqwLGQh'
       GROUP BY ua.album_id, ua.album_title, ua.release_date, ua.image_url
       ORDER BY release_date DESC NULLS LAST, total_streams DESC;
     `;

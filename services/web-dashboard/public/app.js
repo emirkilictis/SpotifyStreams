@@ -1510,6 +1510,7 @@ const ALBUM_THEMES = {
   '0O82niJ0NpcptYRxogeEZu': { accent: '#f1c40f', gradStart: '#2e2810', gradEnd: '#0d0d1a', glow: 'rgba(241, 196, 15, 0.3)' },  // 20/20 — gold
   '5lYzReGzcSNF0Gx47wm6qU': { accent: '#d4a017', gradStart: '#2a2210', gradEnd: '#0d0d1a', glow: 'rgba(212, 160, 23, 0.3)' },  // 20/20 pt2 — dark gold
   '01l3jTY261V3CESZR4dABz': { accent: '#74b49b', gradStart: '#162920', gradEnd: '#0d0d1a', glow: 'rgba(116, 180, 155, 0.3)' },  // MOTW — forest green
+  '44e3xckIbDMtFm8jeZLLZ7': { accent: '#e67e22', gradStart: '#2e1e0d', gradEnd: '#0d0d1a', glow: 'rgba(230, 126, 34, 0.3)' },  // EITW (dated copy)
   '716B2iWcwoKolCXrqwLGQh': { accent: '#e67e22', gradStart: '#2e1e0d', gradEnd: '#0d0d1a', glow: 'rgba(230, 126, 34, 0.3)' },  // EITW — orange
 };
 const DEFAULT_THEME = { accent: '#1db954', gradStart: '#162016', gradEnd: '#0d0d1a', glow: 'rgba(29, 185, 84, 0.3)' };
