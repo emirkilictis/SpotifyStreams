@@ -628,6 +628,10 @@ const FSLS_ALBUM_IDS = [
   '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI',
   '0NvpeY8oCm6oIlhH5Jw4fo', '4zJu74Lx1jB6PcpjKZ7rf8',
 ];
+// Standard and Deluxe also get a card of their own beside the Complete one
+// (display only: the Complete card, totals and dedup are unchanged).
+const FSLS_STANDARD_ID = '2scB1uhcCI1TSf6b9TCZK3';
+const FSLS_DELUXE_ID = '51lCQxAHpJHuqvvK0z12zp';
 const FSLS_ALBUM_IDS_SQL = FSLS_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
 // The 20/20 Experience (Deluxe) family: the deluxe itself + the standalone
@@ -3475,6 +3479,21 @@ async function loadArtistAlbums(artistParam) {
         AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
         AND ${FSLS_REMIX_EXCLUSION_SQL}
         )
+        -- Standard / Deluxe cards (JT): same songs the Complete card already
+        -- counts, grouped by the edition they were released on.
+        UNION
+        SELECT s.album_id,
+               COALESCE(s.canonical_id, s.id) AS canonical_song_id,
+               COALESCE(dsc.cumulative, 0) AS cumulative,
+               COALESCE(dsc.daily_gain, 0) AS daily_gain,
+               COALESCE(dsc.prev_daily_gain, 0) AS prev_daily_gain,
+               COALESCE(dsc.daily_avg_7d, 0) AS daily_avg_7d
+        FROM songs s
+        JOIN agg dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
+        WHERE s.album_id IN ('${FSLS_STANDARD_ID}', '${FSLS_DELUXE_ID}')
+          AND ${artistAlbumMatchSQL('s')}
+          AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
+          AND ${FSLS_REMIX_EXCLUSION_SQL}
         -- Extras listed on an album in addition to their own (ALBUM_EXTRA_TRACKS).
         -- UNION, not UNION ALL: an extra that already lands on the album the
         -- normal way must not be counted twice in the card total.
@@ -3493,21 +3512,24 @@ async function loadArtistAlbums(artistParam) {
       unique_albums AS (
         SELECT DISTINCT ON (
           CASE 
-            WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+            WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
             ELSE id 
           END
         )
         CASE 
-          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
+          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '0tcExuDWMQdBbwSpqN8Ku2'
           ELSE id 
         END AS album_id,
         CASE 
-          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'FutureSex/LoveSounds (Complete)'
+          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'FutureSex/LoveSounds (Complete)'
           WHEN id = '${DC1_ALBUM_ID}' THEN '${DC1_TITLE}'
+          -- Standard / Deluxe keep their own cards next to the Complete one.
+          WHEN id = '${FSLS_STANDARD_ID}' THEN 'FutureSex/LoveSounds (Standard)'
+          WHEN id = '${FSLS_DELUXE_ID}' THEN 'FutureSex/LoveSounds (Deluxe Edition)'
           ELSE title
         END AS album_title,
         CASE 
-          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '2006-09-11'::date
+          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN '2006-09-11'::date
           WHEN id = '74vajFwEwXJ61OW1DKSPEa' THEN '2020-10-30'::date
           WHEN id = '2uMTmPEFafKfKeobvdx5EE' THEN '2014-08-25'::date
           WHEN id = '0JPItniR1C7tjd4ac2R1Vk' THEN '2016-05-20'::date
@@ -3516,7 +3538,7 @@ async function loadArtistAlbums(artistParam) {
           ELSE release_date
         END AS release_date,
         CASE 
-          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '2scB1uhcCI1TSf6b9TCZK3', '51lCQxAHpJHuqvvK0z12zp', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473'
+          WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'https://i.scdn.co/image/ab67616d0000b273c68f26a3d34fbd0faed2b473'
           ELSE image_url 
         END AS image_url
         FROM albums
