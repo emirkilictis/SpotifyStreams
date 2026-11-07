@@ -632,6 +632,9 @@ const FSLS_ALBUM_IDS = [
 // (display only: the Complete card, totals and dedup are unchanged).
 const FSLS_STANDARD_ID = '2scB1uhcCI1TSf6b9TCZK3';
 const FSLS_DELUXE_ID = '51lCQxAHpJHuqvvK0z12zp';
+// The Deluxe edition is spread over two album ids: the second also carries the
+// 2006 radio edit, the Beyonce duet and the Sexy Ladies remix.
+const FSLS_DELUXE_MEMBER_IDS_SQL = `'${FSLS_DELUXE_ID}', '0tcExuDWMQdBbwSpqN8Ku2'`;
 const FSLS_ALBUM_IDS_SQL = FSLS_ALBUM_IDS.map(id => `'${id}'`).join(', ');
 
 // The 20/20 Experience (Deluxe) family: the deluxe itself + the standalone
@@ -3482,7 +3485,7 @@ async function loadArtistAlbums(artistParam) {
         -- Standard / Deluxe cards (JT): same songs the Complete card already
         -- counts, grouped by the edition they were released on.
         UNION
-        SELECT s.album_id,
+        SELECT k.card_id AS album_id,
                COALESCE(s.canonical_id, s.id) AS canonical_song_id,
                COALESCE(dsc.cumulative, 0) AS cumulative,
                COALESCE(dsc.daily_gain, 0) AS daily_gain,
@@ -3490,7 +3493,8 @@ async function loadArtistAlbums(artistParam) {
                COALESCE(dsc.daily_avg_7d, 0) AS daily_avg_7d
         FROM songs s
         JOIN agg dsc ON COALESCE(s.canonical_id, s.id) = dsc.canonical_id
-        WHERE s.album_id IN ('${FSLS_STANDARD_ID}', '${FSLS_DELUXE_ID}')
+        CROSS JOIN LATERAL (SELECT CASE WHEN s.album_id = '${FSLS_STANDARD_ID}' THEN s.album_id ELSE '${FSLS_DELUXE_ID}' END AS card_id) k
+        WHERE s.album_id IN ('${FSLS_STANDARD_ID}', ${FSLS_DELUXE_MEMBER_IDS_SQL})
           AND ${artistAlbumMatchSQL('s')}
           AND COALESCE(s.canonical_id, s.id) NOT IN (${albumHiddenTrackIdsSql()})
           AND ${FSLS_REMIX_EXCLUSION_SQL}
@@ -3627,7 +3631,12 @@ app.get('/api/albums/:id/songs', requireAuth,
             AND s.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL})
           )
           OR (
+            $1 = '${FSLS_DELUXE_ID}'
+            AND s.album_id IN (${FSLS_DELUXE_MEMBER_IDS_SQL})
+          )
+          OR (
             $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
+            AND $1 <> '${FSLS_DELUXE_ID}'
             AND $1 <> '0O82niJ0NpcptYRxogeEZu'
             AND $1 <> '${ATD_ULTIMATE_ID}'
             AND $1 <> '${DC1_ALBUM_ID}'
@@ -3815,7 +3824,12 @@ app.get('/api/albums/:id/history', requireAuth,
               AND s.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL})
             )
             OR (
+              $1 = '${FSLS_DELUXE_ID}'
+              AND s.album_id IN (${FSLS_DELUXE_MEMBER_IDS_SQL})
+            )
+            OR (
               $1 <> '0tcExuDWMQdBbwSpqN8Ku2'
+              AND $1 <> '${FSLS_DELUXE_ID}'
               AND $1 <> '0O82niJ0NpcptYRxogeEZu'
               AND $1 <> '${ATD_ULTIMATE_ID}'
               AND $1 <> '${DC1_ALBUM_ID}'
