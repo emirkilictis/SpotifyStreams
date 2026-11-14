@@ -17,6 +17,7 @@ const { launchBrowser, fetchAlbumTracks, fetchTrackPlaycount, fetchArtistAvatar 
 const { discoverAllAlbumsPuppeteer } = require('./discover');
 const { getPool, upsertAlbum, upsertSong, upsertSongsBatch, upsertStreamStat, upsertStreamStatsBatch, upsertArtistStat, setScraperStatus, setScraperProgress, markArtistScanned, fixLateUpdateDay, foldPartialDebuts, reconcileStreamDrops, closePool } = require('./db');
 const { dedupCanonical, quickMergeNewCopies } = require('./dedup');
+const { refreshChartCache } = require('./chart-cache');
 const { syncArtistCredits } = require('./artist-credits');
 
 // Auto-backfill any active artist still missing a profile photo (e.g. a freshly
@@ -1249,11 +1250,15 @@ async function run() {
         // load. Refresh only after dedup commits so readers see either the old
         // coherent mapping or the new one, never an in-between state.
         await setScraperStatus(client, 'refreshing charts');
-        await client.query('REFRESH MATERIALIZED VIEW CONCURRENTLY chart_daily_streams');
+        // With its own time limit: under the role's 2-minute default the refresh
+        // started timing out on 2026-11-14 and was skipped (see lib/chart-cache.js).
+        const refreshMs = await refreshChartCache(client);
+        console.log(`[scraper] Chart cache refreshed in ${(refreshMs / 1000).toFixed(1)}s.`);
       } catch (chartRefreshErr) {
-        // A missing view means migration 029 has not reached this environment
-        // yet. Do not turn a successful scrape red; the next run will refresh.
-        console.error('[scraper] Chart cache refresh failed (skipped):', chartRefreshErr.message);
+        // Do not turn a successful scrape red: the dashboard reads the live
+        // aggregates for any artist whose copy is stale, and the workflow's
+        // refresh-chart-cache.js step retries within the same run.
+        console.error('[scraper] Chart cache refresh FAILED (the workflow will retry):', chartRefreshErr.message);
       }
       try {
         await setScraperStatus(client, 'idle');

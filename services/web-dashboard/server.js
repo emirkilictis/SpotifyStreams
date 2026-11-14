@@ -601,6 +601,7 @@ function artistFeaturedSQL(s) {
 // scripts/check-stats-sql.js — the arithmetic here is where a wrong headline
 // comes from, and it was previously only checkable by loading the page.
 const { artistLatestAggCTE, artistCachedAggCTE, chartLatestAggCTE, debutBaselineSQL, AGG_GAINS_WITH_DEBUT_BASE, DEBUT_EARLIEST_RELEASE, SONG_HISTORY_SQL } = require('./lib/agg-sql');
+const { chartCacheDriftSQL } = require('./lib/chart-cache');
 
 // Dynamically generate the album exclusion clauses for albums query based on active artists.
 function artistAlbumMatchSQL(s) {
@@ -916,7 +917,7 @@ async function dbQueryWithNestloopOff(text, params) {
 const artistAggregateSourceCache = new Map();
 const ARTIST_AGG_SOURCE_TTL_MS = 30 * 1000;
 
-// Does chart_daily_streams already hold this artist's newest day in full?
+// Does chart_daily_streams agree with the live catalogue for this artist?
 // Every profile endpoint asks, so the answer is cached per artist for 30 s and
 // concurrent askers share one lookup.
 // PROFILE_CHART_CACHE=off forces every profile query back to the live
@@ -939,41 +940,32 @@ async function artistUsesChartCache(artistId) {
 
   if (useCached === null) {
     const pending = (async () => {
-      // Fresh = the materialised copy holds this artist's newest day IN FULL:
-      // every head with a reading on that day has its row in the copy.
+      // Fresh = for EVERY song this artist's pages can show, the copy's newest
+      // row is that song's newest live reading, under the head it has today.
+      // One stale head sends the whole artist to the live aggregate.
       //
-      // It used to compare the artist's scan DATE with the newest date
-      // anywhere in the copy, which said "fresh" all day once any scan
-      // stamped today: on 2026-10-03 an evening re-sync (before Spotify's
-      // update) stamped JT for the day and refreshed the copy, the real
-      // update landed hours later on the same date, and JT's profile sat on
-      // yesterday's numbers. Comparing only the newest DATE isn't enough
-      // either: a refresh that runs while an artist is mid-scan (Britney, the
-      // same night) holds a few of that day's rows, the date matches, and the
-      // headline falls back to the previous day until the next refresh.
-      // Every lookup goes through an (id, recorded_date) index: ~30 ms.
-      const freshness = await dbQuery(`
-        WITH mine AS MATERIALIZED (
-          SELECT id, COALESCE(canonical_id, id) AS head
-          FROM songs WHERE primary_artist = 'spotify:artist:' || $1
-        ),
-        newest AS MATERIALIZED (
-          SELECT MAX(x.d) AS d FROM mine m CROSS JOIN LATERAL (
-            SELECT ss.recorded_date AS d FROM stream_stats ss
-            WHERE ss.song_id = m.id ORDER BY ss.recorded_date DESC LIMIT 1) x
-        )
-        SELECT
-          (SELECT d FROM newest)::text AS live_date,
-          (SELECT COUNT(DISTINCT m.head) FROM mine m
-            WHERE EXISTS (SELECT 1 FROM stream_stats ss
-                          WHERE ss.song_id = m.id AND ss.recorded_date = (SELECT d FROM newest)))::int AS live_heads,
-          (SELECT COUNT(*) FROM (SELECT DISTINCT head FROM mine) h
-            WHERE EXISTS (SELECT 1 FROM chart_daily_streams c
-                          WHERE c.canonical_id = h.head AND c.recorded_date = (SELECT d FROM newest)))::int AS cached_heads
-      `, [id]);
-      const row = freshness.rows[0] || {};
-      // No reading at all means there is nothing the copy could be missing.
-      return !row.live_date || Number(row.cached_heads) >= Number(row.live_heads);
+      // Each weaker test this replaced let a wrong headline through:
+      //  - the artist's scan DATE against the newest date in the copy said
+      //    "fresh" all day once any scan stamped today (2026-10-03, JT sat on
+      //    yesterday's numbers after a same-day re-sync);
+      //  - COUNTING heads on the newest day only looked at songs the artist
+      //    owns, so pinned collabs were never checked, and as a comparison of
+      //    two totals a head too many on one side cancelled one missing on the
+      //    other. On 2026-11-14 the refresh timed out after a
+      //    dedup had moved 85 heads: JT read 18.99B without "4 Minutes" and
+      //    three FSLS tracks, Cardi lost "Bet You Wanna" — every one of them
+      //    still in the song list, with a blank total.
+      // The scope is the bucket and the album grid together, so no profile
+      // query can reach a head this did not check. See lib/chart-cache.js.
+      if (!SPOTIFY_ID_RE.test(id)) return false;
+      const drift = await dbQuery(chartCacheDriftSQL(`
+        SELECT DISTINCT COALESCE(s.canonical_id, s.id) AS id
+        FROM songs s
+        LEFT JOIN albums a ON s.album_id = a.id
+        WHERE ${artistBucketMatchSQL('s', 'a')} OR ${artistAlbumMatchSQL('s')}
+      `), [`spotify:artist:${id}`]);
+      const row = drift.rows[0] || {};
+      return Number(row.heads_behind) === 0 && Number(row.alias_keys) === 0;
     })().catch((err) => {
       // A missing/stale materialized view must never break a profile. The live
       // aggregate is slower, but it is the authoritative safe fallback.

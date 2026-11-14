@@ -259,7 +259,11 @@ function scoreCanonical(song) {
   let score = 0;
   if (!song.is_featured) score += 1_000_000_000;
   if (song.release_date) {
-    const year = parseInt(song.release_date.toISOString().slice(0, 4), 10);
+    // Local getter: pg hands a DATE back as LOCAL midnight, so toISOString()
+    // reads 2010-01-01 as 2009 on any machine east of UTC. A dedup run from an
+    // Istanbul laptop then picked different heads from the same data than the
+    // UTC runners did (121 families). Identical on UTC, correct everywhere.
+    const year = song.release_date.getFullYear();
     score += (3000 - year) * 100_000;
   }
   // Hardcoded overrides to force specific track IDs to be canonical
@@ -528,22 +532,25 @@ function shouldKeepSeparate(title) {
   }
   let exactCount = 0;
   const variantRe = /\b(?:remix|instrumental|a\s*cappella|acappella|mix|version|remaster(?:ed)?|edit|live|acoustic|karaoke)\b/i;
+  // Which of two copies of one recording should be the head. A total order (it
+  // ends on the id), so the answer never depends on the order rows arrive in.
+  const byHeadPreference = (a, b) => {
+    // A manual target always wins the canonical slot: the admin already said
+    // which copy this recording lives on, and merging the other way would
+    // fight the rule that gets applied at the end of this run.
+    const ma = manualCanonicalIds.has(a.id) ? 1 : 0, mb = manualCanonicalIds.has(b.id) ? 1 : 0;
+    if (ma !== mb) return mb - ma;
+    const sa = scoreCanonical(a), sb = scoreCanonical(b);
+    if (sa !== sb) return sb - sa;
+    // Tiebreak: keep the "plain" title (no remix/instrumental/… tag) as the
+    // canonical so the dashboard shows the main version, not a variant.
+    const va = variantRe.test(a.title) ? 1 : 0, vb = variantRe.test(b.title) ? 1 : 0;
+    if (va !== vb) return va - vb;
+    return a.id.localeCompare(b.id);
+  };
   for (const group of exactGroups.values()) {
     if (group.length < 2) continue;
-    group.sort((a, b) => {
-      // A manual target always wins the canonical slot: the admin already said
-      // which copy this recording lives on, and merging the other way would
-      // fight the rule that gets applied at the end of this run.
-      const ma = manualCanonicalIds.has(a.id) ? 1 : 0, mb = manualCanonicalIds.has(b.id) ? 1 : 0;
-      if (ma !== mb) return mb - ma;
-      const sa = scoreCanonical(a), sb = scoreCanonical(b);
-      if (sa !== sb) return sb - sa;
-      // Tiebreak: keep the "plain" title (no remix/instrumental/… tag) as the
-      // canonical so the dashboard shows the main version, not a variant.
-      const va = variantRe.test(a.title) ? 1 : 0, vb = variantRe.test(b.title) ? 1 : 0;
-      if (va !== vb) return va - vb;
-      return a.id.localeCompare(b.id);
-    });
+    group.sort(byHeadPreference);
     const canonical = group[0];
     for (let i = 1; i < group.length; i++) {
       const m = group[i];
@@ -605,7 +612,15 @@ function shouldKeepSeparate(title) {
 
   let driftCount = 0;
   for (const list of driftHeads.values()) {
-    list.sort((a, b) => Number(b.max_streams) - Number(a.max_streams));
+    // The earlier of two matching rows becomes the head, and linked copies read
+    // the SAME count — so among equals the order must be decided here, not by
+    // whatever order Postgres returned the rows in. It used to be: two dedups
+    // minutes apart on the same data crowned different copies ("DDU-DU DDU-DU"
+    // vs its Japanese Version, "It's a Sin" 2018 vs 2001 Remaster — titles too
+    // short for the exact pass to pair, so they reach this one tied), and every
+    // flip stranded that recording's rows in chart_daily_streams under the old
+    // head until the next refresh.
+    list.sort((a, b) => (Number(b.max_streams) - Number(a.max_streams)) || byHeadPreference(a, b));
     for (let i = 0; i < list.length; i++) {
       const a = list[i];
       if (isAlias.has(a.id)) continue;

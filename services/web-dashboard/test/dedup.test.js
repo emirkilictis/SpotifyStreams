@@ -342,3 +342,19 @@ test('Pass 2 re-points an existing alias so no canonical chain forms', async () 
   assert.equal(client.assignments['tg3'], 'tg1', 'exact-count copy merges into tg1');
   assert.equal(client.assignments['tg4'], 'tg1', 're-pointed alias must point at tg1, not tg3 (no chain)');
 });
+
+test('drift pass picks the same head whatever order the rows arrive in', async () => {
+  // Linked copies read the SAME count, and a title this short has no word the
+  // exact pass can pair on, so the two reach the drift pass tied. The head used
+  // to be whichever row Postgres returned first: two dedups minutes apart
+  // crowned different copies and stranded the recording's cached rows under the
+  // old head. Same year on both, so only the plain-title rule separates them.
+  const plain = exrow('zz9', 'Ab Cd', 82_178_005, 209355, { date: '2018-08-22' });
+  const variant = exrow('aa1', 'Ab Cd - Japanese Version', 82_178_005, 209493, { date: '2018-12-05' });
+  for (const rows of [[plain, variant], [variant, plain]]) {
+    const client = makeFakeClient(rows);
+    await dedupCanonical(client);
+    assert.equal(client.assignments['aa1'], 'zz9', 'the variant is the alias in either order');
+    assert.equal(client.assignments['zz9'], undefined, 'the plain title stays the head in either order');
+  }
+});

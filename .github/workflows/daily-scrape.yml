@@ -113,6 +113,19 @@ jobs:
           node run-dedup.js
           node audit-duplicate-heads.js --apply
 
+      # Runs every hour, update or not. The dedup and audit above move canonical
+      # heads after the scraper's own refresh, and admin merges or a failed
+      # refresh can leave the chart copy wrong at any time. This compares the
+      # copy with the live catalogue and rebuilds it only when they disagree.
+      - name: Keep the chart cache in sync
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 25
+        working-directory: services/spotify-scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node refresh-chart-cache.js
+
       # The posting ledger permits at most one post per day. Missing credentials,
       # incomplete data, decreases, or implausible changes suppress publication.
       # Run after any successful scrape so a later run can retry a missed post.
