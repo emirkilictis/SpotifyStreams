@@ -730,30 +730,6 @@ const ATD_ULTIMATE_COVER = 'https://i.scdn.co/image/ab67616d00001e02967b09b0309b
 const ATD_REMIX_SINGLE_IDS = ['2i2SkQ9IRn6q9E8RjhpOH3', '58YOjlNjfpWLFmHglWof4g'];
 const ATD_REMIX_SINGLE_IDS_SQL = ATD_REMIX_SINGLE_IDS.map(id => `'${id}'`).join(', ');
 
-// Dove Cameron's announced debut album "DC1" has no Spotify release yet, so its
-// songs only exist as standalone singles. Fold the era's singles — Too Much,
-// French Girls, Romeo, Whatever You Like, Hello My Old Lover, When In Rome — into one album
-// card so the era can be read as a whole (requested by a fan via the feedback
-// form). The "French Girls" single is the bucket because it already carries two
-// of the six tracks; the other four single cards vanish from the grid on their
-// own, because the bucket CASE moves their songs' display album here and the
-// album grid inner-joins on having at least one song. Display-only: no totals,
-// no canonical links, no album_id in the DB change. When DC1 actually ships,
-// Spotify will mint a REAL album id with its own track ids — at that point this
-// family should be retired, or the two will both show.
-const DC1_ALBUM_ID = '0zNVm3xZratOorJpLbglfN';
-const DC1_TITLE = 'DC1';
-// Era start = "Too Much", the first single. The album itself has no date yet.
-const DC1_RELEASE_DATE = '2025-02-21';
-const DC1_SINGLE_ALBUM_IDS = [
-  '0zNVm3xZratOorJpLbglfN', // French Girls (holds "Too Much" + "French Girls")
-  '257PqwE2yKKYxbLvqIkT3Y', // Romeo
-  '6Ws8yG1V1JszzzS0lwk8mn', // Whatever You Like
-  '576OBHrTMTv0uNbSrCZQHp', // Hello My Old Lover
-  '04Z2u8LxyvHF76JFKv5Tbn', // When In Rome
-];
-const DC1_SINGLE_ALBUM_IDS_SQL = DC1_SINGLE_ALBUM_IDS.map(id => `'${id}'`).join(', ');
-
 // Alternate versions hidden from album tracklists AND album totals
 // (the songs stay in the catalog / overall artist totals).
 const HIDDEN_ALBUM_TRACK_IDS = [
@@ -1729,7 +1705,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         UNION
         SELECT UNNEST(ARRAY[
           ${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL},
-          '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL}, '2aDXy3PJUnjdFwAw5UNgJb'
+          '${ATD_ULTIMATE_ID}', '2aDXy3PJUnjdFwAw5UNgJb'
         ]::text[])
       ),
       album_source_rows AS MATERIALIZED (
@@ -1760,7 +1736,6 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
             WHEN source.album_id IN (${TT20_ALBUM_IDS_SQL}) THEN 'fixed:0O82niJ0NpcptYRxogeEZu'
             WHEN source.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) OR source.album_id = '${ATD_ULTIMATE_ID}'
               THEN 'fixed:${ATD_ULTIMATE_ID}'
-            WHEN source.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN 'fixed:${DC1_ALBUM_ID}'
             ELSE 'title:' || REGEXP_REPLACE(
               LOWER(REGEXP_REPLACE(
                 source.album_title,
@@ -1774,14 +1749,12 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
             WHEN source.album_id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
             WHEN source.album_id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN source.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) OR source.album_id = '${ATD_ULTIMATE_ID}' THEN '${ATD_ULTIMATE_ID}'
-            WHEN source.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
             ELSE source.album_id
           END AS display_album_id,
           CASE
             WHEN source.album_id IN (${FSLS_ALBUM_IDS_SQL}) THEN 'FutureSex/LoveSounds (Complete)'
             WHEN source.album_id IN (${TT20_ALBUM_IDS_SQL}) THEN 'The 20/20 Experience (Deluxe Version)'
             WHEN source.album_id IN (${ATD_REMIX_SINGLE_IDS_SQL}) OR source.album_id = '${ATD_ULTIMATE_ID}' THEN '${ATD_ULTIMATE_TITLE}'
-            WHEN source.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_TITLE}'
             ELSE source.album_title
           END AS display_title,
           CASE
@@ -1795,7 +1768,7 @@ app.get(['/api/charts', '/api/ai-charts'], requireAuth,
         WHERE source.canonical_id NOT IN (${albumHiddenTrackIdsSql()})
           AND source.album_id NOT IN (${CHART_EXCLUDED_ALBUM_IDS_SQL})
           AND (
-            source.album_id IN (${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL}, '${ATD_ULTIMATE_ID}', ${DC1_SINGLE_ALBUM_IDS_SQL})
+            source.album_id IN (${FSLS_ALBUM_IDS_SQL}, ${TT20_ALBUM_IDS_SQL}, ${ATD_REMIX_SINGLE_IDS_SQL}, '${ATD_ULTIMATE_ID}')
             OR (
               COALESCE(source.album_group, '') NOT IN ('compilation', 'single')
               AND NOT (LOWER(source.album_title) ~
@@ -3287,7 +3260,6 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess,
             WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
             WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
-            WHEN a.id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
             ELSE s.album_id
           END,
           COALESCE(s.canonical_id, s.id)
@@ -3297,7 +3269,6 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess,
           WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
           WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
-          WHEN a.id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
           ELSE s.album_id
         END AS album_id,
         COALESCE(s.canonical_id, s.id) AS canonical_song_id
@@ -3328,8 +3299,6 @@ app.get('/api/milestones-reached', requireAuth, validateArtistAccess,
           -- Spotify'la karsilastiran fani yaniltiyordu.
           WHEN id IN (${FSLS_ALBUM_IDS_SQL}) THEN 'FutureSex/LoveSounds (Complete)'
           WHEN id IN (${TT20_ALBUM_IDS_SQL}) THEN 'The 20/20 Experience (Deluxe Version)'
-          -- The DC1 bucket keeps the French Girls single's id, so only its label changes.
-          WHEN id = '${DC1_ALBUM_ID}' THEN '${DC1_TITLE}'
           ELSE title
         END AS album_title
         FROM albums
@@ -3446,7 +3415,6 @@ async function loadArtistAlbums(artistParam) {
             WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
             WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
             WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
-            WHEN a.id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
             ELSE s.album_id
           END,
           COALESCE(s.canonical_id, s.id)
@@ -3456,7 +3424,6 @@ async function loadArtistAlbums(artistParam) {
           WHEN a.id IN (${FSLS_ALBUM_IDS_SQL}) THEN '0tcExuDWMQdBbwSpqN8Ku2'
           WHEN a.id IN (${TT20_ALBUM_IDS_SQL}) THEN '0O82niJ0NpcptYRxogeEZu'
           WHEN a.id IN (${ATD_REMIX_SINGLE_IDS_SQL}) THEN '${ATD_ULTIMATE_ID}'
-          WHEN a.id IN (${DC1_SINGLE_ALBUM_IDS_SQL}) THEN '${DC1_ALBUM_ID}'
           ELSE s.album_id
         END AS album_id,
         COALESCE(s.canonical_id, s.id) AS canonical_song_id,
@@ -3518,7 +3485,6 @@ async function loadArtistAlbums(artistParam) {
         END AS album_id,
         CASE 
           WHEN id IN ('0tcExuDWMQdBbwSpqN8Ku2', '1tze7ApbUfn71mNcaixlX6', '3N1D55OU4TgweV2SSx6rpl', '2T4Y4BOSbReX4EEM79hIO6', '5DEGO898K51fENd1Jt0Rek', '3E81KB8Gxn4kkh8GP5M3DK', '6G2boZuVyTIIxlmTG52NsI', '0NvpeY8oCm6oIlhH5Jw4fo') THEN 'FutureSex/LoveSounds (Complete)'
-          WHEN id = '${DC1_ALBUM_ID}' THEN '${DC1_TITLE}'
           -- Standard / Deluxe keep their own cards next to the Complete one.
           WHEN id = '${FSLS_STANDARD_ID}' THEN 'FutureSex/LoveSounds (Standard)'
           WHEN id = '${FSLS_DELUXE_ID}' THEN 'FutureSex/LoveSounds (Deluxe Edition)'
@@ -3530,7 +3496,6 @@ async function loadArtistAlbums(artistParam) {
           WHEN id = '2uMTmPEFafKfKeobvdx5EE' THEN '2014-08-25'::date
           WHEN id = '0JPItniR1C7tjd4ac2R1Vk' THEN '2016-05-20'::date
           WHEN id = '2VSBGJ8bUuNgmOYXHIQagM' THEN '2013-09-03'::date
-          WHEN id = '${DC1_ALBUM_ID}' THEN '${DC1_RELEASE_DATE}'::date
           ELSE release_date
         END AS release_date,
         CASE 
@@ -3624,11 +3589,6 @@ app.get('/api/albums/:id/songs', requireAuth,
             AND s.album_id IN ('${ATD_ULTIMATE_ID}', ${ATD_REMIX_SINGLE_IDS_SQL})
           )
           OR (
-            -- DC1: the announced debut album, assembled from its era singles.
-            $1 = '${DC1_ALBUM_ID}'
-            AND s.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL})
-          )
-          OR (
             $1 = '${FSLS_DELUXE_ID}'
             AND s.album_id IN (${FSLS_DELUXE_MEMBER_IDS_SQL})
           )
@@ -3637,7 +3597,6 @@ app.get('/api/albums/:id/songs', requireAuth,
             AND $1 <> '${FSLS_DELUXE_ID}'
             AND $1 <> '0O82niJ0NpcptYRxogeEZu'
             AND $1 <> '${ATD_ULTIMATE_ID}'
-            AND $1 <> '${DC1_ALBUM_ID}'
             AND s.album_id = $1
           )
           -- Admin-pinned tracks (migration 019): show under the album they're pinned to.
@@ -3817,11 +3776,6 @@ app.get('/api/albums/:id/history', requireAuth,
               AND s.album_id IN ('${ATD_ULTIMATE_ID}', ${ATD_REMIX_SINGLE_IDS_SQL})
             )
             OR (
-              -- DC1: same era-singles membership as the tracklist above.
-              $1 = '${DC1_ALBUM_ID}'
-              AND s.album_id IN (${DC1_SINGLE_ALBUM_IDS_SQL})
-            )
-            OR (
               $1 = '${FSLS_DELUXE_ID}'
               AND s.album_id IN (${FSLS_DELUXE_MEMBER_IDS_SQL})
             )
@@ -3830,7 +3784,6 @@ app.get('/api/albums/:id/history', requireAuth,
               AND $1 <> '${FSLS_DELUXE_ID}'
               AND $1 <> '0O82niJ0NpcptYRxogeEZu'
               AND $1 <> '${ATD_ULTIMATE_ID}'
-              AND $1 <> '${DC1_ALBUM_ID}'
               AND s.album_id = $1
             )
             -- Admin-pinned tracks (migration 019): count under their pinned album.
@@ -4535,8 +4488,7 @@ app.use('/api/admin/releases', releaseManagementRoutes({
   settingsFor: (artistId, albumId) => releaseSettingsCache.find(x => x.artist_id === artistId && x.album_id === albumId),
   familyId: id => FSLS_ALBUM_IDS.includes(id) ? '0tcExuDWMQdBbwSpqN8Ku2'
     : TT20_ALBUM_IDS.includes(id) ? '0O82niJ0NpcptYRxogeEZu'
-    : ATD_REMIX_SINGLE_IDS.includes(id) ? ATD_ULTIMATE_ID
-    : DC1_SINGLE_ALBUM_IDS.includes(id) ? DC1_ALBUM_ID : id,
+    : ATD_REMIX_SINGLE_IDS.includes(id) ? ATD_ULTIMATE_ID : id,
   refresh: async () => { await refreshReleaseCaches(); invalidateResponseCache(); },
 }));
 
