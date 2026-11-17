@@ -6247,6 +6247,19 @@ body.modal-open .sync-banner {
 
 #favorite-btn.fav-active svg { fill: currentColor; }
 
+/* Herkese acik begeni sayisi: butonun icinde kucuk bir hap. */
+#favorite-btn .fav-count {
+  margin-left: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+}
+#favorite-btn .fav-count.hidden { display: none; }
+
 /* Favoriler serisi. Ana gridin ustunde, kendi basligiyla ayrilmis bir bolum:
    kisisel kisayol oldugu icin listenin geri kalanindan gorsel olarak ayri
    durmasi gerekiyor. */
@@ -6315,6 +6328,19 @@ body.modal-open .sync-banner {
   color: var(--accent-green, #1ed760);
 }
 .picker-fav.is-fav svg { fill: currentColor; }
+
+/* Kartin isim satirinda herkese acik begeni sayisi. Avatarin ustunde degil:
+   kucuk avatarda "1.2K" gorseli kapatiyordu. */
+.picker-like-count {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.55));
+}
 
 @media (hover: none) {
   .picker-fav { opacity: 0.72; background: rgba(0, 0, 0, 0.42); }

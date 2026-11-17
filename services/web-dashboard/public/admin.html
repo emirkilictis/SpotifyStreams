@@ -559,6 +559,7 @@
       <button class="tab" data-view="releases">Albums &amp; EPs</button>
       <button class="tab" data-view="songs">Songs</button>
       <button class="tab" data-view="status">Status</button>
+      <button class="tab" data-view="visits">Visits</button>
       <button class="tab" data-view="god">⚡ God</button>
     </div>
 
@@ -768,6 +769,16 @@
     </div>
 
     <!-- Status view -->
+    <!-- Profile visits (admin only) + public like counts -->
+    <div id="visits-view" class="hidden">
+      <div class="toolbar">
+        <button id="visits-refresh" class="tool-btn" title="Reload">⟳ Refresh</button>
+        <span id="visits-meta" class="songs-hint" style="margin:auto 0 auto auto"></span>
+      </div>
+      <p class="songs-hint">Profile opens per artist (Istanbul calendar days). The same visitor reopening the same profile within 30 minutes counts once. Likes are the public favorite counts shown on the site. Click a column header to sort.</p>
+      <div id="visits-list"></div>
+    </div>
+
     <div id="status-view" class="hidden">
       <div class="toolbar">
         <button id="status-refresh" class="tool-btn">⟳ Refresh</button>
@@ -1167,6 +1178,8 @@
       document.getElementById('songs-view').classList.toggle('hidden', v !== 'songs');
       document.getElementById('releases-view').classList.toggle('hidden', v !== 'releases');
       document.getElementById('god-view').classList.toggle('hidden', v !== 'god');
+      document.getElementById('visits-view').classList.toggle('hidden', v !== 'visits');
+      if (v === 'visits') loadVisits();
       if (v === 'artists' && !artistsLoaded) loadArtists();
       if (v === 'status') loadScraperStatus();
       if (v === 'health') loadHealth();
@@ -1174,6 +1187,51 @@
       if (v === 'god') loadGod();
       if (v === 'releases') window.releaseAdmin.open();
     }));
+
+    // ---- Visits: profile opens per artist + public like counts ----
+    let visitRows = [];
+    let visitSort = { key: 'total', dir: -1 };
+    const VISIT_COLS = [
+      ['name', 'Artist'], ['today', 'Today'], ['last7', '7 days'],
+      ['last30', '30 days'], ['total', 'All time'], ['likes', 'Likes'],
+    ];
+    async function loadVisits() {
+      const el = document.getElementById('visits-list');
+      el.innerHTML = '<div class="loading">Loading…</div>';
+      try {
+        const res = await api('/api/admin/artist-visits');
+        if (res.status === 403) { lock('Wrong passcode.'); return; }
+        if (!res.ok) throw new Error();
+        visitRows = await res.json();
+        renderVisits();
+      } catch {
+        el.innerHTML = '<div class="empty">Could not load. Try again.</div>';
+      }
+    }
+    function renderVisits() {
+      const el = document.getElementById('visits-list');
+      const meta = document.getElementById('visits-meta');
+      const sum = (k) => visitRows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+      const since = visitRows.map(r => r.since).filter(Boolean).sort()[0];
+      meta.textContent = `Today ${sum('today').toLocaleString()} · 7d ${sum('last7').toLocaleString()} · all time ${sum('total').toLocaleString()} · likes ${sum('likes').toLocaleString()}${since ? ' · counting since ' + since : ''}`;
+      if (!visitRows.length) { el.innerHTML = '<div class="empty">No data yet.</div>'; return; }
+      const { key, dir } = visitSort;
+      const rows = [...visitRows].sort((a, b) => key === 'name'
+        ? dir * String(a.name).localeCompare(String(b.name))
+        : dir * ((Number(a[key]) || 0) - (Number(b[key]) || 0)) || String(a.name).localeCompare(String(b.name)));
+      el.innerHTML = `<table class="status-table"><thead><tr>${VISIT_COLS.map(([k, label]) =>
+        `<th data-vsort="${k}" style="cursor:pointer;${k === 'name' ? '' : 'text-align:right'}">${esc(label)}${k === key ? (dir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('')}</tr></thead><tbody>${
+        rows.map(r => `<tr>${VISIT_COLS.map(([k]) => k === 'name'
+          ? `<td>${esc(r.name)}</td>`
+          : `<td style="text-align:right;font-variant-numeric:tabular-nums">${(Number(r[k]) || 0).toLocaleString()}</td>`).join('')}</tr>`).join('')
+      }</tbody></table>`;
+      el.querySelectorAll('th[data-vsort]').forEach(th => th.addEventListener('click', () => {
+        const k = th.dataset.vsort;
+        visitSort = visitSort.key === k ? { key: k, dir: -visitSort.dir } : { key: k, dir: k === 'name' ? 1 : -1 };
+        renderVisits();
+      }));
+    }
+    document.getElementById('visits-refresh').addEventListener('click', loadVisits);
 
     // ---- Songs: hide / unhide tracks ----
     const songSearchEl = document.getElementById('song-hide-search');

@@ -3984,6 +3984,200 @@ app.delete('/api/feedback/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// ---- Artist likes (public counts) + profile visits (admin only) --------------
+//
+// The site has no accounts. A "voter" is a random id the browser keeps in
+// localStorage, so a like is idempotent per browser and an unlike is a DELETE.
+// Clearing storage mints a new voter, so each network (ip_hash) may add at most
+// LIKE_VOTERS_PER_IP voters per artist: a household still counts, a script
+// looping over fresh ids does not. Migration 036.
+const VOTER_ID_RE = /^[A-Za-z0-9-]{16,64}$/;
+const LIKE_VOTERS_PER_IP = 5;
+const LIKE_COUNTS_CACHE_KEY = 'artist-likes';
+const likeRequestLog = new Map();   // ipHash -> [timestamps] (sliding 10 min)
+
+function likeRateLimited(ipHash) {
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  if (likeRequestLog.size > 5000) {
+    for (const [k, list] of likeRequestLog) {
+      if (!list.length || now - list[list.length - 1] >= windowMs) likeRequestLog.delete(k);
+    }
+  }
+  const list = (likeRequestLog.get(ipHash) || []).filter(t => now - t < windowMs);
+  if (list.length >= 60) { likeRequestLog.set(ipHash, list); return true; }
+  list.push(now);
+  likeRequestLog.set(ipHash, list);
+  return false;
+}
+
+const cleanArtistIds = (v) => (Array.isArray(v) ? v : [])
+  .map(x => String(x || '').replace('spotify:artist:', ''))
+  .filter(x => SPOTIFY_ID_RE.test(x))
+  .slice(0, 100);
+
+// Public: { artist_id: likes } for every artist with at least one like.
+app.get('/api/artist-likes', cacheFor(60 * 1000, () => LIKE_COUNTS_CACHE_KEY), async (req, res) => {
+  try {
+    const r = await dbQuery(
+      `SELECT artist_id, COUNT(*)::int AS likes FROM artist_like_votes GROUP BY artist_id`
+    );
+    const out = {};
+    for (const row of r.rows) out[row.artist_id] = row.likes;
+    res.json(out);
+  } catch (err) {
+    if (err.code === '42P01') return res.json({});   // migration 036 not applied
+    console.error('Artist likes error:', err);
+    res.status(500).json({ error: 'Failed to load likes.' });
+  }
+});
+
+// Public: record this browser's likes/unlikes. Body { voter, like: [ids], unlike: [ids] }.
+// Both lists are idempotent, so the client may resend its whole favourites list.
+app.post('/api/artist-likes', async (req, res) => {
+  try {
+    const voter = String(req.body.voter || '');
+    if (!VOTER_ID_RE.test(voter)) return res.status(400).json({ error: 'Bad voter id.' });
+    const like = cleanArtistIds(req.body.like);
+    const unlike = cleanArtistIds(req.body.unlike).filter(id => !like.includes(id));
+    if (!like.length && !unlike.length) return res.json({ success: true });
+
+    const ipHash = hashIp(req.ip || 'unknown');
+    if (likeRateLimited(ipHash)) return res.status(429).json({ error: 'Too many requests.' });
+
+    if (unlike.length) {
+      await dbQuery(
+        `DELETE FROM artist_like_votes WHERE voter_id = $1 AND artist_id = ANY($2::text[])`,
+        [voter, unlike]
+      );
+    }
+    if (like.length) {
+      // Only artists on the live roster, and only while this network is under
+      // its per-artist voter cap. One statement, so the cap check and insert
+      // can't interleave with themselves across artists.
+      await dbQuery(
+        `INSERT INTO artist_like_votes (artist_id, voter_id, ip_hash)
+         SELECT ta.artist_id, $1, $2
+         FROM tracked_artists ta
+         WHERE ta.artist_id = ANY($3::text[]) AND ta.active = true
+           AND (SELECT COUNT(*) FROM artist_like_votes v
+                WHERE v.artist_id = ta.artist_id AND v.ip_hash = $2
+                  AND v.voter_id <> $1) < $4
+         ON CONFLICT (artist_id, voter_id) DO NOTHING`,
+        [voter, ipHash, like, LIKE_VOTERS_PER_IP]
+      );
+    }
+    responseCache.delete(LIKE_COUNTS_CACHE_KEY);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Artist like error:', err);
+    res.status(500).json({ error: 'Could not save.' });
+  }
+});
+
+// Visits are buffered in memory and written in one statement once a minute
+// (piggybacked on incoming visits — no timers, per the keep-alive rule) or when
+// the admin reads them. A redeploy can lose at most the last minute; SIGTERM
+// flushes first. The same IP opening the same profile within 30 minutes counts
+// once, so refreshes and back/forth navigation don't inflate the number.
+const VISIT_DEDUPE_MS = 30 * 60 * 1000;
+const VISIT_FLUSH_MS = 60 * 1000;
+const visitBuffer = new Map();      // `${artistId}|${YYYY-MM-DD}` -> count
+const visitSeen = new Map();        // `${ipHash}|${artistId}` -> last counted at
+let visitLastFlush = Date.now();
+let visitFlushing = null;
+
+const istanbulDate = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
+
+async function flushVisits() {
+  if (visitFlushing) return visitFlushing;
+  if (!visitBuffer.size) return;
+  const rows = [...visitBuffer.entries()];
+  visitBuffer.clear();
+  visitLastFlush = Date.now();
+  visitFlushing = (async () => {
+    try {
+      await dbQuery(
+        `INSERT INTO artist_visits (artist_id, visit_date, visits)
+         SELECT a, d::date, n FROM UNNEST($1::text[], $2::text[], $3::int[]) AS t(a, d, n)
+         ON CONFLICT (artist_id, visit_date) DO UPDATE SET visits = artist_visits.visits + EXCLUDED.visits`,
+        [rows.map(([k]) => k.split('|')[0]), rows.map(([k]) => k.split('|')[1]), rows.map(([, n]) => n)]
+      );
+    } catch (err) {
+      // Put the counts back so the next flush retries them (unless the table is missing).
+      if (err.code !== '42P01') {
+        for (const [k, n] of rows) visitBuffer.set(k, (visitBuffer.get(k) || 0) + n);
+      }
+      console.error('Visit flush error:', err.code || err.message);
+    } finally {
+      visitFlushing = null;
+    }
+  })();
+  return visitFlushing;
+}
+
+process.once('SIGTERM', () => {
+  const done = () => process.exit(0);
+  setTimeout(done, 3000).unref();
+  Promise.resolve(flushVisits()).finally(done);
+});
+
+// Public: a profile was opened. Always 204 — nothing for the client to act on.
+app.post('/api/artist-visit', (req, res) => {
+  const artistId = String(req.body.artist || '').replace('spotify:artist:', '');
+  if (SPOTIFY_ID_RE.test(artistId) && allArtistsCache.some(a => a.artist_id === artistId)) {
+    const now = Date.now();
+    const seenKey = `${hashIp(req.ip || 'unknown')}|${artistId}`;
+    if (visitSeen.size > 20000) {
+      for (const [k, at] of visitSeen) if (now - at >= VISIT_DEDUPE_MS) visitSeen.delete(k);
+    }
+    const last = visitSeen.get(seenKey);
+    if (!last || now - last >= VISIT_DEDUPE_MS) {
+      visitSeen.set(seenKey, now);
+      const key = `${artistId}|${istanbulDate()}`;
+      visitBuffer.set(key, (visitBuffer.get(key) || 0) + 1);
+    }
+    if (now - visitLastFlush >= VISIT_FLUSH_MS || visitBuffer.size >= 200) flushVisits();
+  }
+  res.status(204).end();
+});
+
+// Admin: visits per artist (today / 7d / 30d / all time) next to public likes.
+app.get('/api/admin/artist-visits', requireAdmin, async (req, res) => {
+  try {
+    await flushVisits();
+    const r = await dbQuery(
+      `WITH d AS (SELECT (NOW() AT TIME ZONE 'Europe/Istanbul')::date AS today),
+       v AS (
+         SELECT artist_id,
+                SUM(visits) FILTER (WHERE visit_date = d.today)::int            AS today,
+                SUM(visits) FILTER (WHERE visit_date > d.today - 7)::int        AS last7,
+                SUM(visits) FILTER (WHERE visit_date > d.today - 30)::int       AS last30,
+                SUM(visits)::int                                                AS total,
+                MIN(visit_date)::text                                           AS since
+         FROM artist_visits, d GROUP BY artist_id
+       ),
+       l AS (SELECT artist_id, COUNT(*)::int AS likes FROM artist_like_votes GROUP BY artist_id)
+       SELECT ta.artist_id, ta.name,
+              COALESCE(v.today, 0) AS today, COALESCE(v.last7, 0) AS last7,
+              COALESCE(v.last30, 0) AS last30, COALESCE(v.total, 0) AS total,
+              v.since, COALESCE(l.likes, 0) AS likes
+       FROM tracked_artists ta
+       LEFT JOIN v ON v.artist_id = ta.artist_id
+       LEFT JOIN l ON l.artist_id = ta.artist_id
+       WHERE ta.active = true
+       ORDER BY total DESC, ta.name`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    if (err.code === '42P01') return res.json([]);
+    console.error('Admin visits error:', err);
+    res.status(500).json({ error: 'Failed to load visits.' });
+  }
+});
+
 // ---- Tracked-artist roster (source of truth = tracked_artists table) ---------
 
 // Public: the active roster for the picker / dropdown / themes. Falls back to the

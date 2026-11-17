@@ -5193,7 +5193,69 @@ function setFavorites(list) {
 function isFavorite(id) { return getFavorites().includes(id); }
 function toggleFavorite(id) {
   const f = getFavorites();
-  setFavorites(f.includes(id) ? f.filter(x => x !== id) : [...f, id]);
+  const nowFav = !f.includes(id);
+  setFavorites(nowFav ? [...f, id] : f.filter(x => x !== id));
+  // Herkese acik begeni sayaci: once ekranda ±1 (sunucu cevabini beklemeden),
+  // sonra sunucuya bildir. Sunucu tarafinda istek idempotent.
+  likeCounts[id] = Math.max(0, (likeCounts[id] || 0) + (nowFav ? 1 : -1));
+  sendLikes(nowFav ? [id] : [], nowFav ? [] : [id]);
+}
+
+// ---- Begeni sayaci (herkese acik) ----
+// Hesap sistemi yok: tarayiciya bir kez rastgele bir "oy veren" kimligi
+// veriliyor, sunucu ayni kimlikten gelen ikinci begeniyi saymiyor.
+const LIKE_VOTER_KEY = 'like-voter-id';
+const LIKES_SYNCED_KEY = 'likes-synced-v1';
+let likeCounts = {};
+
+function getVoterId() {
+  try {
+    let id = localStorage.getItem(LIKE_VOTER_KEY);
+    if (!id || !/^[A-Za-z0-9-]{16,64}$/.test(id)) {
+      id = (crypto.randomUUID ? crypto.randomUUID()
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''));
+      localStorage.setItem(LIKE_VOTER_KEY, id);
+    }
+    return id;
+  } catch { return null; }
+}
+
+function sendLikes(like, unlike) {
+  const voter = getVoterId();
+  if (!voter || (!like.length && !unlike.length)) return Promise.resolve(false);
+  return fetch('/api/artist-likes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ voter, like, unlike }),
+    keepalive: true,
+  }).then(r => r.ok).catch(() => false);
+}
+
+function formatLikeCount(n) {
+  n = Number(n) || 0;
+  if (n < 1000) return String(n);
+  if (n < 1e6) return (n / 1000).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, '') + 'K';
+  return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+}
+
+async function loadLikeCounts() {
+  // Bu ozellikten ONCE favori eklemis ziyaretciler: listeleri bir kez
+  // gonderiliyor ki sayaclar sifirdan baslamasin.
+  try {
+    if (!localStorage.getItem(LIKES_SYNCED_KEY)) {
+      const favs = getFavorites();
+      const ok = favs.length ? await sendLikes(favs, []) : true;
+      if (ok) localStorage.setItem(LIKES_SYNCED_KEY, '1');
+    }
+  } catch {}
+  try {
+    const res = await fetch('/api/artist-likes');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && typeof data === 'object') likeCounts = data;
+  } catch { return; }
+  syncFavoriteBtn();
+  if (currentRoster) renderPickerRoster();
 }
 
 // Buton etiketi her zaman GORUNTULENEN sanatciya gore.
@@ -5204,7 +5266,29 @@ function syncFavoriteBtn() {
   const fav = isFavorite(currentArtist);
   btn.classList.toggle('fav-active', fav);
   label.textContent = fav ? 'Favorited' : 'Add to favorites';
-  btn.title = fav ? 'Remove from your favorites' : 'Pin this artist to the top of the list';
+  const n = likeCounts[currentArtist] || 0;
+  const countEl = document.getElementById('favorite-btn-count');
+  if (countEl) {
+    countEl.textContent = n ? formatLikeCount(n) : '';
+    countEl.classList.toggle('hidden', !n);
+  }
+  const fans = n ? ` · ${formatNumber(n)} ${n === 1 ? 'fan has' : 'fans have'} favorited this artist` : '';
+  btn.title = (fav ? 'Remove from your favorites' : 'Pin this artist to the top of the list') + fans;
+}
+
+// Profil ziyareti — sayilar sadece admin panelinde. Yerel ortamda gonderilmez
+// ki test acilislari prod sayilarina karismasin.
+function pingArtistVisit(artistId) {
+  const h = location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || /\.(localhost|test)$/.test(h)) return;
+  try {
+    fetch('/api/artist-visit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artist: artistId }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
 }
 
 const KATEGORI_ETIKET = { female: 'Female', male: 'Male', band: 'Band', kpop: 'K-pop', latin: 'Latin', y2k: 'Y2K', ai: 'AI' };
@@ -5296,6 +5380,7 @@ async function enterDashboard(artistId, artistName) {
     setActiveView('songs');
   }
   syncFavoriteBtn();
+  pingArtistVisit(artistId);
   setDashboardLoading(true);
   try {
     await Promise.all([fetchData(), fetchAlbumsData()]);
@@ -5718,6 +5803,7 @@ function buildPickerCard(a, index) {
         <div class="picker-card-info">
           <span class="picker-card-accent" aria-hidden="true"></span>
           <h3>${escHtml(a.name)}</h3>
+          ${likeCounts[a.artist_id] ? `<span class="picker-like-count" title="${formatNumber(likeCounts[a.artist_id])} ${likeCounts[a.artist_id] === 1 ? 'favorite' : 'favorites'}"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2.5 15 9 22 9.7 16.8 14.3 18.4 21 12 17.4 5.6 21 7.2 14.3 2 9.7 9 9"></polygon></svg>${formatLikeCount(likeCounts[a.artist_id])}</span>` : ''}
         </div>
       `;
     }
@@ -5943,6 +6029,7 @@ function deriveThemeFromAccent(hex) {
   // Build the picker cards + dropdown from the roster (lock-aware, re-renderable).
   currentRoster = roster;
   renderPickerRoster();
+  loadLikeCounts();
 
   // Deep-link: a shared /?artist=<id> link (the per-artist OG share card) should
   // open that artist's dashboard directly instead of dropping the visitor on the
