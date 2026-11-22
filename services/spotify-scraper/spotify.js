@@ -11,6 +11,7 @@ const Stealth   = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(Stealth());
 
 const fs = require('fs');
+const { spotifyArtistExists } = require('../web-dashboard/lib/spotify-artist-exists');
 
 const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const CHROME_PATH = process.env.CHROME_PATH || (fs.existsSync(MAC_CHROME) ? MAC_CHROME : undefined);
@@ -146,8 +147,10 @@ async function fetchArtistAlbums(page, artistId) {
     // and never emits an artistUnion, so it looks identical to a network hiccup.
     // Say which one it is — a 404 is permanent and wants the artist deactivated,
     // a timeout is worth retrying next run.
+    // The web player answers 200 for a non-existent artist too (client-side
+    // "page not found"), so ask oEmbed, which does 404 (see spotify-artist-exists.js).
     const status = nav?.status?.() ?? 0;
-    if (status === 404) {
+    if (status === 404 || (await spotifyArtistExists(artistId)) === false) {
       const err = new Error(`Artist ${artistId} Spotify'da yok (HTTP 404) — ID hatalı ya da sanatçı kaldırılmış.`);
       err.artistNotFound = true;
       throw err;

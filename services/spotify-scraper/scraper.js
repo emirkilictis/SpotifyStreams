@@ -967,6 +967,9 @@ async function run() {
     // long, so an abandoned one can never survive to be reused.
     await client.query("SET idle_in_transaction_session_timeout = '120000'");
 
+    // Set after the artist loop when no artist succeeded and no track was
+    // written; the finally block then skips dedup and the chart refresh.
+    let nothingWritten = false;
     try {
       await setScraperStatus(client, 'scraping');
       // Canary Update Check — detect Spotify's daily playcount rollover using JT's
@@ -1164,10 +1167,17 @@ async function run() {
       }
 
       console.log(`\n[scraper] ✅ ${stats.tracksProcessed} track işlendi, ${stats.streamsUpdated} stream güncellendi.`);
+      const succeeded = attempted - failedArtists.length;
+      // Nothing landed: every artist we tried failed and not a single track was
+      // written. Drops, dedup and the chart refresh would redo ~4 minutes of DB
+      // work over an unchanged catalogue, and the workflow would repeat it
+      // (2026-11-21/22: a bad ID was the only pending artist and this ran every
+      // hour for 8 hours).
+      nothingWritten = succeeded === 0 && stats.tracksProcessed === 0;
       // Machine-readable marker for the GitHub workflow. Expensive maintenance
       // steps must run only after a real catalogue pass, never on every hourly
       // canary check.
-      console.log('[scraper] OUTCOME=updated');
+      console.log(`[scraper] OUTCOME=${nothingWritten ? 'noop' : 'updated'}`);
 
       if (failedArtists.length) {
         console.error(`[scraper] ⚠️ ${failedArtists.length}/${attempted} sanatçı başarısız:`);
@@ -1178,7 +1188,12 @@ async function run() {
         // (dead sp_dc cookie, Spotify blocking us), which is worth a red X. A run
         // that captured most of the roster is a success with a warning; marking it
         // red trains us to ignore the alert.
-        if (failedArtists.length === attempted) {
+        // A permanent failure (the ID does not exist on Spotify) is a roster
+        // typo, not a systemic problem: it fails identically every hour, and
+        // once the rest of the roster is captured it is the only artist left,
+        // so "all attempted failed" was true all morning and mailed hourly.
+        const transient = failedArtists.filter(f => !f.permanent);
+        if (succeeded === 0 && transient.length > 0) {
           process.exitCode = 1;
         }
       }
@@ -1190,7 +1205,7 @@ async function run() {
       // removal used to leave the track frozen at its old number and the artist
       // total permanently inflated. Confirmed drops are corrected here, after
       // the catalogue is in, before dedup rebuilds the canonical mapping.
-      try {
+      if (!nothingWritten) try {
         // Kırpmanın kanıtı ŞARKININ KENDİ sayfası olmak zorunda. Buraya kadar
         // gelen gözlemler albüm sayfasından okundu ve albüm sayfası günlerce
         // eski kalabiliyor — eski bir sayfa, yükselmiş bir şarkıyı düşmüş gibi
@@ -1221,44 +1236,48 @@ async function run() {
       // the real first day. After the late-update move, so dates are final;
       // before dedup and the chart refresh, so both see the result. See
       // foldPartialDebuts in db.js. Never fatal.
-      try {
+      if (!nothingWritten) try {
         await foldPartialDebuts(client);
       } catch (foldErr) {
         console.error('[scraper] Partial-debut fold failed (skipped):', foldErr.message);
       }
     } finally {
-      try {
-        console.log('[scraper] Running database deduplication step (transactional)...');
-        await setScraperStatus(client, 'deduping');
-        // Wrap in a transaction so the canonical_id reset + re-merge swap atomically.
-        // Without this, dedup's first step (UPDATE songs SET canonical_id = NULL) is
-        // autocommitted and visible to the dashboard mid-run → every duplicate counts
-        // separately → JT briefly shows ~60B. Inside a transaction, readers see the old
-        // clean mappings until COMMIT, then the new ones — 18.24B → 18.25B, never 60B.
-        // A crash now ROLLBACKs to the last clean state instead of leaving a half-merged
-        // catalog committed. Mirrors the admin dedup path (server.js).
-        await client.query('BEGIN');
-        await dedupCanonical(client);
-        await client.query('COMMIT');
-      } catch (dedupErr) {
-        try { await client.query('ROLLBACK'); } catch {}
-        console.error('[scraper] Deduplication step failed (rolled back):', dedupErr.message);
-      }
-      try {
-        // Category charts read this indexed snapshot instead of rebuilding the
-        // canonical daily-stream window for thousands of songs on every page
-        // load. Refresh only after dedup commits so readers see either the old
-        // coherent mapping or the new one, never an in-between state.
-        await setScraperStatus(client, 'refreshing charts');
-        // With its own time limit: under the role's 2-minute default the refresh
-        // started timing out on 2026-11-14 and was skipped (see lib/chart-cache.js).
-        const refreshMs = await refreshChartCache(client);
-        console.log(`[scraper] Chart cache refreshed in ${(refreshMs / 1000).toFixed(1)}s.`);
-      } catch (chartRefreshErr) {
-        // Do not turn a successful scrape red: the dashboard reads the live
-        // aggregates for any artist whose copy is stale, and the workflow's
-        // refresh-chart-cache.js step retries within the same run.
-        console.error('[scraper] Chart cache refresh FAILED (the workflow will retry):', chartRefreshErr.message);
+      if (nothingWritten) {
+        console.log('[scraper] Nothing was written this run; skipping dedup and the chart refresh.');
+      } else {
+        try {
+          console.log('[scraper] Running database deduplication step (transactional)...');
+          await setScraperStatus(client, 'deduping');
+          // Wrap in a transaction so the canonical_id reset + re-merge swap atomically.
+          // Without this, dedup's first step (UPDATE songs SET canonical_id = NULL) is
+          // autocommitted and visible to the dashboard mid-run → every duplicate counts
+          // separately → JT briefly shows ~60B. Inside a transaction, readers see the old
+          // clean mappings until COMMIT, then the new ones — 18.24B → 18.25B, never 60B.
+          // A crash now ROLLBACKs to the last clean state instead of leaving a half-merged
+          // catalog committed. Mirrors the admin dedup path (server.js).
+          await client.query('BEGIN');
+          await dedupCanonical(client);
+          await client.query('COMMIT');
+        } catch (dedupErr) {
+          try { await client.query('ROLLBACK'); } catch {}
+          console.error('[scraper] Deduplication step failed (rolled back):', dedupErr.message);
+        }
+        try {
+          // Category charts read this indexed snapshot instead of rebuilding the
+          // canonical daily-stream window for thousands of songs on every page
+          // load. Refresh only after dedup commits so readers see either the old
+          // coherent mapping or the new one, never an in-between state.
+          await setScraperStatus(client, 'refreshing charts');
+          // With its own time limit: under the role's 2-minute default the refresh
+          // started timing out on 2026-11-14 and was skipped (see lib/chart-cache.js).
+          const refreshMs = await refreshChartCache(client);
+          console.log(`[scraper] Chart cache refreshed in ${(refreshMs / 1000).toFixed(1)}s.`);
+        } catch (chartRefreshErr) {
+          // Do not turn a successful scrape red: the dashboard reads the live
+          // aggregates for any artist whose copy is stale, and the workflow's
+          // refresh-chart-cache.js step retries within the same run.
+          console.error('[scraper] Chart cache refresh FAILED (the workflow will retry):', chartRefreshErr.message);
+        }
       }
       try {
         await setScraperStatus(client, 'idle');

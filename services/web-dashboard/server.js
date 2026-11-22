@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const compression = require('compression');
 const { databaseConfig } = require('./lib/database');
+const { spotifyArtistExists } = require('./lib/spotify-artist-exists');
 const { validPushEndpoint, validPushKeys } = require('./lib/push-endpoint');
 const { securityConfig, secretsMatch, proxyTrust, adminGuard } = require('./lib/security');
 const { fetchImage } = require('./lib/image-proxy');
@@ -4291,6 +4292,13 @@ app.post('/api/admin/artists', requireAdmin, async (req, res) => {
     }
     if (!/^[A-Za-z0-9]{22}$/.test(artistId)) return res.status(400).json({ error: 'Invalid Spotify artist id.' });
     if (!name) return res.status(400).json({ error: 'Name is required.' });
+    // A well-formed but wrong ID (Lince, 2026-11-20) was accepted and then
+    // failed the hourly scrape for two days. Check new IDs with Spotify; edits
+    // of an existing row skip this, and "could not tell" (null) never blocks.
+    const known = await dbQuery('SELECT 1 FROM tracked_artists WHERE artist_id = $1', [artistId]);
+    if (!known.rows.length && (await spotifyArtistExists(artistId)) === false) {
+      return res.status(400).json({ error: `Spotify has no artist with id ${artistId}. Check the ID (copy it from the artist's Spotify share link).` });
+    }
     await dbQuery(
       `INSERT INTO tracked_artists (artist_id, name, image_url, accent, sort_order, album_only, locked, active, categories)
        -- $9::text[], not a bare $9. '{}' on its own is an untyped literal that
