@@ -590,10 +590,16 @@ function artistBucketMatchSQL(s, a) {
 // Shared recordings retain their lead artist's metadata. On JT's profile an
 // explicitly linked guest recording is a feature, even when its owner tracks
 // the same recording as a lead release (e.g. Madonna's 4 Minutes).
+// Only when the title credits him as a guest, though. A song with two main
+// artists is a lead for both: "Love Never Felt So Good" (Michael Jackson,
+// Justin Timberlake) has no feat./with in its title, and forcing every pinned
+// song owned by someone else to "Featured" mislabelled it (2026-11-22).
+const GUEST_CREDIT_TITLE_RE_SQL = `'\\m(feat\\.?|ft\\.|featuring)\\s|[(\\[]\\s*with\\s'`;
 function artistFeaturedSQL(s) {
   return `(CASE WHEN $1 = 'spotify:artist:31TPClRtHm23RisEBtV3X7'
     AND ${s}.primary_artist IS DISTINCT FROM $1
     AND ${s}.id IN (${getExtraTrackIdsSql('31TPClRtHm23RisEBtV3X7')})
+    AND ${s}.title ~* ${GUEST_CREDIT_TITLE_RE_SQL}
     THEN true ELSE ${s}.is_featured END)`;
 }
 

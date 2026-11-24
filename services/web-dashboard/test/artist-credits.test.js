@@ -71,22 +71,27 @@ test('JT shares linked lead recordings without inheriting the owner catalogue or
   const jt='31TPClRtHm23RisEBtV3X7',owner=id(),inactive=id();
   const roster=[jt,owner].map(artist_id=>({artist_id}));
   const context={allArtistsCache:[...roster,{artist_id:inactive}],activeArtistsCache:roster,releaseTracksCache:[],
-    getExtraTrackIdsSql:artist=>artist===jt ? "'shared'" : "'none'"};
+    getExtraTrackIdsSql:artist=>artist===jt ? "'shared','colead'" : "'none'"};
   vm.createContext(context);
   for(const [start,end] of [
     ['function artistBucketMatchSQL(', '// The per-song/per-artist aggregate CTEs'],
     ['function artistAlbumMatchSQL(', '// FutureSex/LoveSounds album-id family'],
   ]) vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start))),context);
-  const values=`WITH s(id,primary_artist,is_featured) AS (VALUES
-    ('shared','spotify:artist:${owner}',false),('unrelated','spotify:artist:${owner}',false),
-    ('inactive','spotify:artist:${inactive}',false),('solo','spotify:artist:${jt}',false),
-    ('unclaimed',NULL::text,true)), a(title) AS (VALUES('Test album'))`;
+  // 'shared' credits JT as a guest in its title (Madonna's 4 Minutes); 'colead'
+  // has two main artists and no guest credit (Love Never Felt So Good), so it
+  // stays a lead on JT's profile too.
+  const values=`WITH s(id,title,primary_artist,is_featured) AS (VALUES
+    ('shared','4 Minutes (feat. Justin Timberlake & Timbaland)','spotify:artist:${owner}',false),
+    ('colead','Love Never Felt So Good','spotify:artist:${owner}',false),
+    ('unrelated','Unrelated','spotify:artist:${owner}',false),
+    ('inactive','Inactive','spotify:artist:${inactive}',false),('solo','Solo','spotify:artist:${jt}',false),
+    ('unclaimed','Unclaimed',NULL::text,true)), a(title) AS (VALUES('Test album'))`;
   try {
     for(const filter of [context.artistBucketMatchSQL('s','a'),context.artistAlbumMatchSQL('s')]) {
       const result=await pool.query(`${values} SELECT s.id,${context.artistFeaturedSQL('s')} AS is_featured FROM s CROSS JOIN a WHERE ${filter} ORDER BY s.id`,['spotify:artist:'+jt]);
-      assert.deepEqual(result.rows,[{id:'shared',is_featured:true},{id:'solo',is_featured:false},{id:'unclaimed',is_featured:true}]);
+      assert.deepEqual(result.rows,[{id:'colead',is_featured:false},{id:'shared',is_featured:true},{id:'solo',is_featured:false},{id:'unclaimed',is_featured:true}]);
     }
     const result=await pool.query(`${values} SELECT s.id,${context.artistFeaturedSQL('s')} AS is_featured FROM s CROSS JOIN a WHERE ${context.artistBucketMatchSQL('s','a')} ORDER BY s.id`,['spotify:artist:'+owner]);
-    assert.deepEqual(result.rows,[{id:'shared',is_featured:false},{id:'unrelated',is_featured:false}]);
+    assert.deepEqual(result.rows,[{id:'colead',is_featured:false},{id:'shared',is_featured:false},{id:'unrelated',is_featured:false}]);
   } finally { await pool.end(); }
 });
